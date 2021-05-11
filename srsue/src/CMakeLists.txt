@@ -30,7 +30,7 @@ if (RPATH)
   set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 endif (RPATH)
 
-add_executable(srsue main.cc ue.cc metrics_stdout.cc metrics_csv.cc metrics_ostatistic.cc)
+add_executable(srsue-emane main.cc ue.cc metrics_stdout.cc metrics_csv.cc metrics_ostatistic.cc)
 
 set(SRSUE_SOURCES srsue_phy srsue_stack srsue_upper srsue_mac srsue_rrc srslog system)
 set(SRSRAN_SOURCES srsran_common srsran_mac srsran_phy srsran_radio srsran_upper rrc_asn1 srslog system)
@@ -38,13 +38,13 @@ set(SRSRAN_SOURCES srsran_common srsran_mac srsran_phy srsran_radio srsran_upper
 set(SRSUE_SOURCES ${SRSUE_SOURCES} srsue_nr_stack srsue_rrc_nr srsue_mac_nr)
 set(SRSRAN_SOURCES ${SRSRAN_SOURCES} rrc_nr_asn1 ngap_nr_asn1)
 
-target_link_libraries(srsue   ${SRSUE_SOURCES}
-                              ${SRSRAN_SOURCES}
-                              ${CMAKE_THREAD_LIBS_INIT}
-                              ${Boost_LIBRARIES})
+target_link_libraries(srsue-emane   ${SRSUE_SOURCES}
+                                    ${SRSRAN_SOURCES}
+                                    ${CMAKE_THREAD_LIBS_INIT}
+                                    ${Boost_LIBRARIES})
 
 if (RPATH)
-  set_target_properties(srsue PROPERTIES INSTALL_RPATH ".")
+  set_target_properties(srsue-emane PROPERTIES INSTALL_RPATH ".")
 endif (RPATH)
 
 ########################################################################
@@ -69,9 +69,9 @@ endif(ZEROMQ_FOUND)
 ########################################################################
 if (NOT ${BUILDUE_CMD} STREQUAL "")
   message(STATUS "Added custom post-build-UE command: ${BUILDUE_CMD}")
-  add_custom_command(TARGET srsue POST_BUILD COMMAND ${BUILDUE_CMD})
+  add_custom_command(TARGET srsue-emane POST_BUILD COMMAND ${BUILDUE_CMD})
 else(NOT ${BUILDUE_CMD} STREQUAL "")
   message(STATUS "No post-build-UE command defined")
 endif (NOT ${BUILDUE_CMD} STREQUAL "")
 
-install(TARGETS srsue DESTINATION ${RUNTIME_DIR})
+install(TARGETS srsue-emane DESTINATION ${RUNTIME_DIR})
