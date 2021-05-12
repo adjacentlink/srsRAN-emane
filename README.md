@@ -1,24 +1,110 @@
-srsRAN
-======
+srsRAN-emane
+========
 
-[![Build Status](https://travis-ci.com/srsran/srsRAN.svg?branch=master)](https://travis-ci.com/srsran/srsRAN)
-[![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/srsran/srsRAN.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/srsran/srsRAN/context:cpp)
-[![Coverity](https://scan.coverity.com/projects/23048/badge.svg)](https://scan.coverity.com/projects/srsran_agpl)
+srsRAN-emane is a derivative project of
+[srsRAN](https://github.com/srsRAN). In conjunction with the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git),
+srsRAN-emane enables emulating an LTE network in
+[EMANE](https://github.com/adjacentlink/emane.git) on a laptop,
+desktop or other dedicated computer resources. Software Defined Radio
+(SDR) hardware is not required.
 
-srsRAN is a 4G/5G software radio suite developed by [SRS](http://www.srs.io).
+The srsRAN LTE applications, `srsenb`, `srsue`, `srsepc` and
+`srsmbms`, are adapted to send RF traffic through the EMANE emulation
+environment. The EMANE version of the applications are renamed
+`srsenb-emane`, `srsue-emane`, `srsepc-emane` and
+`srsepc-emane`. `srsenb-emane` and `srsue-emane` contain an embedded
+EMANE instance to replace lower levels of the LTE radio stack required
+to emulate the over the air communication effects. The new
+applications are also instrumented for data extraction using
+[OpenStatistic](https://github.com/adjacentlink/openstatistic). Internal
+statistics can be queried manually via the `ostatistic` application,
+or collected automatically using
+[OpenTestPoint](https://github.com/adjacentlink/opentestpoint) and the
+[OpenTestPoint LTE Probe](https://github.com/adjacentlink/opentestpoint-probe-lte).
 
-See the [srsRAN project pages](https://www.srsran.com) for information, guides and project news.
+srsRAN-emane is released under the AGPLv3 license. The current stable
+version is 21.04, the first release based on srsRAN 21.04
 
-The srsRAN suite includes:
-  * srsUE - a full-stack SDR 4G/5G-NSA UE application (5G-SA coming soon)
-  * srsENB - a full-stack SDR 4G eNodeB application (5G-NSA and 5G-SA coming soon)
-  * srsEPC - a light-weight 4G core network implementation with MME, HSS and S/P-GW
+---
+## Build Instructions
 
-For application features, build instructions and user guides see the [srsRAN documentation](https://docs.srsran.com).
+1. Install the latest [pre-built EMANE bundle](https://github.com/adjacentlink/emane/wiki/Install). EMANE version 1.2.3 or later is **required**.
 
-For license details, see LICENSE file.
+2. Build and install the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git).
 
-Support
-=======
+3. Build and install srsRAN-emane:
+   * [Centos 7](#centos-7)
+   * [Fedora 33](#fedora-33)
+   * [Ubuntu 18.04 and 20.04](#ubuntu-1804-and-2004)
 
-Mailing list: http://www.srs.io/mailman/listinfo/srslte-users
+
+### Centos 7
+
+```
+sudo yum install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake -DUSE_GLIBC_IPV6=0 ..
+make package
+sudo yum install srsran-emane-*-x86_64.rpm
+```
+
+### Fedora 33
+
+```
+sudo dnf install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake ..
+make package
+sudo dnf install srsran-emane-*-x86_64.rpm
+```
+
+### Ubuntu 18.04 and 20.04
+
+```
+sudo apt-get install cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake ..
+make package
+sudo dpkg -i srsran-emane-*-x86_64.deb; sudo apt-get install -f
+```
+
+---
+## Demonstration
+
+[EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git) contains a demonstration for running
+a small network with two UEs and one ENB.
+
+---
+## Configuration
+
+Each of the emane version srsRAN applications take an input
+configuration file, identical to the one used by the regular srsRAN
+applications, with the following additional parameters.
+
+
+```
+[runtime]
+daemonize = 1     # 0 - foreground, 1 - run as daemon
+
+[mhal]
+#statistic_service_endpoint=0.0.0.0:47100
+#emane_configfile=emanelte.xml
+```
+
+The new `runtime` configuration section contains a `daemonize` parameter
+that controls whether the application runs in the foreground or as a daemon.
+
+The new `mhal` section contains a `statistic_service_endpoint`
+parameter to set the OpenStatistic query address and port (all
+applications), and the `emane_configfile` parameter takes the
+name of the the configuration file fed to the embedded EMANE instance
+(`srsenb-emane` and `srsue-emane` only). Default values shown.
