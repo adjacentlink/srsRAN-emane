@@ -60,6 +60,6 @@ target_include_directories(srsran_common PUBLIC ${SEC_INCLUDE_DIRS} ${CMAKE_SOUR
 target_link_libraries(srsran_common srsran_phy srslog ${SEC_LIBRARIES} ${BACKWARD_LIBRARIES} ${SCTP_LIBRARIES})
 target_compile_definitions(srsran_common PRIVATE ${BACKWARD_DEFINITIONS})
 
-INSTALL(TARGETS srsran_common DESTINATION ${LIBRARY_DIR})
+#INSTALL(TARGETS srsran_common DESTINATION ${LIBRARY_DIR})
 
 add_subdirectory(test)

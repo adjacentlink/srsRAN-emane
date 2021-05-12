@@ -20,8 +20,8 @@
 
 if(RF_FOUND)
   add_library(srsran_radio STATIC radio.cc channel_mapping.cc)
-  target_link_libraries(srsran_radio srsran_rf srsran_common)
-  INSTALL(TARGETS srsran_radio DESTINATION ${LIBRARY_DIR})
+  target_link_libraries(srsran_radio srsran_rf_emane srsran_common)
+  #INSTALL(TARGETS srsran_radio DESTINATION ${LIBRARY_DIR})
 endif(RF_FOUND)
 
 add_subdirectory(test)

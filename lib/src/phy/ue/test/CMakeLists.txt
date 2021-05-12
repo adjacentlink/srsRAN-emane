@@ -40,10 +40,10 @@ add_test(ue_dl_nbiot_test ue_dl_nbiot_test)
 
 if(RF_FOUND)
     add_executable(ue_mib_sync_test_nbiot_usrp ue_mib_sync_test_nbiot_usrp.c)
-    target_link_libraries(ue_mib_sync_test_nbiot_usrp srsran_phy srsran_rf pthread)
+    target_link_libraries(ue_mib_sync_test_nbiot_usrp srsran_phy srsran_rf_emane pthread)
 
     add_executable(ue_sync_test_nbiot_usrp ue_sync_test_nbiot_usrp.c)
-    target_link_libraries(ue_sync_test_nbiot_usrp srsran_rf srsran_phy pthread)
+    target_link_libraries(ue_sync_test_nbiot_usrp srsran_rf_emane srsran_phy pthread)
     if(SRSGUI_FOUND)
         include_directories(${SRSGUI_INCLUDE_DIRS})
         target_link_libraries(ue_sync_test_nbiot_usrp ${SRSGUI_LIBRARIES})

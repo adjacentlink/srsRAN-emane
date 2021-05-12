@@ -35,4 +35,4 @@ set(SOURCES gtpu.cc
 
 add_library(srsran_upper STATIC ${SOURCES})
 target_link_libraries(srsran_upper srsran_common srsran_asn1)
-INSTALL(TARGETS srsran_upper DESTINATION ${LIBRARY_DIR})
+#INSTALL(TARGETS srsran_upper DESTINATION ${LIBRARY_DIR})
