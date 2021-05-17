@@ -51,6 +51,10 @@ Files:  lib/include/srsran/common/backward.hpp
 Copyright: 2013, Google Inc.
 License: MIT
 
+Files:  cmake/modules/CheckAtomic.cmake
+Copyright: 2015, Charles J. Cliffe
+License: MIT
+
 Files:  cmake/modules/Findemanelte.cmake
         cmake/modules/Findostatistic.cmake
         cmake/modules/Findprotobuf.cmake
@@ -67,7 +71,6 @@ Files:  cmake/modules/Findemanelte.cmake
         srsue/src/phy/phy_adapter.cc
 Copyright: 2019-2021 - Adjacent Link LLC, Bridgewater, New Jersey
 License: AGPL-3+
-
 
 License: AGPL-3+
   This program is free software: you can redistribute it and/or modify
