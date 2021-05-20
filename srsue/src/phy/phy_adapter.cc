@@ -650,11 +650,13 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(uint32_t refid, uint16_t rnti, 
 
 static void ue_set_crnti_i(uint16_t crnti)
 {
-  Info("MHAL:%s from 0x%hx to 0x%hx", __func__, crnti_, crnti);
+  if(crnti_ != crnti)
+   {
+     crnti_ = crnti;
+     Info("MHAL:%s from 0x%hx to 0x%hx", __func__, crnti_, crnti);
 
-  crnti_ = crnti;
-
-  UESTATS::setCrnti(crnti);
+     UESTATS::setCrnti(crnti);
+   }
 }
 
 
