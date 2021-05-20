@@ -306,7 +306,7 @@ findCarrierByIndex(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, uint32_t c
             // XXX_CC TODO check this
             if(my_cell_id_ != carrier.phy_cell_id())
              {
-               Info("%s: cc %u, found, but my_cell_id %u != carrier cell id %u\n",
+               Info("%s: cc %u, found, but my_cell_id %u != carrier cell id %u",
                      __func__, cc_idx, my_cell_id_, carrier.phy_cell_id());
              }
 
@@ -385,7 +385,7 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
 {
   if(! FrameMessage_isSet(frameSignals_))
    {
-      Error("No Messages:%s: \n", __func__);
+      Error("No Messages:%s:", __func__);
 
       return DL_Messages{};
    }
@@ -422,7 +422,7 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
 
           if(! unique.insert(pci).second)
            {
-             Info("RX:%s carrier %lu Hz, rx_seq %lu, duplicate pci %u, drop\n",
+             Info("RX:%s carrier %lu Hz, rx_seq %lu, duplicate pci %u, drop",
                    __func__,
                    carrier.frequency_hz(),
                    rxControl.rx_seqnum_,
@@ -457,7 +457,7 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
       }
      else
       {
-        Error("MHAL:%s ParseFromString ERROR\n", __func__);
+        Error("MHAL:%s ParseFromString ERROR", __func__);
       }
    }
 
@@ -499,7 +499,7 @@ static DL_Messages ue_dl_enb_subframe_get_pci_i(srsran_ue_sync_t * ue_sync, cons
           }
          else
           {
-            Info("RX:%s carrier msg pci %u != my_pci %u\n", __func__, pci, ue_sync->cell.id);
+            Info("RX:%s carrier msg pci %u != my_pci %u", __func__, pci, ue_sync->cell.id);
           }
        }
     }
@@ -533,7 +533,7 @@ static UL_DCI_Results get_ul_dci_list_i(uint16_t rnti, uint32_t cc_idx)
 
               if(sinrResult.bPassed_)
                {
-                 Info("PUCCH:%s: found cc %u, dci rnti 0x%hx\n", __func__, cc_idx, rnti);
+                 Info("PUCCH:%s: found cc %u, dci rnti 0x%hx", __func__, cc_idx, rnti);
 
                  // message, sinr
                  ul_dci_results.emplace_back(ul_dci_message, 
@@ -543,12 +543,12 @@ static UL_DCI_Results get_ul_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                }
               else
                {
-                 Warning("PUCCH:%s: fail cc %u, snr rnti 0x%hx\n", __func__, cc_idx, rnti);
+                 Warning("PUCCH:%s: fail cc %u, snr rnti 0x%hx", __func__, cc_idx, rnti);
                }
             }
            else
             {
-              Debug("PUCCH:%s: cc %u, rnti 0x%hx != ul_dci_rnti 0x%hx, skip\n", 
+              Debug("PUCCH:%s: cc %u, rnti 0x%hx != ul_dci_rnti 0x%hx, skip", 
                      __func__, cc_idx, rnti, ul_dci_message.rnti());
             }
          }
@@ -581,7 +581,7 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                                                                        rnti,
                                                                        carrier.frequency_hz()).bPassed_)
                {
-                 Info("PDSCH:%s: found cc %u, dci rnti 0x%hx, refid %u\n", 
+                 Info("PDSCH:%s: found cc %u, dci rnti 0x%hx, refid %u", 
                         __func__, cc_idx, rnti, dl_dci_message.refid());
 
                  dl_dci_results.emplace_back(dl_dci_message);
@@ -590,12 +590,12 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                }
               else
                {
-                 Warning("PDSCH:%s: fail cc %u, snr rnti 0x%hx\n", __func__, cc_idx, rnti);
+                 Warning("PDSCH:%s: fail cc %u, snr rnti 0x%hx", __func__, cc_idx, rnti);
                }
             }
           else
             {
-              Debug("PDSCH:%s: cc %u, rnti 0x%hx != dl_dci_rnti 0x%hx, refid %u, skip\n", 
+              Debug("PDSCH:%s: cc %u, rnti 0x%hx != dl_dci_rnti 0x%hx, refid %u, skip", 
                      __func__, cc_idx, rnti, dl_dci_message.rnti(), dl_dci_message.refid());
             }
          }
@@ -630,7 +630,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(uint32_t refid, uint16_t rnti, 
 
            for(const auto & data : pdsch_message.data())
             {
-              Info("PDSCH:%s: cc %u, refid %u, tb %u\n", __func__, cc_idx, data.refid(), data.tb());
+              Info("PDSCH:%s: cc %u, refid %u, tb %u", __func__, cc_idx, data.refid(), data.tb());
 
               if(data.refid() == refid)
                {
@@ -640,7 +640,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(uint32_t refid, uint16_t rnti, 
          }
         else
          {
-           Warning("PDSCH:%s: fail cc %u, snr rnti 0x%hx\n", __func__, cc_idx, rnti);
+           Warning("PDSCH:%s: fail cc %u, snr rnti 0x%hx", __func__, cc_idx, rnti);
          }
       }
    }
@@ -650,7 +650,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(uint32_t refid, uint16_t rnti, 
 
 static void ue_set_crnti_i(uint16_t crnti)
 {
-  Info("MHAL:%s from 0x%hx to 0x%hx\n", __func__, crnti_, crnti);
+  Info("MHAL:%s from 0x%hx to 0x%hx", __func__, crnti_, crnti);
 
   crnti_ = crnti;
 
@@ -666,7 +666,7 @@ void ue_initialize(uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_t & mh
 
   rxFrequencyToCarrierIndex_.clear();
 
-  Info("INIT:%s sf_interval %u msec\n", __func__, sf_interval_msec);
+  Info("INIT:%s sf_interval %u msec", __func__, sf_interval_msec);
 
   EMANELTE::MHAL::UE::initialize(sf_interval_msec, mhal_config);
 }
@@ -674,7 +674,7 @@ void ue_initialize(uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_t & mh
 
 void ue_set_earfcn(double rx_freq_hz, double tx_freq_hz, uint32_t earfcn)
 {
-  Info("INIT:%s rx_freq %6.4f MHz, tx_freq %6.4f MHz, earfcn %u -> %u\n",
+  Info("INIT:%s rx_freq %6.4f MHz, tx_freq %6.4f MHz, earfcn %u -> %u",
        __func__,
        rx_freq_hz/1e6,
        tx_freq_hz/1e6,
@@ -692,7 +692,7 @@ void ue_set_frequency(uint32_t cc_idx,
 
    rxFrequencyToCarrierIndex_[llround(rx_freq_hz)] = cc_idx;
 
-   Warning("%s cc_idx %u, rx_freq %6.4f MHz, tx_freq %6.4f MHz\n",
+   Warning("%s cc_idx %u, rx_freq %6.4f MHz, tx_freq %6.4f MHz",
            __func__,
            cc_idx,
            rx_freq_hz/1e6,
@@ -710,7 +710,7 @@ void ue_set_sync(srsue::sync * sync)
 
 void ue_set_cell(const srsue::phy_cell_t* cell)
 {
-  Warning("INIT:%s pci %u -> %u\n", __func__, my_cell_id_, cell->pci);
+  Warning("INIT:%s pci %u -> %u", __func__, my_cell_id_, cell->pci);
 
   my_cell_id_ = cell->pci;
 }
@@ -718,7 +718,7 @@ void ue_set_cell(const srsue::phy_cell_t* cell)
 
 void ue_set_bandwidth(int n_prb)
 {
-  Info("INIT:%s n_prb %d\n", __func__, n_prb);
+  Info("INIT:%s n_prb %d", __func__, n_prb);
 
   EMANELTE::MHAL::UE::set_num_resource_blocks(n_prb);
 }
@@ -726,20 +726,20 @@ void ue_set_bandwidth(int n_prb)
 
 void ue_start()
 {
-  Info("START:%s\n", __func__);
+  Info("START:%s", __func__);
 
   pthread_mutexattr_t mattr;
 
   if(pthread_mutexattr_init(&mattr) < 0)
    {
-     Error("START:%s pthread_mutexattr_init error %s, exit\n", __func__, strerror(errno));
+     Error("START:%s pthread_mutexattr_init error %s, exit", __func__, strerror(errno));
      exit(1);
    }
   else
    {
      if(pthread_mutexattr_setprotocol(&mattr, PTHREAD_PRIO_INHERIT) < 0)
        {
-         Error("START:%s pthread_mutexattr_setprotocol error %s, exit\n", __func__, strerror(errno));
+         Error("START:%s pthread_mutexattr_setprotocol error %s, exit", __func__, strerror(errno));
          exit(1);
        }
 
@@ -756,7 +756,7 @@ void ue_start()
 
 void ue_stop()
 {
-  Info("STOP:%s\n", __func__);
+  Info("STOP:%s", __func__);
 
   EMANELTE::MHAL::UE::stop();
 }
@@ -764,7 +764,7 @@ void ue_stop()
 
 void ue_set_prach_freq_offset(uint32_t freq_offset)
 {
-  Info("MHAL:%s %u\n", __func__, freq_offset);
+  Info("MHAL:%s %u", __func__, freq_offset);
 
   prach_freq_offset_ = freq_offset;
 }
@@ -830,7 +830,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
          {
            const auto & carrier = CarrierResult_Carrier(carrierResult);
 #if 0
-           Info("RX:%s: carrier %s\n", __func__, carrier.DebugString().c_str());
+           Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
 #endif
            const uint32_t pci    = carrier.phy_cell_id();
            const uint32_t n_id_1 = pci / 3;
@@ -839,7 +839,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
            // force is enabled, but this cell id group does not match
            if(is_valid_n_id_2(force_nid_2) && n_id_2 != (uint32_t)force_nid_2)
             {
-              Info("RX:%s: n_id_1 %u, n_id_2 %u != %d, ignore\n",
+              Info("RX:%s: n_id_1 %u, n_id_2 %u != %d, ignore",
                    __func__, n_id_1, n_id_2, force_nid_2);
  
               continue;
@@ -865,7 +865,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
 
               ++num_pss_sss_found;
 
-              Info("RX:%s: PCI %u, peak_sum %0.1f, num_samples %u\n",
+              Info("RX:%s: PCI %u, peak_sum %0.1f, num_samples %u",
                    __func__, pci, peak_sum, num_samples);
             }
 
@@ -887,7 +887,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
                   res[n_id_2].cfo         = 0.0;
                   res[n_id_2].frame_type  = SRSRAN_FDD;
 
-                  Info("RX:%s: new PCI %u, n_id_1 %u, n_id_2 %u, peak_avg %f\n",
+                  Info("RX:%s: new PCI %u, n_id_1 %u, n_id_2 %u, peak_avg %f",
                        __func__,
                        pci,
                        n_id_1,
@@ -899,7 +899,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
                   // tie goes to the first entry (numeric lowest id)
                   if(peak_avg > res[n_id_2].peak)
                    {
-                     Info("RX:%s: replace PCI %u, n_id_1 %u, n_id_2 %u, peak_avg %f\n",
+                     Info("RX:%s: replace PCI %u, n_id_1 %u, n_id_2 %u, peak_avg %f",
                            __func__,
                            pci,
                            n_id_1,
@@ -932,7 +932,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
         }
     }
 
-  Info("RX:%s: sf_idx %u, DONE, num_cells %zu, max_peak id %u, max_avg %f\n",
+  Info("RX:%s: sf_idx %u, DONE, num_cells %zu, max_peak id %u, max_avg %f",
           __func__,
           cs->ue_sync.sf_idx,
           n_id2s.size(),
@@ -960,7 +960,7 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
 
      const auto dlMessages = ue_dl_enb_subframe_get_pci_i(&ue_mib_sync->ue_sync, NULL);
 
-     Info("RX:ue_dl_mib_search: pci %hu, try %d/%u, %zu signals\n", 
+     Info("RX:ue_dl_mib_search: pci %hu, try %d/%u, %zu signals", 
            ue_mib_sync->ue_sync.cell.id, try_num, max_tries, dlMessages.size());
 
      // expect 1 and only 1
@@ -976,7 +976,7 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
          {
            const auto & carrier = CarrierResult_Carrier(carrierResult);
 #if 0
-           Info("RX:%s: carrier %s\n", __func__, carrier.DebugString().c_str());
+           Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
 #endif
            if(carrier.has_pbch())
             {
@@ -989,7 +989,7 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
 
                     const auto & pbch = carrier.pbch();
 
-                    Info("RX:ue_dl_mib_search: found PBCH\n");
+                    Info("RX:ue_dl_mib_search: found PBCH");
 
                     cell->nof_prb   = pbch.num_prb();
                     cell->nof_ports = pbch.num_antennas();
@@ -1035,7 +1035,7 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
                 }
                else
                 {
-                  Info("MIB:%s: fail snr\n", __func__);
+                  Info("MIB:%s: fail snr", __func__);
                 }
              }
           }
@@ -1078,7 +1078,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
            if(carrier.has_pbch())
             {
 #if 0
-             Info("RX:%s: carrier %s\n", __func__, carrier.DebugString().c_str());
+             Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
 #endif
               // check for PSS SSS if PBCH is good
               if(DL_Message_SINRTester(dlMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
@@ -1090,7 +1090,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
 
                     const auto & pbch = carrier.pbch();
 
-                    Info("RX:%s: found PBCH, try %u/%u\n",
+                    Info("RX:%s: found PBCH, try %u/%u",
                          __func__,
                           try_num,
                           max_tries);
@@ -1109,7 +1109,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
                }
               else
                {
-                 Warning("PBCH:%s: fail snr\n", __func__);
+                 Warning("PBCH:%s: fail snr", __func__);
                }
             }
          }
@@ -1156,7 +1156,7 @@ float ue_dl_get_rssi(uint32_t cell_id, uint32_t cc_idx)
    // XXX TODO sinr to rssi/rsrq see phy.snr_ema_coeff defualt 0.1
    const float rssi = sinrManager_[cc_idx].get() / 10.0f;
 
-   Debug("Rx:%s: cell %u, cc_idx %u, rssi %f\n", __func__, cell_id, cc_idx, rssi);
+   Debug("Rx:%s: cell %u, cc_idx %u, rssi %f", __func__, cell_id, cc_idx, rssi);
 
    return rssi;
 }
@@ -1220,13 +1220,13 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
 
           ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
 
-          Info("PDCCH:%s dl_dci ref id %u, rnti 0x%hx, dci_len %zu\n", 
+          Info("PDCCH:%s dl_dci ref id %u, rnti 0x%hx, dci_len %zu", 
                 __func__, dci_message.refid(), rnti, dl_dci_message_data.size());
 
           // Unpack DCI messages see lib/src/phy/phch/dci.c
           for (int i = 0; i < nof_msg; i++) {
             if (srsran_dci_msg_unpack_pdsch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_msg[i], &dci_dl[i])) {
-               Error("PDCCH:%s Unpacking DL DCI\n", __func__);
+               Error("PDCCH:%s Unpacking DL DCI", __func__);
                return SRSRAN_ERROR;
             }
           }
@@ -1235,12 +1235,12 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
        {
          if(pdsch_results.size() > 1)
           {
-            Info("PDCCH:%s found %zu dl_dci for rnti 0x%hx\n", 
+            Info("PDCCH:%s found %zu dl_dci for rnti 0x%hx", 
                     __func__, pdsch_results.size(), rnti);
           }
          else
           {
-            Error("PDCCH:%s no pdsch data for rnti 0x%hx, refid %u\n",
+            Error("PDCCH:%s no pdsch data for rnti 0x%hx, refid %u",
                   __func__, rnti, dci_message.refid());
           }
        }
@@ -1249,7 +1249,7 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
     {
       if(dl_dci_results.size() > 1)
        {
-         Warning("PDCCH:%s found %zu dl_dci for rnti 0x%hx\n", 
+         Warning("PDCCH:%s found %zu dl_dci for rnti 0x%hx", 
                  __func__, dl_dci_results.size(), rnti);
        }
     }
@@ -1293,14 +1293,14 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
 
         memcpy(dci_entry.payload, ul_dci_message_data.data(), ul_dci_message_data.size());
 
-        Info("PUCCH:%s found ul_dci rnti 0x%hx\n", __func__, rnti);
+        Info("PUCCH:%s found ul_dci rnti 0x%hx", __func__, rnti);
 
         ++nof_msg;
 
         // Unpack DCI messages
         for (int i = 0; i < nof_msg; i++) {
           if (srsran_dci_msg_unpack_pusch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_msg[i], &dci_ul[i])) {
-            Error("PUCCH:%s Unpacking UL DCI\n", __func__);
+            Error("PUCCH:%s Unpacking UL DCI", __func__);
             return SRSRAN_ERROR;
           }
         }
@@ -1310,7 +1310,7 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
     {
       if(ul_dci_results.size() > 1)
        {
-         Warning("PUCCH:%s found %zu ul_dci for rnti 0x%hx\n", 
+         Warning("PUCCH:%s found %zu ul_dci for rnti 0x%hx", 
                   __func__, ul_dci_results.size(), rnti);
        }
     }
@@ -1348,12 +1348,12 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
 
              ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
 
-             Info("PDSCH:%s: rnti 0x%hx, refid %d, tb[%d], payload %zu bytes, snr %f\n",
+             Info("PDSCH:%s: rnti 0x%hx, refid %d, tb[%d], payload %zu bytes, snr %f",
                    __func__, rnti, pdsch_message.refid(), tb, pdsch_data.size(), q->chest_res.snr_db);
            }
          else
            {
-             Error("PDSCH:%s: rnti %0xhx, no pdsch data\n", __func__, rnti);
+             Error("PDSCH:%s: rnti %0xhx, no pdsch data", __func__, rnti);
            }
        }
     }
@@ -1402,7 +1402,7 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
               result->distance  = 1.0;
             }
 
-           Info("PHICH:%s cc=%u, sf_idx=%d, n_prb_l=%d, n_dmrs=%d, I_phich=%d, rnti 0x%hx, ack %d, dist %f\n",
+           Info("PHICH:%s cc=%u, sf_idx=%d, n_prb_l=%d, n_dmrs=%d, I_phich=%d, rnti 0x%hx, ack %d, dist %f",
                 __func__,
                 cc_idx,
                 sf->tti % 10,
@@ -1415,7 +1415,7 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
           }
         else
          {
-           Warning("PHICH:%s: fail snr\n", __func__);
+           Warning("PHICH:%s: fail snr", __func__);
          }
       }
    }
@@ -1462,17 +1462,17 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
 
                      data[tb].crc = true;
 
-                     Info("PMCH:%s: cc %u, areaid %d, tb[%d], payload %zu bytes, snr %f\n",
+                     Info("PMCH:%s: cc %u, areaid %d, tb[%d], payload %zu bytes, snr %f",
                           __func__, cc_idx, area_id, tb, pmch.data().size(), q->chest_res.snr_db);
                    }
                   else
                    {
-                     Warning("PMCH:%s: cc %u, area_id %d, fail snr\n", __func__, cc_idx, area_id);
+                     Warning("PMCH:%s: cc %u, area_id %d, fail snr", __func__, cc_idx, area_id);
                    }
                 }
               else
                 {
-                  Info("MHAL:%s: cc %u, dl_area_id %u != area_id %hu, skip\n", __func__, cc_idx, pmch.area_id(), area_id);
+                  Info("MHAL:%s: cc %u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch.area_id(), area_id);
                 }
              }
           }
@@ -1485,7 +1485,7 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
 
 void ue_ul_tx_init()
 {
-  Debug("TX:%s: \n", __func__);
+  Debug("TX:%s:", __func__);
 }
 
 // send to mhal
@@ -1527,7 +1527,7 @@ void ue_ul_send_signal(time_t sot_sec, float frac_sec, const srsran_cell_t & cel
    }
  else
    {
-     Error("TX:%s: SerializeToString ERROR len %zu\n", __func__, data.length());
+     Error("TX:%s: SerializeToString ERROR len %zu", __func__, data.length());
    }
 
   // msg sent clear old data
@@ -1574,7 +1574,7 @@ void ue_ul_put_prach(int index)
 
   preamble->set_index(index);
 
-  Info("PRACH:%s: index %d\n", __func__, index);
+  Info("PRACH:%s: index %d", __func__, index);
 }
 
 
@@ -1635,7 +1635,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
        break;
      case SRSRAN_PUCCH_FORMAT_ERROR:
      default:
-       Error("PUCCH:ue_ul_put_pucch: unknown pucch format: %d\n",
+       Error("PUCCH:ue_ul_put_pucch: unknown pucch format: %d",
              pucch_cfg.format);
      }
 
@@ -1665,7 +1665,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
      {
        if(! ((n_prb[ns] = srsran_pucch_n_prb(&q->cell, &pucch_cfg, ns)) < q->cell.nof_prb))
          {
-           Error("PUCCH:%s ns %d, n_prb=%d > cell_nof_prb %d\n", 
+           Error("PUCCH:%s ns %d, n_prb=%d > cell_nof_prb %d", 
                  __func__, ns, n_prb[ns], q->cell.nof_prb);
 
            return SRSRAN_ERROR;
@@ -1681,7 +1681,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
    grant_message->set_rnti(rnti);
    grant_message->set_uci(&uci_value2, sizeof(srsran_uci_value_t));
 
-   Debug("PUCCH:%s: rnti 0x%hx\n", __func__, rnti);
+   Debug("PUCCH:%s: rnti 0x%hx", __func__, rnti);
 
    // signal ready
    return 1;
@@ -1732,7 +1732,7 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    // payload
    grant_message->set_payload(data->ptr, bits_to_bytes(grant->tb.tbs));
 
-   Info("PUSCH:%s: rnti 0x%hx\n", __func__, rnti);
+   Info("PUSCH:%s: rnti 0x%hx", __func__, rnti);
 
    UESTATS::putULGrant(rnti);
 
