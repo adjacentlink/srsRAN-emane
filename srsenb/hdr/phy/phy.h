@@ -76,9 +76,11 @@ private:
 
   const static int MAX_WORKERS = 4;
 
-  const static int PRACH_WORKER_THREAD_PRIO = 5;
+  // Change thread priorities all to 1 to improve performance
+  // when running in a cpu mapped container
+  const static int PRACH_WORKER_THREAD_PRIO = 1;
   const static int SF_RECV_THREAD_PRIO      = 1;
-  const static int WORKERS_THREAD_PRIO      = 2;
+  const static int WORKERS_THREAD_PRIO      = 1;
 
   srsran::radio_interface_phy* radio = nullptr;
 
