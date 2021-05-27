@@ -290,36 +290,6 @@ static inline EMANELTE::MHAL::MOD_TYPE convert(srsran_mod_t type)
     }
 }
 
-// lookup carrier that matches the frequency associated with the cc_idx
-static CarrierResult
-findCarrierByIndex(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, uint32_t cc_idx)
- {
-  const auto iter = carrierIndexFrequencyTable_.find(cc_idx);
-
-   if(iter != carrierIndexFrequencyTable_.end())
-    {
-      for(const auto & carrier : enb_dl_msg.carriers())
-       {
-         // match our rx freq to the msg carrier tx center freq
-         if(iter->second.first == carrier.frequency_hz())
-          {
-            // XXX_CC TODO check this
-            if(my_cell_id_ != carrier.phy_cell_id())
-             {
-               Info("%s: cc %u, found, but my_cell_id %u != carrier cell id %u",
-                     __func__, cc_idx, my_cell_id_, carrier.phy_cell_id());
-             }
-
-            return CarrierResult{true, carrier};
-          }
-       }
-    }
-  
-  return CarrierResult{false, EMANELTE::MHAL::ENB_DL_Message_CarrierMessage{}};
- }
-
-
-
 // lookup tx freq that matches the frequencies associated with the cc_idx
 static inline uint64_t getTxFrequency(uint32_t cc_idx)
 {
@@ -333,6 +303,7 @@ static inline uint64_t getTxFrequency(uint32_t cc_idx)
   return 0;
  }
 
+
 // lookup rx freq that matches the frequencies associated with the cc_idx
 static inline uint64_t getRxFrequency(uint32_t cc_idx)
 {
@@ -345,6 +316,32 @@ static inline uint64_t getRxFrequency(uint32_t cc_idx)
 
   return 0; 
  }
+
+
+// lookup carrier that matches the frequency associated with the cc_idx
+static CarrierResult
+findCarrierByIndex(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, uint32_t cc_idx)
+ {
+   const auto rxFreq = getRxFrequency(cc_idx);
+
+   if(rxFreq != 0)
+    {
+      for(const auto & carrier : enb_dl_msg.carriers())
+       {
+         // match our rx freq to the msg carrier tx center freq
+         if(rxFreq == carrier.frequency_hz())
+          {
+            return CarrierResult{true, carrier};
+          }
+       }
+    }
+             
+  Warning("%s: cc=%u, rxFreq %u not found", __func__, cc_idx, rxFreq);
+
+  return CarrierResult{false, EMANELTE::MHAL::ENB_DL_Message_CarrierMessage{}};
+ }
+
+
 
 
 // see sf_worker::update_measurements() -> cc_worker::update_measurements()
@@ -368,12 +365,13 @@ typedef struct SRSRAN_API {
   float    rssi_dbm;
   float    cfo;
   float    sync_error;
-} srsran_chest_dl_res_t; */
+} srsran_chest_dl_res_t;
+*/
 
 static void ue_dl_update_chest_i(srsran_chest_dl_res_t * chest_res, float snr_db, float noise_db)
 {
     //  from faux_rf
-    //  cc_idx avg_noise 0.000, acg_rsrp_dbm -20.313, avg_rsrq_db -3.519, avg_rssi_dbm 2.536, pathloss 20.313, avg_snr_db_cqi  141.119
+    chest_res->cfo                = 0;
     chest_res->sync_error         = 0;
     chest_res->snr_db             = snr_db;
     chest_res->noise_estimate_dbm = noise_db;
@@ -497,10 +495,6 @@ static DL_Messages ue_dl_enb_subframe_get_pci_i(srsran_ue_sync_t * ue_sync, cons
 
             return DL_Messages{dlMessage};
           }
-         else
-          {
-            Info("RX:%s carrier msg pci %u != my_pci %u", __func__, pci, ue_sync->cell.id);
-          }
        }
     }
 
@@ -533,7 +527,7 @@ static UL_DCI_Results get_ul_dci_list_i(uint16_t rnti, uint32_t cc_idx)
 
               if(sinrResult.bPassed_)
                {
-                 Info("PUCCH:%s: found cc %u, dci rnti 0x%hx", __func__, cc_idx, rnti);
+                 Info("PUCCH:%s: found cc=%u, dci rnti 0x%hx", __func__, cc_idx, rnti);
 
                  // message, sinr
                  ul_dci_results.emplace_back(ul_dci_message, 
@@ -543,12 +537,12 @@ static UL_DCI_Results get_ul_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                }
               else
                {
-                 Warning("PUCCH:%s: fail cc %u, snr rnti 0x%hx", __func__, cc_idx, rnti);
+                 Warning("PUCCH:%s: fail cc=%u, snr rnti 0x%hx", __func__, cc_idx, rnti);
                }
             }
            else
             {
-              Debug("PUCCH:%s: cc %u, rnti 0x%hx != ul_dci_rnti 0x%hx, skip", 
+              Debug("PUCCH:%s: cc=%u, rnti 0x%hx != ul_dci_rnti 0x%hx, skip", 
                      __func__, cc_idx, rnti, ul_dci_message.rnti());
             }
          }
@@ -581,7 +575,7 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                                                                        rnti,
                                                                        carrier.frequency_hz()).bPassed_)
                {
-                 Info("PDSCH:%s: found cc %u, dci rnti 0x%hx, refid %u", 
+                 Info("PDSCH:%s: found cc=%u, dci rnti 0x%hx, refid %u", 
                         __func__, cc_idx, rnti, dl_dci_message.refid());
 
                  dl_dci_results.emplace_back(dl_dci_message);
@@ -590,12 +584,12 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                }
               else
                {
-                 Warning("PDSCH:%s: fail cc %u, snr rnti 0x%hx", __func__, cc_idx, rnti);
+                 Warning("PDSCH:%s: fail cc=%u, snr rnti 0x%hx", __func__, cc_idx, rnti);
                }
             }
           else
             {
-              Debug("PDSCH:%s: cc %u, rnti 0x%hx != dl_dci_rnti 0x%hx, refid %u, skip", 
+              Debug("PDSCH:%s: cc=%u, rnti 0x%hx != dl_dci_rnti 0x%hx, refid %u, skip", 
                      __func__, cc_idx, rnti, dl_dci_message.rnti(), dl_dci_message.refid());
             }
          }
@@ -640,7 +634,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(uint32_t refid, uint16_t rnti, 
          }
         else
          {
-           Warning("PDSCH:%s: fail cc %u, snr rnti 0x%hx", __func__, cc_idx, rnti);
+           Warning("PDSCH:%s: fail cc=%u, snr rnti 0x%hx", __func__, cc_idx, rnti);
          }
       }
    }
@@ -946,6 +940,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
   return n_id2s.size();
 }
 
+
 // 2 mib search
 int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
                      srsran_ue_mib_sync_t * ue_mib_sync,
@@ -962,11 +957,8 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
 
      const auto dlMessages = ue_dl_enb_subframe_get_pci_i(&ue_mib_sync->ue_sync, NULL);
 
-     Info("RX:ue_dl_mib_search: pci %hu, try %d/%u, %zu signals", 
-           ue_mib_sync->ue_sync.cell.id, try_num, max_tries, dlMessages.size());
-
      // expect 1 and only 1
-     if(! dlMessages.empty())
+     if(dlMessages.size() == 1)
       {
         const auto & dlMessage = dlMessages[0];
 
@@ -1042,6 +1034,11 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
              }
           }
        }
+     else
+       {
+          Warning("RX:%s: pci %hu, try %d/%u, expected 1, got %zu dl_messages", 
+                  __func__, ue_mib_sync->ue_sync.cell.id, try_num, max_tries, dlMessages.size());
+       }
     }
 
   UESTATS::enterMibSearch(false);
@@ -1065,7 +1062,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
      const auto dlMessages = ue_dl_enb_subframe_get_pci_i(ue_sync, NULL);
 
      // expect 1 and only 1
-     if(! dlMessages.empty())
+     if(dlMessages.size() == 1)
       {
         const auto & dlMessage = dlMessages[0];
 
@@ -1116,6 +1113,11 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
             }
          }
       }
+     else
+      {
+        Warning("RX:%s: pci %hu, try %d/%u, expected 1, got %zu dl_messages", 
+                __func__, ue_sync->cell.id, try_num, max_tries, dlMessages.size());
+      }
    }
 
   UESTATS::enterSysFrameSearch(false);
@@ -1142,25 +1144,24 @@ int ue_dl_sync_search(srsran_ue_sync_t * ue_sync, uint32_t tti)
    const auto dlMessages = ue_dl_enb_subframe_get_pci_i(ue_sync, &tti);
 
    // expect 1 and only 1 for single antenna mode
-   if(! dlMessages.empty())
+   if(dlMessages.size() == 1)
     {
       dlMessageThisFrame_ = dlMessages[0];
 
       UESTATS::enterSyncSearch(true);
     }
+   else
+    {
+      Warning("RX:%s: pci %hu, expected 1, got %zu dl_messages", 
+              __func__, ue_sync->cell.id, dlMessages.size());
+    }
 
    return dlMessages.size();
 }
 
-
-float ue_dl_get_rssi(uint32_t cell_id, uint32_t cc_idx)
+float ue_dl_get_snr(uint32_t cc_idx)
 {
-   // XXX TODO sinr to rssi/rsrq see phy.snr_ema_coeff defualt 0.1
-   const float rssi = sinrManager_[cc_idx].get() / 10.0f;
-
-   Debug("Rx:%s: cell %u, cc_idx %u, rssi %f", __func__, cell_id, cc_idx, rssi);
-
-   return rssi;
+   return sinrManager_[cc_idx].get();
 }
 
 // see ue_dl_find_dl_dc
@@ -1222,8 +1223,8 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
 
           ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
 
-          Info("PDCCH:%s dl_dci ref id %u, rnti 0x%hx, dci_len %zu", 
-                __func__, dci_message.refid(), rnti, dl_dci_message_data.size());
+          Info("PDCCH:%s cc=%u, dl_dci ref id %u, rnti 0x%hx, dci_len %zu", 
+                __func__, cc_idx, dci_message.refid(), rnti, dl_dci_message_data.size());
 
           // Unpack DCI messages see lib/src/phy/phch/dci.c
           for (int i = 0; i < nof_msg; i++) {
@@ -1237,7 +1238,7 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
        {
          if(pdsch_results.size() > 1)
           {
-            Info("PDCCH:%s found %zu dl_dci for rnti 0x%hx", 
+            Warning("PDCCH:%s expected 1, found %zu dl_dci for rnti 0x%hx", 
                     __func__, pdsch_results.size(), rnti);
           }
          else
@@ -1251,7 +1252,7 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
     {
       if(dl_dci_results.size() > 1)
        {
-         Warning("PDCCH:%s found %zu dl_dci for rnti 0x%hx", 
+         Warning("PDCCH:%s expected 1, found %zu dl_dci for rnti 0x%hx", 
                  __func__, dl_dci_results.size(), rnti);
        }
     }
@@ -1312,7 +1313,7 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
     {
       if(ul_dci_results.size() > 1)
        {
-         Warning("PUCCH:%s found %zu ul_dci for rnti 0x%hx", 
+         Warning("PUCCH:%s expected 1, found %zu ul_dci for rnti 0x%hx", 
                   __func__, ul_dci_results.size(), rnti);
        }
     }
@@ -1464,17 +1465,17 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
 
                      data[tb].crc = true;
 
-                     Info("PMCH:%s: cc %u, areaid %d, tb[%d], payload %zu bytes, snr %f",
+                     Info("PMCH:%s: cc=%u, areaid %d, tb[%d], payload %zu bytes, snr %f",
                           __func__, cc_idx, area_id, tb, pmch.data().size(), q->chest_res.snr_db);
                    }
                   else
                    {
-                     Warning("PMCH:%s: cc %u, area_id %d, fail snr", __func__, cc_idx, area_id);
+                     Warning("PMCH:%s: cc=%u, area_id %d, fail snr", __func__, cc_idx, area_id);
                    }
                 }
               else
                 {
-                  Info("MHAL:%s: cc %u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch.area_id(), area_id);
+                  Info("MHAL:%s: cc=%u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch.area_id(), area_id);
                 }
              }
           }

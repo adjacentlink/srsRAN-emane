@@ -83,8 +83,8 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync,
 int ue_dl_sync_search(srsran_ue_sync_t * ue_sync,
                       uint32_t tti);
 
-// get rssi
-float ue_dl_get_rssi(uint32_t cell_id, uint32_t cc_idx);
+// get snr
+float ue_dl_get_snr(uint32_t cc_idx);
 
 // get dl dci
 int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,

@@ -586,6 +586,7 @@ void phy_common::worker_end(void*                   tx_sem_id,
     if (ul_channel) {
       ul_channel->run(buffer.to_cf_t(), buffer.to_cf_t(), buffer.get_nof_samples(), tx_time.get(0));
     }
+
 #ifndef PHY_ADAPTER_ENABLE
     radio_h->tx(buffer, tx_time);
 #else
@@ -749,19 +750,24 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
       }
     }
 #else
-     const float rssi = phy_adapter::ue_dl_get_rssi(cell.id, cc_idx);
-     // XXX TODO FIXME convert to correct units
-     avg_noise   [cc_idx] = 0;
-     pathloss    [cc_idx] = 0;
+     // see  lib/src/phy/phch/cqi.c cqi_to_snr_table[15] = {1.95, 4, 6, 8, 10, 11.95, 14.05, 16, 17.9, 20.9, 22.5, 24.75, 25.5, 27.30, 29};
+     // from zmq rf SNR=141 dB, RSRP=-8.3 dBm sync=in-sync from channel estimator
+     // cc_idx 0, noise 0.000, rsrp -8.3, rsrq -3.7, rssi 13.5, pathloss 8.3, sinr 141, sync_err 0.0
+     // see ue config: 
+     // in_sync_rsrp_dbm_th    default -130.0
+     // in_sync_snr_db_th      default 3.0
+     // phy.snr_ema_coeff      defualt 0.1
+     const float snr = phy_adapter::ue_dl_get_snr(cc_idx);
 
-     avg_rsrp_dbm[cc_idx] = rssi;
-     avg_rsrp    [cc_idx] = rssi;
-
-     avg_rsrq_db [cc_idx] = rssi;
-     avg_rssi_dbm[cc_idx] = rssi;
-
-     avg_sinr_db [cc_idx] = rssi;
-     avg_snr_db  [cc_idx] = rssi;
+     // XXX TODO get actual rxpower, noise, rsrp and rsrq
+     avg_noise   [cc_idx] =  0;
+     avg_rsrp_dbm[cc_idx] =  snr - 100;
+     avg_rsrq_db [cc_idx] =  snr - 20;
+     avg_rssi_dbm[cc_idx] =  20;
+     pathloss    [cc_idx] =  0;
+     avg_sinr_db [cc_idx] =  snr;
+     avg_snr_db  [cc_idx] =  snr;
+     avg_cfo_hz[cc_idx]   =  0;
 #endif
     // Store metrics
     ch_metrics_t ch = {};
@@ -773,7 +779,7 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
     ch.sinr         = avg_sinr_db[cc_idx];
     ch.sync_err     = chest_res.sync_error;
 
-    logger.debug("cc_idx %d, noise %3.3f, rsrp %3.3f, rsrq %3.3f, rssi %3.3f, pathloss %3.3f, sinr % 3.3f, sync_err %f\n",
+    logger.debug("cc_idx %d, noise %3.3f, rsrp %3.3f, rsrq %3.3f, rssi %3.3f, pathloss %3.3f, sinr % 3.3f, sync_err %f",
                 cc_idx,
                 ch.n,
                 ch.rsrp,

@@ -848,6 +848,8 @@ uint32_t cc_worker::get_wideband_cqi()
     wb_cqi_value = cqi_max;
   }
 
+  Debug("%s cc=%u, sinr %f, cqi_value %u", __func__, cc_idx, phy->get_sinr_db(cc_idx), wb_cqi_value);
+
   return wb_cqi_value;
 }
 
