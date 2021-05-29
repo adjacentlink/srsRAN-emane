@@ -1,5 +1,4 @@
 srsRAN-emane
-========
 
 srsRAN-emane is a derivative project of
 [srsRAN](https://github.com/srsRAN). In conjunction with the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git),
