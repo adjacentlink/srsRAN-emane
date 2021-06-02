@@ -495,6 +495,10 @@ static DL_Messages ue_dl_enb_subframe_get_pci_i(srsran_ue_sync_t * ue_sync, cons
 
             return DL_Messages{dlMessage};
           }
+         else
+          {
+            Info("RX:%s pci %u != cell pci %u, drop", __func__, pci, ue_sync->cell.id);
+          }
        }
     }
 
