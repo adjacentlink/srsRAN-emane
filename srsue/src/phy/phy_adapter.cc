@@ -579,7 +579,7 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                                                                        rnti,
                                                                        carrier.frequency_hz()).bPassed_)
                {
-                 Info("PDSCH:%s: found cc=%u, dci rnti 0x%hx, refid %u", 
+                 Info("PDSCH:%s: was found cc=%u, dci rnti 0x%hx, refid %u", 
                         __func__, cc_idx, rnti, dl_dci_message.refid());
 
                  dl_dci_results.emplace_back(dl_dci_message);
@@ -588,7 +588,7 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
                }
               else
                {
-                 Warning("PDSCH:%s: fail cc=%u, snr rnti 0x%hx", __func__, cc_idx, rnti);
+                 Warning("PDSCH:%s: fail sinr, cc=%u, rnti 0x%hx", __func__, cc_idx, rnti);
                }
             }
           else
@@ -598,6 +598,11 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
             }
          }
       }
+   }
+
+  if(dl_dci_results.empty())
+   {
+     Debug("PDSCH:%s: not found cc=%u, dci rnti 0x%hx", __func__, cc_idx, rnti);
    }
 
   return dl_dci_results;
@@ -779,6 +784,7 @@ int ue_dl_read_frame(srsran_timestamp_t* rx_time)
 
   FrameMessage_isSet(frameSignals_) = true;
 
+  // set rx time for caller
   if(rx_time)
    {
      rx_time->full_secs = tv_tti.tv_sec; 
@@ -1119,7 +1125,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
       }
      else
       {
-        Warning("RX:%s: pci %hu, try %d/%u, expected 1, got %zu dl_messages", 
+        Debug("RX:%s: pci %hu, try %d/%u, expected 1, got %zu dl_messages", 
                 __func__, ue_sync->cell.id, try_num, max_tries, dlMessages.size());
       }
    }
