@@ -43,7 +43,7 @@
 // private namespace for misc helpers and state for PHY_ADAPTER
 namespace {
  // uplink
- EMANELTE::MHAL::UE_UL_Message     ue_ul_msg_;
+ EMANELTE::MHAL::UE_UL_Message     ulMessage_;
  EMANELTE::MHAL::TxControlMessage  txControl_;
 
  // enb dl msg, rx control info and sinr tester impls
@@ -122,13 +122,11 @@ namespace {
        std::lock_guard<std::mutex> lock(mutex_);
 
        sum_ += x;
-
        entries_.push_front(x);
 
        if(entries_.size() > maxEntries_)
         {
           sum_ -= entries_.back();
-
           entries_.pop_back();
         }
      }
@@ -148,13 +146,10 @@ namespace {
      }
 
    private:
-    const size_t maxEntries_;
-
     std::deque<double> entries_;
-
-    double sum_;
-
-    std::mutex mutex_;
+    const size_t maxEntries_;
+    double       sum_;
+    std::mutex   mutex_;
  };
    
 
@@ -751,7 +746,7 @@ void ue_start()
      pthread_mutexattr_destroy(&mattr);
   }
 
-  ue_ul_msg_.Clear();
+  ulMessage_.Clear();
 
   txControl_.Clear();
 
@@ -1507,13 +1502,13 @@ void ue_ul_send_signal(time_t sot_sec, float frac_sec, const srsran_cell_t & cel
   // end of tx sequence, tx_end will release lock
   std::lock_guard<std::mutex> lock(ul_mutex_);
 
-  ue_ul_msg_.set_crnti(crnti_);
-  ue_ul_msg_.set_tti(tti_tx_);
+  ulMessage_.set_crnti(crnti_);
+  ulMessage_.set_tti(tti_tx_);
 
   // finalize  ul_msg/txControl
-  for(int idx = 0; idx < ue_ul_msg_.carriers().size(); ++idx)
+  for(int idx = 0; idx < ulMessage_.carriers().size(); ++idx)
    {
-     ue_ul_msg_.mutable_carriers(idx)->set_phy_cell_id(cell.id);
+     ulMessage_.mutable_carriers(idx)->set_phy_cell_id(cell.id);
    }
 
   for(int idx = 0; idx < txControl_.carriers().size(); ++idx)
@@ -1523,7 +1518,7 @@ void ue_ul_send_signal(time_t sot_sec, float frac_sec, const srsran_cell_t & cel
 
   EMANELTE::MHAL::Data data;
 
-  if(ue_ul_msg_.SerializeToString(&data))
+  if(ulMessage_.SerializeToString(&data))
    {
      // align sot to sf time
      const timeval tv_sf_time = {sot_sec, (time_t)(round(frac_sec * 1e3)*1e3)};
@@ -1544,7 +1539,7 @@ void ue_ul_send_signal(time_t sot_sec, float frac_sec, const srsran_cell_t & cel
    }
 
   // msg sent clear old data
-  ue_ul_msg_.Clear();
+  ulMessage_.Clear();
 
   txControl_.Clear();
 }
@@ -1560,8 +1555,8 @@ void ue_ul_put_prach(int index)
   // tx frequency for carrier idx
   const auto frequencyHz = getTxFrequency(cc_idx);
 
-  auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                              EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+  auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
 
   auto channelMessage = controlCarrier->mutable_uplink()->mutable_prach();
 
@@ -1579,8 +1574,8 @@ void ue_ul_put_prach(int index)
      channelMessage->add_resource_block_frequencies_slot2(EMANELTE::MHAL::UE::get_tx_prb_frequency(prach_freq_offset_ + i, frequencyHz));
    }
 
-  auto carrier = getCarrierByFrequency<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
-                                       EMANELTE::MHAL::UE_UL_Message>(ue_ul_msg_, frequencyHz);
+  auto carrier = getCarrier<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
+                            EMANELTE::MHAL::UE_UL_Message>(ulMessage_, frequencyHz);
 
   auto prach    = carrier->mutable_prach();
   auto preamble = prach->mutable_preamble();
@@ -1601,8 +1596,8 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
 
    const auto frequencyHz = getTxFrequency(cc_idx);
 
-   auto carrier = getCarrierByFrequency<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
-                                        EMANELTE::MHAL::UE_UL_Message>(ue_ul_msg_, frequencyHz);
+   auto carrier = getCarrier<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
+                             EMANELTE::MHAL::UE_UL_Message>(ulMessage_, frequencyHz);
 
 
    auto pucch_message = carrier->mutable_pucch();
@@ -1652,8 +1647,8 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
              pucch_cfg.format);
      }
 
-   auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                               EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+   auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
 
    auto channelMessage = controlCarrier->mutable_uplink()->add_pucch();
 
@@ -1707,8 +1702,8 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
 
    const auto frequencyHz = getTxFrequency(cc_idx);
 
-   auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                              EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+   auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
 
    auto channelMessage = controlCarrier->mutable_uplink()->add_pucch();
 
@@ -1728,8 +1723,8 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
       channelMessage->add_resource_block_frequencies_slot2(EMANELTE::MHAL::UE::get_tx_prb_frequency(grant->n_prb[1] + i, frequencyHz));
     }
 
-   auto carrier = getCarrierByFrequency<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
-                                       EMANELTE::MHAL::UE_UL_Message>(ue_ul_msg_, frequencyHz);
+   auto carrier = getCarrier<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
+                             EMANELTE::MHAL::UE_UL_Message>(ulMessage_, frequencyHz);
 
    auto pusch_message = carrier->mutable_pusch();
    auto grant_message = pusch_message->add_grant();
@@ -1799,6 +1794,25 @@ int ue_ul_encode(srsran_ue_ul_t* q, srsran_ul_sf_cfg_t* sf, srsran_ue_ul_cfg_t* 
       return 0;
     }
 }
+
+std::set<uint32_t>
+ue_get_detected_cells(const srsran_cell_t & cell)
+{
+   std::set<uint32_t> detected_cells;
+
+   detected_cells.insert(99);
+
+   fprintf(stderr, "%s XXX size detected_cells %zu", __func__, detected_cells.size());
+
+   return detected_cells;
+}
+
+void ue_get_neighbor_cells(std::vector<phy_meas_t> & neighbor_cells)
+{
+
+   fprintf(stderr, "%s XXX size neighbor_cells %zu", __func__, neighbor_cells.size());
+}
+
 
 } // end namespace phy_adapter
 } // end namepsace srsue

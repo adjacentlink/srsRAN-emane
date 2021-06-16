@@ -32,6 +32,7 @@
 #include "libemanelte/mhalconfig.h"
 
 #include <string>
+#include <set>
 
 namespace srsue {
 class sync;
@@ -59,6 +60,10 @@ void ue_set_bandwidth(int n_prb);
 void ue_set_prach_freq_offset(uint32_t freq_offset);
 
 void ue_set_sync(sync * sync);
+
+std::set<uint32_t> ue_get_detected_cells(const srsran_cell_t & cell);
+
+void ue_get_neighbor_cells(std::vector<phy_meas_t> & neighbor_cells);
 
 // rx frame for this tti, common to all (4) states below
 int ue_dl_read_frame(srsran_timestamp_t* rx_time);

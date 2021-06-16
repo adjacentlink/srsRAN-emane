@@ -47,7 +47,7 @@ extern "C" {
 
 // private namespace for misc helpers and state for PHY_ADAPTER
 namespace {
-  EMANELTE::MHAL::ENB_DL_Message     enb_dl_msg_;
+  EMANELTE::MHAL::ENB_DL_Message     dlMessage_;
   EMANELTE::MHAL::TxControlMessage   txControl_;
 
   EMANELTE::MHAL::SINRTester         sinrTester_{{}};
@@ -348,14 +348,14 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
 
   const auto frequencyHz = getTxFrequency(cc_idx);
 
-  auto carrier = getCarrierByFrequency<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
-                                       EMANELTE::MHAL::ENB_DL_Message>(enb_dl_msg_, frequencyHz);
+  auto carrier = getCarrier<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
+                            EMANELTE::MHAL::ENB_DL_Message>(dlMessage_, frequencyHz, q->cell.id);
 
 
   auto pdcch_message = carrier->add_pdcch();
 
-  auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                              EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+  auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id);
 
 
   auto channelMessage = controlCarrier->mutable_downlink()->add_pdcch();
@@ -463,8 +463,8 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
 
    const auto frequencyHz = getTxFrequency(cc_idx);
 
-   auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                               EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+   auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id);
 
    auto channelMessage = controlCarrier->mutable_downlink()->add_pdsch();
 
@@ -489,8 +489,8 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
        }
     }
 
-   auto carrier = getCarrierByFrequency<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
-                                        EMANELTE::MHAL::ENB_DL_Message>(enb_dl_msg_, frequencyHz);
+   auto carrier = getCarrier<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
+                             EMANELTE::MHAL::ENB_DL_Message>(dlMessage_, frequencyHz, q->cell.id);
 
    auto pdsch_message = carrier->mutable_pdsch();
 
@@ -534,8 +534,8 @@ static int enb_dl_put_pmch_i(const srsran_enb_dl_t * q,
    const auto frequencyHz = getTxFrequency(cc_idx);
 
    // pmch
-   auto carrier = getCarrierByFrequency<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
-                                        EMANELTE::MHAL::ENB_DL_Message>(enb_dl_msg_, frequencyHz);
+   auto carrier = getCarrier<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
+                             EMANELTE::MHAL::ENB_DL_Message>(dlMessage_, frequencyHz, q->cell.id);
 
    auto pmch_message = carrier->mutable_pmch();
 
@@ -544,8 +544,8 @@ static int enb_dl_put_pmch_i(const srsran_enb_dl_t * q,
    pmch_message->set_rnti(rnti);
    pmch_message->set_data(data ? data : zeros_, grant.tb[tb].tbs);
 
-   auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                               EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+   auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id);
 
    auto channelMessage = controlCarrier->mutable_downlink()->mutable_pmch();
 
@@ -679,7 +679,7 @@ void enb_start()
      pthread_mutexattr_destroy(&mattr);
   }
 
-  enb_dl_msg_.Clear();
+  dlMessage_.Clear();
 
   txControl_.Clear();
 
@@ -708,37 +708,36 @@ void enb_dl_cc_tx_init(const srsran_enb_dl_t *q,
      // is finished
      dl_mutex_.lock();
 
-     enb_dl_msg_.Clear();
+     dlMessage_.Clear();
 
      txControl_.Clear();
    }
+
+  // Info("%s, tti %u, cc=%u, cell_id %u", __func__, tti_tx, cc_idx, q->cell.id);
 
   // subframe index
   const uint32_t sf_idx = (tti_tx % 10);
 
   rho_a_db_map_[sf_idx].clear();
 
-  enb_dl_msg_.set_tti(tti_tx);
+  dlMessage_.set_tti(tti_tx);
 
   const auto frequencyHz = getTxFrequency(cc_idx);
 
   // note - cfi should be nof_ctrl_symbols on regular frames and
   //        non_mbsfn_region_length (from sib13) on mbsfn frames
-  auto carrier = getCarrierByFrequency<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
-                                       EMANELTE::MHAL::ENB_DL_Message>(enb_dl_msg_, frequencyHz);
+  auto carrier = getCarrier<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
+                            EMANELTE::MHAL::ENB_DL_Message>(dlMessage_, frequencyHz, q->cell.id);
 
-  auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                              EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+  auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id);
 
   auto downlink = controlCarrier->mutable_downlink();
 
   carrier->set_cfi(cfi);
-  carrier->set_phy_cell_id(q->cell.id);
 
   downlink->set_num_resource_blocks(q->cell.nof_prb);
   downlink->set_cfi(carrier->cfi());
-
-  controlCarrier->set_phy_cell_id(q->cell.id);
 
   // cell_id cc_idx map
   pciTable_[q->cell.id] = cc_idx;
@@ -863,13 +862,11 @@ void enb_dl_cc_tx_init(const srsran_enb_dl_t *q,
 
 
 // send msg to mhal
-bool enb_dl_send_signal(time_t sot_sec, float frac_sec)
+void enb_dl_send_signal(time_t sot_sec, float frac_sec)
 {
-  bool result = false;
-
   EMANELTE::MHAL::Data data;
 
-  if(enb_dl_msg_.SerializeToString(&data))
+  if(dlMessage_.SerializeToString(&data))
    {
      txControl_.set_reference_signal_power_milliwatt(pdsch_rs_power_milliwatt_);
 
@@ -900,8 +897,6 @@ bool enb_dl_send_signal(time_t sot_sec, float frac_sec)
    }
 
   dl_mutex_.unlock();
-
-  return result;
 }
 
 
@@ -1045,8 +1040,8 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
 
   const auto frequencyHz = getTxFrequency(cc_idx);
 
-  auto carrier = getCarrierByFrequency<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
-                                       EMANELTE::MHAL::ENB_DL_Message>(enb_dl_msg_, frequencyHz);
+  auto carrier = getCarrier<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage,
+                            EMANELTE::MHAL::ENB_DL_Message>(dlMessage_, frequencyHz, q->cell.id);
 
   auto phich = carrier->mutable_phich();
 
@@ -1055,8 +1050,8 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
   phich->set_num_prb_low(grant->n_prb_lowest);
   phich->set_num_dmrs(grant->n_dmrs);
 
-  auto controlCarrier = getCarrierByFrequency<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                              EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+  auto controlCarrier = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
+                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id);
 
   auto channelMessage = controlCarrier->mutable_downlink()->add_phich();
 

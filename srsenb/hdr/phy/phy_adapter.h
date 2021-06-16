@@ -63,7 +63,7 @@ void enb_initialize(uint32_t                       sf_interval,
                         uint32_t               cc_idx);
 
  // send to mhal with sot time
- bool enb_dl_send_signal(time_t sot_sec,
+ void enb_dl_send_signal(time_t sot_sec,
                          float  frac_sec);
 
  // get from mhal with sot time
