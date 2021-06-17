@@ -117,7 +117,8 @@ void enb_initialize(uint32_t                       sf_interval,
                          uint32_t                               cc_idx);
 
  // get prach
- int enb_ul_cc_get_prach(uint32_t*  indicies, 
+ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
+                         uint32_t*  indicies, 
                          float*     offsets,
                          float*     avgs,
                          uint32_t   max_entries,

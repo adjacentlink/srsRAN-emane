@@ -66,10 +66,7 @@ namespace {
  #define FrameMessage_rxMessages(x)  std::get<2>((x))
 
  // search for carrier result
- using CarrierResult = std::pair<bool, const EMANELTE::MHAL::ENB_DL_Message_CarrierMessage &>;
- // helpers
-#define CarrierResult_Found(x)   std::get<0>((x))
-#define CarrierResult_Carrier(x) std::get<1>((x))
+ using CarrierResults = std::vector<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage>;
 
  // track carrierIndex to rx/tx carrier center frequency
  CarrierIndexFrequencyTable carrierIndexFrequencyTable_;
@@ -314,9 +311,11 @@ static inline uint64_t getRxFrequency(uint32_t cc_idx)
 
 
 // lookup carrier that matches the frequency associated with the cc_idx
-static CarrierResult
-findCarrierByIndex(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, uint32_t cc_idx)
+static CarrierResults
+getCarriers(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, const uint32_t cc_idx, const uint32_t cell_id)
  {
+   CarrierResults carrierResults;
+
    const auto rxFreq = getRxFrequency(cc_idx);
 
    if(rxFreq != 0)
@@ -326,14 +325,17 @@ findCarrierByIndex(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, uint32_t c
          // match our rx freq to the msg carrier tx center freq
          if(rxFreq == carrier.frequency_hz())
           {
-            return CarrierResult{true, carrier};
+            if((cell_id == 0) || (cell_id == carrier.phy_cell_id()))
+             {
+               carrierResults.emplace_back(carrier);
+             }
           }
        }
     }
              
-  Warning("%s: cc=%u, rxFreq %u not found", __func__, cc_idx, rxFreq);
+  // Info("%s: cc=%u, rxFreq %u found %zu entries", __func__, cc_idx, rxFreq, carrierResults.size());
 
-  return CarrierResult{false, EMANELTE::MHAL::ENB_DL_Message_CarrierMessage{}};
+  return carrierResults;
  }
 
 
@@ -393,13 +395,11 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
   DL_Messages dlMessages;
 
   // check for unique pci, we can handle only unique pci's
-  std::set<uint32_t> unique;
+  std::set<uint32_t> pciSet;
 
   // for each rx message
   for(const auto & rxMessage : FrameMessage_rxMessages(frameSignals_))
    {
-     bool bEnbIsUnique = true;
-
      EMANELTE::MHAL::ENB_DL_Message enb_dl_msg;
 
      if(enb_dl_msg.ParseFromString(RxMessage_Data(rxMessage)))
@@ -412,16 +412,12 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
        for(const auto & carrier : enb_dl_msg.carriers())
         {
           const uint32_t & pci = carrier.phy_cell_id();
-
-          if(! unique.insert(pci).second)
+         
+          // each pci must be unique 
+          if(! pciSet.insert(pci).second)
            {
              Info("RX:%s carrier %lu Hz, rx_seq %lu, duplicate pci %u, drop",
-                   __func__,
-                   carrier.frequency_hz(),
-                   rxControl.rx_seqnum_,
-                   pci);
-
-             bEnbIsUnique = false;
+                   __func__, carrier.frequency_hz(), rxControl.rx_seqnum_, pci);
 
              sinrTester.release();
 
@@ -429,17 +425,17 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
            }
         }
 
-       // unique enb, first come first served
-       if(bEnbIsUnique)
+       // check all pci are unique
+       if(pciSet.size() == (size_t)enb_dl_msg.carriers().size())
         {
           // update signal quality for this enb
-          // XXX TODO track ref signals only or avg snr?
           for(const auto & carrier : enb_dl_msg.carriers())
            {
              const auto iter = rxFrequencyToCarrierIndex_.find(carrier.frequency_hz());
 
              if(iter != rxFrequencyToCarrierIndex_.end())
               {
+                // XXX TODO track ref signals only or avg snr?
                 sinrManager_[iter->second].update(rxControl.avg_snr_[iter->second]);
               }
            }
@@ -501,15 +497,15 @@ static DL_Messages ue_dl_enb_subframe_get_pci_i(srsran_ue_sync_t * ue_sync, cons
 }
 
 
-static UL_DCI_Results get_ul_dci_list_i(uint16_t rnti, uint32_t cc_idx)
+static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_idx, const uint32_t cell_id)
 {
   UL_DCI_Results ul_dci_results;
 
-  const auto carrierResult = findCarrierByIndex(DL_Message_Message(dlMessageThisFrame_), cc_idx);
+  const auto carrierResults = getCarriers(DL_Message_Message(dlMessageThisFrame_), cc_idx, cell_id);
 
-  if(CarrierResult_Found(carrierResult))
+  if(! carrierResults.empty())
    {
-     const auto & carrier = CarrierResult_Carrier(carrierResult);
+     const auto & carrier = carrierResults[0];
 
      for(const auto & pdcch : carrier.pdcch())
       {
@@ -552,15 +548,15 @@ static UL_DCI_Results get_ul_dci_list_i(uint16_t rnti, uint32_t cc_idx)
 }
 
 
-static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
+static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_idx, const uint32_t cell_id)
 {
   DL_DCI_Results dl_dci_results;
 
-  const auto carrierResult = findCarrierByIndex(DL_Message_Message(dlMessageThisFrame_), cc_idx);
+  const auto carrierResults = getCarriers(DL_Message_Message(dlMessageThisFrame_), cc_idx, cell_id);
 
-  if(CarrierResult_Found(carrierResult))
+  if(!carrierResults.empty())
    {
-     const auto & carrier = CarrierResult_Carrier(carrierResult);
+     const auto & carrier = carrierResults[0];
 
      for(const auto & pdcch : carrier.pdcch())
       {
@@ -605,15 +601,18 @@ static DL_DCI_Results get_dl_dci_list_i(uint16_t rnti, uint32_t cc_idx)
 
 
 
-static PDSCH_Results ue_dl_get_pdsch_data_list_i(uint32_t refid, uint16_t rnti, uint32_t cc_idx)
+static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid, 
+                                                 const uint16_t rnti, 
+                                                 const uint32_t cc_idx,
+                                                 const uint32_t cell_id)
 {
   PDSCH_Results pdsch_results;
 
-  const auto carrierResult = findCarrierByIndex(DL_Message_Message(dlMessageThisFrame_), cc_idx);
+  const auto carrierResults = getCarriers(DL_Message_Message(dlMessageThisFrame_), cc_idx, cell_id);
 
-  if(CarrierResult_Found(carrierResult))
+  if(! carrierResults.empty())
    {
-     const auto & carrier = CarrierResult_Carrier(carrierResult);
+     const auto & carrier = carrierResults[0];
 
      if(carrier.has_pdsch())
       {
@@ -796,7 +795,9 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
                           int force_nid_2,
                           uint32_t *max_peak)
 {
-  const auto cc_idx = 0; // always cc_idx 0 on cell search
+  const uint32_t cc_idx = 0;  // cc_idx 0 on cell search
+
+  const uint32_t cell_id = 0; // no cell id yet
 
   // cell search seems to be done in blocks of 5 sf's
   const uint32_t max_tries = cs->max_frames * 5; // 40 sf
@@ -824,12 +825,12 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
       {
         const auto & enb_dl_msg = DL_Message_Message(dlMessage);
 
-        // locate carrier 0
-        const auto carrierResult = findCarrierByIndex(enb_dl_msg, cc_idx);
+        // locate carrier 0, pci 0
+        const auto carrierResults = getCarriers(enb_dl_msg, cc_idx, cell_id);
 
-        if(CarrierResult_Found(carrierResult))
+        if(! carrierResults.empty())
          {
-           const auto & carrier = CarrierResult_Carrier(carrierResult);
+           const auto & carrier = carrierResults[0];
 #if 0
            Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
 #endif
@@ -969,11 +970,11 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
 
         const auto & enb_dl_msg = DL_Message_Message(dlMessage);
 
-        const auto carrierResult = findCarrierByIndex(enb_dl_msg, 0); // cc_id 0
+        const auto carrierResults = getCarriers(enb_dl_msg, 0, cell->id); // cc_id 0
 
-        if(CarrierResult_Found(carrierResult))
+        if(! carrierResults.empty())
          {
-           const auto & carrier = CarrierResult_Carrier(carrierResult);
+           const auto & carrier = carrierResults[0];
 #if 0
            Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
 #endif
@@ -1073,11 +1074,11 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
 
         const auto & enb_dl_msg = DL_Message_Message(dlMessage);
 
-        const auto carrierResult = findCarrierByIndex(enb_dl_msg, 0); // cc_id 0
+        const auto carrierResults = getCarriers(enb_dl_msg, 0, ue_sync->cell.id); // cc_id 0
 
-        if(CarrierResult_Found(carrierResult))
+        if(! carrierResults.empty())
          {
-           const auto & carrier = CarrierResult_Carrier(carrierResult);
+           const auto & carrier = carrierResults[0];
 
            if(carrier.has_pbch())
             {
@@ -1187,14 +1188,14 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
 
   int nof_msg = 0;
 
-  const auto dl_dci_results = get_dl_dci_list_i(rnti, cc_idx);
+  const auto dl_dci_results = get_dl_dci_list_i(rnti, cc_idx, q->cell.id);
 
   // expecting 1 dci/rnti
   if(dl_dci_results.size() == 1)
     {
       const auto & dci_message = dl_dci_results[0];
 
-      const auto pdsch_results = ue_dl_get_pdsch_data_list_i(dci_message.refid(), rnti, cc_idx);
+      const auto pdsch_results = ue_dl_get_pdsch_data_list_i(dci_message.refid(), rnti, cc_idx, q->cell.id);
 
       // XXX TODO pass/fail
       UESTATS::getPDCCH(rnti, true);
@@ -1280,7 +1281,7 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
 
   if(rnti) 
    {
-     const auto ul_dci_results = get_ul_dci_list_i(rnti, cc_idx);
+     const auto ul_dci_results = get_ul_dci_list_i(rnti, cc_idx, q->cell.id);
 
      // expecting 1 dci/rnti
      if(ul_dci_results.size() == 1)
@@ -1383,11 +1384,11 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
 
   srsran_phich_calc(&q->phich, grant, &n_phich);
 
-  const auto carrierResult = findCarrierByIndex(DL_Message_Message(dlMessageThisFrame_), cc_idx);
+  const auto carrierResults = getCarriers(DL_Message_Message(dlMessageThisFrame_), cc_idx, q->cell.id);
 
-  if(CarrierResult_Found(carrierResult))
+  if(! carrierResults.empty())
    {
-     const auto & carrier = CarrierResult_Carrier(carrierResult);
+     const auto & carrier = carrierResults[0];
 
      if(carrier.has_phich())
       {
@@ -1444,11 +1445,11 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
     {
       if(cfg->pdsch_cfg.grant.tb[tb].enabled)
        {
-         const auto carrierResult = findCarrierByIndex(DL_Message_Message(dlMessageThisFrame_), cc_idx);
+         const auto carrierResults = getCarriers(DL_Message_Message(dlMessageThisFrame_), cc_idx, q->cell.id);
 
-         if(CarrierResult_Found(carrierResult))
+         if(! carrierResults.empty())
           {
-            const auto & carrier = CarrierResult_Carrier(carrierResult);
+            const auto & carrier = carrierResults[0];
 
             if(carrier.has_pmch())
              {
