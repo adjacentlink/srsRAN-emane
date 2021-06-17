@@ -522,23 +522,20 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
               if(sinrResult.bPassed_)
                {
-                 Info("PUCCH:%s: found cc=%u, dci rnti 0x%hx", __func__, cc_idx, rnti);
-
-                 // message, sinr
-                 ul_dci_results.emplace_back(ul_dci_message, 
-                                             SignalQuality{sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_});
-
-                 break; // found, done
+                 Info("PUCCH:%s: pass cc=%u, rnti 0x%hx, sinr %f, noise %f",
+                         __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
               else
                {
-                 Warning("PUCCH:%s: fail cc=%u, snr rnti 0x%hx", __func__, cc_idx, rnti);
+                 Warning("PUCCH:%s: fail HACK_XXX cc=%u, rnti 0x%hx, sinr %f, noise %f",
+                         __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
-            }
-           else
-            {
-              Debug("PUCCH:%s: cc=%u, rnti 0x%hx != ul_dci_rnti 0x%hx, skip", 
-                     __func__, cc_idx, rnti, ul_dci_message.rnti());
+
+              //XXX TODO FIXME  allow message thru for now
+              ul_dci_results.emplace_back(ul_dci_message, 
+                                             SignalQuality{sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_});
+
+              break; // rnti found, done
             }
          }
       }
@@ -566,34 +563,27 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
            if(dl_dci_message.rnti() == rnti)
             {
-              if(DL_Message_SINRTester(dlMessageThisFrame_).sinrCheck2(EMANELTE::MHAL::CHAN_PDCCH,
-                                                                       rnti,
-                                                                       carrier.frequency_hz()).bPassed_)
+              const auto sinrResult = DL_Message_SINRTester(dlMessageThisFrame_).sinrCheck2(EMANELTE::MHAL::CHAN_PDCCH,
+                                                                                 rnti,
+                                                                                 carrier.frequency_hz());
+
+              if(sinrResult.bPassed_)
                {
-                 Info("PDSCH:%s: was found cc=%u, dci rnti 0x%hx, refid %u", 
-                        __func__, cc_idx, rnti, dl_dci_message.refid());
-
-                 dl_dci_results.emplace_back(dl_dci_message);
-
-                 break; // found, done
+                 INFO("PDSCH:%s: pass cc=%u, rnti 0x%hx, sinr %f, noise %f",
+                         __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
               else
                {
-                 Warning("PDSCH:%s: fail sinr, cc=%u, rnti 0x%hx", __func__, cc_idx, rnti);
+                 Warning("PDSCH:%s: fail HACK_XXX cc=%u, rnti 0x%hx, sinr %f, noise %f",
+                         __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
-            }
-          else
-            {
-              Debug("PDSCH:%s: cc=%u, rnti 0x%hx != dl_dci_rnti 0x%hx, refid %u, skip", 
-                     __func__, cc_idx, rnti, dl_dci_message.rnti(), dl_dci_message.refid());
+
+              //XXX TODO FIXME  allow message thru for now
+              dl_dci_results.emplace_back(dl_dci_message);
+              break; // rnti found, done
             }
          }
       }
-   }
-
-  if(dl_dci_results.empty())
-   {
-     Debug("PDSCH:%s: not found cc=%u, dci rnti 0x%hx", __func__, cc_idx, rnti);
    }
 
   return dl_dci_results;
@@ -623,21 +613,26 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
 
         if(sinrResult.bPassed_)
          {
-           const auto & pdsch_message = carrier.pdsch();
-
-           for(const auto & data : pdsch_message.data())
-            {
-              Info("PDSCH:%s: cc %u, refid %u, tb %u", __func__, cc_idx, data.refid(), data.tb());
-
-              if(data.refid() == refid)
-               {
-                 pdsch_results.emplace_back(data, SignalQuality(sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_));
-               }
-            }
+           Info("PDSCH:%s: pass cc=%u, sinr %f, noise %f",
+                 __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
          }
         else
          {
-           Warning("PDSCH:%s: fail cc=%u, snr rnti 0x%hx", __func__, cc_idx, rnti);
+           Warning("PDSCH:%s: fail HACK_XXX cc=%u, sinr %f, noise %f",
+                   __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+         }
+
+        //XXX TODO FIXME  allow message thru for now
+        const auto & pdsch_message = carrier.pdsch();
+
+        for(const auto & data : pdsch_message.data())
+         {
+           if(data.refid() == refid)
+            {
+              Info("PDSCH:%s: found refid %u", __func__, data.refid());
+
+              pdsch_results.emplace_back(data, SignalQuality(sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_));
+            }
          }
       }
    }
@@ -830,10 +825,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
 
         if(! carrierResults.empty())
          {
-           const auto & carrier = carrierResults[0];
-#if 0
-           Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
-#endif
+           const auto & carrier  = carrierResults[0];
            const uint32_t pci    = carrier.phy_cell_id();
            const uint32_t n_id_1 = pci / 3;
            const uint32_t n_id_2 = pci % 3;
@@ -867,8 +859,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
 
               ++num_pss_sss_found;
 
-              Info("RX:%s: PCI %u, peak_sum %0.1f, num_samples %u",
-                   __func__, pci, peak_sum, num_samples);
+              Info("RX:%s: PCI %u, peak_sum %0.1f, num_samples %u", __func__, pci, peak_sum, num_samples);
             }
 
            if(num_samples > 0)
@@ -975,68 +966,74 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
         if(! carrierResults.empty())
          {
            const auto & carrier = carrierResults[0];
-#if 0
-           Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
-#endif
+
            if(carrier.has_pbch())
             {
-              if(DL_Message_SINRTester(dlMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
-                                                             carrier.frequency_hz()).bPassed_)
+              const auto sinrResult = DL_Message_SINRTester(dlMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
+                                                                                  carrier.frequency_hz());
+
+              if(sinrResult.bPassed_)
                {
-                 if(carrier.has_pss_sss())
+                 Info("PBCH:%s pass sinr %f, noise %f",
+                         __func__, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+
+               }
+              else
+               {
+                 Warning("PBCH:%s fail HACK_XXX sinr %f, noise %f",
+                         __func__, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+               }
+
+              //XXX TODO FIXME  allow message thru for now
+              if(carrier.has_pss_sss())
+               {
+                 const auto & pss_sss = carrier.pss_sss();
+
+                 const auto & pbch = carrier.pbch();
+
+                 Info("RX:ue_dl_mib_search: found PBCH");
+
+                 cell->nof_prb   = pbch.num_prb();
+                 cell->nof_ports = pbch.num_antennas();
+
+                 ue_mib_sync->ue_sync.state          = SF_TRACK;
+                 ue_mib_sync->ue_sync.pss_stable_cnt = 1;
+                 ue_mib_sync->ue_sync.pss_is_stable  = true;
+
+                 switch(pbch.phich_resources())
                   {
-                    const auto & pss_sss = carrier.pss_sss();
+                    case EMANELTE::MHAL::PR_ONE_SIXTH:
+                     cell->phich_resources = SRSRAN_PHICH_R_1_6;
+                    break;
 
-                    const auto & pbch = carrier.pbch();
+                    case EMANELTE::MHAL::PR_ONE_HALF:
+                     cell->phich_resources = SRSRAN_PHICH_R_1_2;
+                    break;
 
-                    Info("RX:ue_dl_mib_search: found PBCH");
+                    case EMANELTE::MHAL::PR_ONE:
+                     cell->phich_resources = SRSRAN_PHICH_R_1;
+                    break;
 
-                    cell->nof_prb   = pbch.num_prb();
-                    cell->nof_ports = pbch.num_antennas();
-
-                    ue_mib_sync->ue_sync.state          = SF_TRACK;
-                    ue_mib_sync->ue_sync.pss_stable_cnt = 1;
-                    ue_mib_sync->ue_sync.pss_is_stable  = true;
-
-                    switch(pbch.phich_resources())
-                     {
-                       case EMANELTE::MHAL::PR_ONE_SIXTH:
-                        cell->phich_resources = SRSRAN_PHICH_R_1_6;
-                       break;
-
-                       case EMANELTE::MHAL::PR_ONE_HALF:
-                        cell->phich_resources = SRSRAN_PHICH_R_1_2;
-                       break;
-
-                       case EMANELTE::MHAL::PR_ONE:
-                        cell->phich_resources = SRSRAN_PHICH_R_1;
-                       break;
-
-                       case EMANELTE::MHAL::PR_TWO:
-                        cell->phich_resources = SRSRAN_PHICH_R_2;
-                       break;
-                     }
-
-                    switch(pbch.phich_length())
-                     {
-                       case EMANELTE::MHAL::ENB_DL_Message_PBCH_PHICH_LENGTH_LEN_NORM:
-                        cell->phich_length = SRSRAN_PHICH_NORM;
-                       break;
-
-                       case EMANELTE::MHAL::ENB_DL_Message_PBCH_PHICH_LENGTH_LEN_EXTD:
-                        cell->phich_length = SRSRAN_PHICH_EXT;
-                       break;
-                     }
-
-                    UESTATS::enterMibSearch(true);
-
-                    return 1;
+                    case EMANELTE::MHAL::PR_TWO:
+                     cell->phich_resources = SRSRAN_PHICH_R_2;
+                    break;
                   }
-                }
-               else
-                {
-                  Info("MIB:%s: fail snr", __func__);
-                }
+
+                 switch(pbch.phich_length())
+                  {
+                    case EMANELTE::MHAL::ENB_DL_Message_PBCH_PHICH_LENGTH_LEN_NORM:
+                     cell->phich_length = SRSRAN_PHICH_NORM;
+                    break;
+
+                    case EMANELTE::MHAL::ENB_DL_Message_PBCH_PHICH_LENGTH_LEN_EXTD:
+                     cell->phich_length = SRSRAN_PHICH_EXT;
+                    break;
+                  }
+
+                 UESTATS::enterMibSearch(true);
+
+                 return 1;
+               }
              }
           }
        }
@@ -1082,46 +1079,47 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
 
            if(carrier.has_pbch())
             {
-#if 0
-             Info("RX:%s: carrier %s", __func__, carrier.DebugString().c_str());
-#endif
               // check for PSS SSS if PBCH is good
-              if(DL_Message_SINRTester(dlMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
-                                                             carrier.frequency_hz()).bPassed_)
+              const auto sinrResult = DL_Message_SINRTester(dlMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
+                                                                                  carrier.frequency_hz());
+
+              if(sinrResult.bPassed_)
                {
-                 if(carrier.has_pss_sss())
-                  {
-                    const auto & pss_sss = carrier.pss_sss();
-
-                    const auto & pbch = carrier.pbch();
-
-                    Info("RX:%s: found PBCH, try %u/%u",
-                         __func__,
-                          try_num,
-                          max_tries);
-
-                      ue_sync->state           = SF_TRACK;
-                      ue_sync->pss_stable_cnt  = 1;
-                      ue_sync->pss_is_stable   = true;
-
-                      // set system frame number
-                      *sfn = enb_dl_msg.tti();
-                
-                      UESTATS::enterSysFrameSearch(true);
-
-                      return 1;
-                  }
+                 Info("PBCH:%s pass sinr %f, noise %f",
+                      __func__, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
               else
                {
-                 Warning("PBCH:%s: fail snr", __func__);
+                 Warning("PBCH:%s fail HACK_XXX sinr %f, noise %f",
+                         __func__, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+               }
+
+              //XXX TODO FIXME  allow message thru for now
+              if(carrier.has_pss_sss())
+               {
+                  const auto & pss_sss = carrier.pss_sss();
+ 
+                  const auto & pbch = carrier.pbch();
+ 
+                  Info("RX:%s: found PSS_SSS, try %u/%u", __func__, try_num, max_tries);
+ 
+                  ue_sync->state           = SF_TRACK;
+                  ue_sync->pss_stable_cnt  = 1;
+                  ue_sync->pss_is_stable   = true;
+
+                  // set system frame number
+                  *sfn = enb_dl_msg.tti();
+                
+                  UESTATS::enterSysFrameSearch(true);
+
+                 return 1;
                }
             }
          }
       }
      else
       {
-        Debug("RX:%s: pci %hu, try %d/%u, expected 1, got %zu dl_messages", 
+        Info("RX:%s: pci %hu, try %d/%u, expected 1, got %zu dl_messages", 
                 __func__, ue_sync->cell.id, try_num, max_tries, dlMessages.size());
       }
    }
@@ -1197,7 +1195,6 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
 
       const auto pdsch_results = ue_dl_get_pdsch_data_list_i(dci_message.refid(), rnti, cc_idx, q->cell.id);
 
-      // XXX TODO pass/fail
       UESTATS::getPDCCH(rnti, true);
 
       // expecting 1 pdsch/dci
@@ -1205,7 +1202,6 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
         {
           const auto & pdsch_result = pdsch_results.front();
 
-          // XXX TODO pass/fail
           UESTATS::getPDSCH(rnti, true);
 
           // save the grant for pdsch_decode
@@ -1397,34 +1393,31 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
                                                                 rnti,
                                                                 carrier.frequency_hz());
 
-        ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
         if(sinrResult.bPassed_)
          {
-           const auto & phich_message = carrier.phich();
-
-           if(rnti                == phich_message.rnti()        && 
-              grant->n_prb_lowest == phich_message.num_prb_low() &&
-              grant->n_dmrs       == phich_message.num_dmrs())
-            {
-              result->ack_value = phich_message.ack();
-              result->distance  = 1.0;
-            }
-
-           Info("PHICH:%s cc=%u, sf_idx=%d, n_prb_l=%d, n_dmrs=%d, I_phich=%d, rnti 0x%hx, ack %d, dist %f",
-                __func__,
-                cc_idx,
-                sf->tti % 10,
-                grant->n_prb_lowest,
-                grant->n_dmrs,
-                grant->I_phich,
-                rnti,
-                result->ack_value,
-                result->distance);
-          }
+           Info("PHICH:%s pass cc=%u, sinr %f, noise %f",
+                 __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+         }
         else
          {
-           Warning("PHICH:%s: fail snr", __func__);
+           Warning("PHICH:%s fail HACK_XXX cc=%u, sinr %f, noise %f",
+                   __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+         }
+
+        ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+
+        //XXX TODO FIXME  allow message thru for now
+        const auto & phich_message = carrier.phich();
+
+        if(rnti                == phich_message.rnti()        && 
+           grant->n_prb_lowest == phich_message.num_prb_low() &&
+           grant->n_dmrs       == phich_message.num_dmrs())
+         {
+            Info("PHICH:%s found cc=%u, rnti %u", __func__, cc_idx, rnti);
+
+            result->ack_value = phich_message.ack();
+            result->distance  = 1.0;
          }
       }
    }
@@ -1461,23 +1454,25 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                     DL_Message_SINRTester(dlMessageThisFrame_).sinrCheck2(EMANELTE::MHAL::CHAN_PMCH,
                                                                           carrier.frequency_hz());
 
-                  ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
-
                   if(sinrResult.bPassed_)
                    {
-                     memcpy(data[tb].payload, pmch.data().data(), pmch.data().length());
- 
-                     data[tb].avg_iterations_block = 1;
-
-                     data[tb].crc = true;
-
-                     Info("PMCH:%s: cc=%u, areaid %d, tb[%d], payload %zu bytes, snr %f",
-                          __func__, cc_idx, area_id, tb, pmch.data().size(), q->chest_res.snr_db);
+                     Warning("PMCH:%s: pass cc=%u, sinr %f, noise %f",
+                         __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                    }
                   else
                    {
-                     Warning("PMCH:%s: cc=%u, area_id %d, fail snr", __func__, cc_idx, area_id);
+                     Warning("PMCH:%s: fail HACK_XXX cc=%u, sinr %f, noise %f",
+                         __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                    }
+
+                  //XXX TODO FIXME  allow message thru for now
+                  ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+
+                  memcpy(data[tb].payload, pmch.data().data(), pmch.data().length());
+ 
+                  data[tb].avg_iterations_block = 1;
+
+                  data[tb].crc = true;
                 }
               else
                 {
