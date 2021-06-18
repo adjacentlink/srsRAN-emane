@@ -153,9 +153,18 @@ void intra_measure::write(uint32_t tti, cf_t* data, uint32_t nsamples)
         state.set_state(internal_state::wait);
       } else {
         // As soon as there are enough samples in the buffer, transition to measure
+#ifndef PHY_ADAPTER_ENABLE
         if (srsran_ringbuffer_status(&ring_buffer) >= required_nbytes) {
           state.set_state(internal_state::measure);
         }
+#else
+        static int num_sf = 0;
+        // update measurments every 10 sf
+        if(++num_sf >= 10) { 
+          num_sf = 0;
+          state.set_state(internal_state::measure);
+        }
+#endif
       }
       break;
   }
@@ -208,7 +217,11 @@ void intra_measure::measure_proc()
     cell.id            = id;
 
     srsran_refsignal_dl_sync_set_cell(&refsignal_dl_sync, cell);
+#ifndef PHY_ADAPTER_ENABLE
     srsran_refsignal_dl_sync_run(&refsignal_dl_sync, search_buffer, intra_freq_meas_len_ms * current_sflen);
+#else
+    phy_adapter::ue_get_refsignals(refsignal_dl_sync, id);
+#endif
 
     if (refsignal_dl_sync.found) {
       phy_meas_t m = {};

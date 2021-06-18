@@ -758,12 +758,13 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
      // in_sync_snr_db_th      default 3.0
      // phy.snr_ema_coeff      defualt 0.1
      const float snr = phy_adapter::ue_dl_get_snr(cc_idx);
+     const float nf  = phy_adapter::ue_dl_get_nf (cc_idx);
 
-     // XXX TODO get actual rxpower, noise, rsrp and rsrq
+     // get rxpower, noise, rsrp and rsrq
      avg_noise   [cc_idx] =  0;
-     avg_rsrp_dbm[cc_idx] =  snr - 100;
-     avg_rsrq_db [cc_idx] =  snr - 20;
-     avg_rssi_dbm[cc_idx] =  20;
+     avg_rsrp_dbm[cc_idx] =  phy_adapter::ue_snr_to_rsrp(snr);
+     avg_rsrq_db [cc_idx] =  phy_adapter::ue_snr_to_rsrq(snr);
+     avg_rssi_dbm[cc_idx] =  phy_adapter::ue_snr_to_rssi(snr,nf);
      pathloss    [cc_idx] =  0;
      avg_sinr_db [cc_idx] =  snr;
      avg_snr_db  [cc_idx] =  snr;

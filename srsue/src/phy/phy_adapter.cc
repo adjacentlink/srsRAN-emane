@@ -84,6 +84,11 @@ namespace {
 
  uint32_t my_cell_id_ = 0;
 
+ // cell_id, sinr, noise floor, timestamp
+ using NbrCell = std::tuple<uint32_t, float, float, time_t>;
+
+ std::list<NbrCell> nbr_cells_;
+
  srslog::basic_logger * logger_phy = nullptr;
 
  struct SignalQuality {
@@ -99,11 +104,12 @@ namespace {
 
  class SINRManager {
   public:
-    // 1000 frames or 1 sec
-    SINRManager(size_t maxEntries = 1000) :
+    // 1000 frames
+    SINRManager(const size_t maxEntries = 1000) :
      maxEntries_(maxEntries)
     { 
-      sum_ = 0;
+      sumX_ = 0;
+      sumY_ = 0;
     }
  
     void clear()
@@ -111,24 +117,27 @@ namespace {
        std::lock_guard<std::mutex> lock(mutex_);
 
        entries_.clear();
-       sum_ = 0;
+       sumX_ = 0;
+       sumY_ = 0;
      }
 
-    void update(double x)
+    void update(const double x, const double y)
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
-       sum_ += x;
-       entries_.push_front(x);
+       sumX_ += x;
+       sumY_ += y;
+       entries_.emplace_front(x,y);
 
        if(entries_.size() > maxEntries_)
         {
-          sum_ -= entries_.back();
+          sumX_ -= entries_.back().first;
+          sumY_ -= entries_.back().second;
           entries_.pop_back();
         }
      }
 
-    double get()
+    double getX()
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
@@ -138,14 +147,30 @@ namespace {
         }
        else
         {
-          return sum_/entries_.size();
+          return sumX_/entries_.size();
         }
      }
 
+    double getY()
+     {
+       std::lock_guard<std::mutex> lock(mutex_);
+
+       if(entries_.empty())
+        {
+          return -150;
+        }
+       else
+        {
+          return sumY_/entries_.size();
+        }
+     }
+
+
    private:
-    std::deque<double> entries_;
+    std::deque<std::pair<double, double>> entries_;
     const size_t maxEntries_;
-    double       sum_;
+    double       sumX_;
+    double       sumY_;
     std::mutex   mutex_;
  };
    
@@ -170,7 +195,7 @@ namespace {
 
  std::mutex ul_mutex_;
 
- static inline bool is_valid_n_id_2(int n_id_2)
+ static inline bool is_valid_n_id_2(const int n_id_2)
   {
     return(n_id_2 >= 0 && n_id_2 < 3);
   }
@@ -215,8 +240,8 @@ namespace {
   void initUplinkChannelMessage(EMANELTE::MHAL::ChannelMessage * channelMessage,
                                 EMANELTE::MHAL::CHANNEL_TYPE ctype,
                                 EMANELTE::MHAL::MOD_TYPE modType,
-                                uint32_t infoBits,
-                                float txPowerScaledB=0.0)
+                                const uint32_t infoBits,
+                                const float txPowerScaledB=0.0)
   {
     channelMessage->set_channel_type(ctype);
     channelMessage->set_modulation_type(modType);
@@ -259,7 +284,7 @@ typedef std::pair<EMANELTE::MHAL::ENB_DL_Message_PDSCH_Data, SignalQuality> PDSC
 typedef std::vector<PDSCH_Result> PDSCH_Results;
 
 
-static inline EMANELTE::MHAL::MOD_TYPE convert(srsran_mod_t type)
+static inline EMANELTE::MHAL::MOD_TYPE convert(const srsran_mod_t type)
 {
   switch(type)
     {
@@ -283,7 +308,7 @@ static inline EMANELTE::MHAL::MOD_TYPE convert(srsran_mod_t type)
 }
 
 // lookup tx freq that matches the frequencies associated with the cc_idx
-static inline uint64_t getTxFrequency(uint32_t cc_idx)
+static inline uint64_t getTxFrequency(const uint32_t cc_idx)
 {
    const auto iter = carrierIndexFrequencyTable_.find(cc_idx);
 
@@ -297,7 +322,7 @@ static inline uint64_t getTxFrequency(uint32_t cc_idx)
 
 
 // lookup rx freq that matches the frequencies associated with the cc_idx
-static inline uint64_t getRxFrequency(uint32_t cc_idx)
+static inline uint64_t getRxFrequency(const uint32_t cc_idx)
 {
    const auto iter = carrierIndexFrequencyTable_.find(cc_idx);
 
@@ -316,14 +341,14 @@ getCarriers(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, const uint32_t cc
  {
    CarrierResults carrierResults;
 
-   const auto rxFreq = getRxFrequency(cc_idx);
+   const auto rx_freq = getRxFrequency(cc_idx);
 
-   if(rxFreq != 0)
+   if(rx_freq != 0)
     {
       for(const auto & carrier : enb_dl_msg.carriers())
        {
          // match our rx freq to the msg carrier tx center freq
-         if(rxFreq == carrier.frequency_hz())
+         if(rx_freq == carrier.frequency_hz())
           {
             if((cell_id == 0) || (cell_id == carrier.phy_cell_id()))
              {
@@ -333,9 +358,7 @@ getCarriers(const EMANELTE::MHAL::ENB_DL_Message & enb_dl_msg, const uint32_t cc
        }
     }
              
-  // Info("%s: cc=%u, rxFreq %u found %zu entries", __func__, cc_idx, rxFreq, carrierResults.size());
-
-  return carrierResults;
+   return carrierResults;
  }
 
 
@@ -365,7 +388,7 @@ typedef struct SRSRAN_API {
 } srsran_chest_dl_res_t;
 */
 
-static void ue_dl_update_chest_i(srsran_chest_dl_res_t * chest_res, float snr_db, float noise_db)
+static void ue_dl_update_chest_i(srsran_chest_dl_res_t * chest_res, const float snr_db, const float noise_db)
 {
     //  from faux_rf
     chest_res->cfo                = 0;
@@ -391,11 +414,8 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
      ts->frac_secs = FrameMessage_timestamp(frameSignals_).tv_usec / 1e6;
    }
 
-  // all signals from all enb(s)
+  // all carriers from all enb(s)
   DL_Messages dlMessages;
-
-  // check for unique pci, we can handle only unique pci's
-  std::set<uint32_t> pciSet;
 
   // for each rx message
   for(const auto & rxMessage : FrameMessage_rxMessages(frameSignals_))
@@ -404,45 +424,30 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
 
      if(enb_dl_msg.ParseFromString(RxMessage_Data(rxMessage)))
       {
-       const auto & rxControl = RxMessage_RxControl(rxMessage);
+        const auto & rxControl = RxMessage_RxControl(rxMessage);
 
-       EMANELTE::MHAL::SINRTester sinrTester{RxMessage_SINRTesters(rxMessage)};
+        EMANELTE::MHAL::SINRTester sinrTester{RxMessage_SINRTesters(rxMessage)};
 
-       // check each carrier for this enb
-       for(const auto & carrier : enb_dl_msg.carriers())
-        {
-          const uint32_t & pci = carrier.phy_cell_id();
+        // check each carrier for this enb
+        for(const auto & carrier : enb_dl_msg.carriers())
+         {
+           const uint32_t & pci = carrier.phy_cell_id();
          
-          // each pci must be unique 
-          if(! pciSet.insert(pci).second)
-           {
-             Info("RX:%s carrier %lu Hz, rx_seq %lu, duplicate pci %u, drop",
-                   __func__, carrier.frequency_hz(), rxControl.rx_seqnum_, pci);
+           const auto iter = rxFrequencyToCarrierIndex_.find(carrier.frequency_hz());
 
-             sinrTester.release();
+           if(iter != rxFrequencyToCarrierIndex_.end())
+            {
+              sinrManager_[iter->second].update(rxControl.avg_snr_[iter->second], rxControl.avg_nf_[iter->second]);
 
-             break; // done with this enb
-           }
-        }
+              nbr_cells_.emplace_back(NbrCell(pci,
+                                              rxControl.avg_snr_[iter->second],
+                                              rxControl.avg_snr_[iter->second],
+                                              ts->full_secs));
+            }
+         }
 
-       // check all pci are unique
-       if(pciSet.size() == (size_t)enb_dl_msg.carriers().size())
-        {
-          // update signal quality for this enb
-          for(const auto & carrier : enb_dl_msg.carriers())
-           {
-             const auto iter = rxFrequencyToCarrierIndex_.find(carrier.frequency_hz());
-
-             if(iter != rxFrequencyToCarrierIndex_.end())
-              {
-                // XXX TODO track ref signals only or avg snr?
-                sinrManager_[iter->second].update(rxControl.avg_snr_[iter->second]);
-              }
-           }
-
-          // save msg compenents
-          dlMessages.emplace_back(enb_dl_msg, rxControl, sinrTester);
-        }
+         // save msg compenents
+         dlMessages.emplace_back(DL_Message(enb_dl_msg, rxControl, sinrTester));
       }
      else
       {
@@ -485,10 +490,6 @@ static DL_Messages ue_dl_enb_subframe_get_pci_i(srsran_ue_sync_t * ue_sync, cons
              }
 
             return DL_Messages{dlMessage};
-          }
-         else
-          {
-            Info("RX:%s pci %u != cell pci %u, drop", __func__, pci, ue_sync->cell.id);
           }
        }
     }
@@ -652,7 +653,7 @@ static void ue_set_crnti_i(uint16_t crnti)
 }
 
 
-void ue_initialize(uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_t & mhal_config)
+void ue_initialize(const uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_t & mhal_config)
 {
   logger_phy = &srslog::fetch_basic_logger("PHY");
 
@@ -666,7 +667,7 @@ void ue_initialize(uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_t & mh
 }
 
 
-void ue_set_earfcn(double rx_freq_hz, double tx_freq_hz, uint32_t earfcn)
+void ue_set_earfcn(const double rx_freq_hz, const double tx_freq_hz, const uint32_t earfcn)
 {
   Info("INIT:%s rx_freq %6.4f MHz, tx_freq %6.4f MHz, earfcn %u -> %u",
        __func__,
@@ -686,7 +687,7 @@ void ue_set_frequency(uint32_t cc_idx,
 
    rxFrequencyToCarrierIndex_[llround(rx_freq_hz)] = cc_idx;
 
-   Warning("%s cc_idx %u, rx_freq %6.4f MHz, tx_freq %6.4f MHz",
+   Warning("%s cc=%u, rx_freq %6.4f MHz, tx_freq %6.4f MHz",
            __func__,
            cc_idx,
            rx_freq_hz/1e6,
@@ -704,13 +705,16 @@ void ue_set_sync(srsue::sync * sync)
 
 void ue_set_cell(const srsue::phy_cell_t* cell)
 {
-  Warning("INIT:%s pci %u -> %u", __func__, my_cell_id_, cell->pci);
+  if(cell->pci != my_cell_id_)
+   {
+     Warning("%s pci %u -> %u", __func__, my_cell_id_, cell->pci);
 
-  my_cell_id_ = cell->pci;
+     my_cell_id_ = cell->pci;
+   }
 }
 
 
-void ue_set_bandwidth(int n_prb)
+void ue_set_bandwidth(const int n_prb)
 {
   Info("INIT:%s n_prb %d", __func__, n_prb);
 
@@ -756,7 +760,7 @@ void ue_stop()
 }
 
 
-void ue_set_prach_freq_offset(uint32_t freq_offset)
+void ue_set_prach_freq_offset(const uint32_t freq_offset)
 {
   Info("MHAL:%s %u", __func__, freq_offset);
 
@@ -790,10 +794,6 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
                           int force_nid_2,
                           uint32_t *max_peak)
 {
-  const uint32_t cc_idx = 0;  // cc_idx 0 on cell search
-
-  const uint32_t cell_id = 0; // no cell id yet
-
   // cell search seems to be done in blocks of 5 sf's
   const uint32_t max_tries = cs->max_frames * 5; // 40 sf
 
@@ -804,6 +804,9 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
 
   uint32_t num_pss_sss_found = 0;
   uint32_t try_num           = 0;
+
+  // reset my cell id
+  my_cell_id_ = 0;
 
   // notify in cell search
   EMANELTE::MHAL::UE::begin_cell_search();
@@ -820,12 +823,10 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
       {
         const auto & enb_dl_msg = DL_Message_Message(dlMessage);
 
-        // locate carrier 0, pci 0
-        const auto carrierResults = getCarriers(enb_dl_msg, cc_idx, cell_id);
+        const auto carrierResults = getCarriers(enb_dl_msg, 0, my_cell_id_);
 
-        if(! carrierResults.empty())
+        for(const auto & carrier : carrierResults)
          {
-           const auto & carrier  = carrierResults[0];
            const uint32_t pci    = carrier.phy_cell_id();
            const uint32_t n_id_1 = pci / 3;
            const uint32_t n_id_2 = pci % 3;
@@ -833,8 +834,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
            // force is enabled, but this cell id group does not match
            if(is_valid_n_id_2(force_nid_2) && n_id_2 != (uint32_t)force_nid_2)
             {
-              Info("RX:%s: n_id_1 %u, n_id_2 %u != %d, ignore",
-                   __func__, n_id_1, n_id_2, force_nid_2);
+              Info("RX:%s: n_id_1 %u, n_id_2 %u != %d, ignore", __func__, n_id_1, n_id_2, force_nid_2);
  
               continue;
             }
@@ -853,9 +853,9 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
 
               const auto & rxControl = DL_Message_RxControl(dlMessage);
 
-              peak_sum = rxControl.peak_sum_[cc_idx];
+              peak_sum = rxControl.peak_sum_[0];
 
-              num_samples = rxControl.num_samples_[cc_idx];
+              num_samples = rxControl.num_samples_[0];
 
               ++num_pss_sss_found;
 
@@ -961,7 +961,7 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
 
         const auto & enb_dl_msg = DL_Message_Message(dlMessage);
 
-        const auto carrierResults = getCarriers(enb_dl_msg, 0, cell->id); // cc_id 0
+        const auto carrierResults = getCarriers(enb_dl_msg, 0, cell->id);
 
         if(! carrierResults.empty())
          {
@@ -1071,7 +1071,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
 
         const auto & enb_dl_msg = DL_Message_Message(dlMessage);
 
-        const auto carrierResults = getCarriers(enb_dl_msg, 0, ue_sync->cell.id); // cc_id 0
+        const auto carrierResults = getCarriers(enb_dl_msg, 0, ue_sync->cell.id);
 
         if(! carrierResults.empty())
          {
@@ -1131,7 +1131,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
 
 
 // 4 this is the main rx handler
-int ue_dl_sync_search(srsran_ue_sync_t * ue_sync, uint32_t tti)
+int ue_dl_sync_search(srsran_ue_sync_t * ue_sync, const uint32_t tti)
 {
    // set next tx tti
    tti_tx_ = (tti+4)%10240;
@@ -1163,9 +1163,14 @@ int ue_dl_sync_search(srsran_ue_sync_t * ue_sync, uint32_t tti)
    return dlMessages.size();
 }
 
-float ue_dl_get_snr(uint32_t cc_idx)
+float ue_dl_get_snr(const uint32_t cc_idx)
 {
-   return sinrManager_[cc_idx].get();
+   return sinrManager_[cc_idx].getX();
+}
+
+float ue_dl_get_nf(const uint32_t cc_idx)
+{
+   return sinrManager_[cc_idx].getY();
 }
 
 // see ue_dl_find_dl_dc
@@ -1177,9 +1182,9 @@ float ue_dl_get_snr(uint32_t cc_idx)
 int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
                          srsran_dl_sf_cfg_t* sf,
                          srsran_ue_dl_cfg_t* dl_cfg,
-                         uint16_t            rnti,
+                         const uint16_t      rnti,
                          srsran_dci_dl_t     dci_dl[SRSRAN_MAX_DCI_MSG],
-                         uint32_t            cc_idx)
+                         const uint32_t      cc_idx)
 
 {
   srsran_dci_msg_t dci_msg[SRSRAN_MAX_DCI_MSG] = {{}};
@@ -1267,9 +1272,9 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
 int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
                          srsran_dl_sf_cfg_t* sf,
                          srsran_ue_dl_cfg_t* dl_cfg,
-                         uint16_t            rnti,
+                         const uint16_t      rnti,
                          srsran_dci_ul_t     dci_ul[SRSRAN_MAX_DCI_MSG],
-                         uint32_t cc_idx)
+                         const uint32_t cc_idx)
 {
   srsran_dci_msg_t dci_msg[SRSRAN_MAX_DCI_MSG] = {{}};
 
@@ -1330,7 +1335,7 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
                           srsran_dl_sf_cfg_t* sf,
                           srsran_pdsch_cfg_t* cfg,
                           srsran_pdsch_res_t  data[SRSRAN_MAX_CODEWORDS],
-                          uint32_t cc_idx)
+                          const uint32_t cc_idx)
 {
    const auto rnti = cfg->rnti;
 
@@ -1353,7 +1358,7 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
 
              ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
 
-             Info("PDSCH:%s: rnti 0x%hx, refid %d, tb[%d], payload %zu bytes, snr %f",
+             Info("PDSCH:%s: rnti 0x%hx, refid %d, tb[%d], payload %zu bytes, sinr %f",
                    __func__, rnti, pdsch_message.refid(), tb, pdsch_data.size(), q->chest_res.snr_db);
            }
          else
@@ -1373,8 +1378,8 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
                           srsran_ue_dl_cfg_t*   cfg,
                           srsran_phich_grant_t* grant,
                           srsran_phich_res_t*   result,
-                          uint16_t rnti,
-                          uint32_t cc_idx)
+                          const uint16_t rnti,
+                          const uint32_t cc_idx)
 {
   srsran_phich_resource_t n_phich;
 
@@ -1430,7 +1435,7 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                          srsran_dl_sf_cfg_t* sf,
                          srsran_pmch_cfg_t*  cfg,
                          srsran_pdsch_res_t  data[SRSRAN_MAX_CODEWORDS],
-                         uint32_t cc_idx)
+                         const uint32_t cc_idx)
 {
    const auto area_id = cfg->area_id;
 
@@ -1493,7 +1498,7 @@ void ue_ul_tx_init()
 }
 
 // send to mhal
-void ue_ul_send_signal(time_t sot_sec, float frac_sec, const srsran_cell_t & cell)
+void ue_ul_send_signal(const time_t sot_sec, const float frac_sec, const srsran_cell_t & cell)
 {
   // end of tx sequence, tx_end will release lock
   std::lock_guard<std::mutex> lock(ul_mutex_);
@@ -1541,7 +1546,7 @@ void ue_ul_send_signal(time_t sot_sec, float frac_sec, const srsran_cell_t & cel
 }
 
 
-void ue_ul_put_prach(int index)
+void ue_ul_put_prach(const int index)
 {
   std::lock_guard<std::mutex> lock(ul_mutex_);
 
@@ -1586,7 +1591,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
                       srsran_ul_sf_cfg_t* sf,
                       srsran_ue_ul_cfg_t* cfg,
                       srsran_uci_value_t* uci_data,
-                      uint32_t cc_idx)
+                      const uint32_t cc_idx)
 {
    std::lock_guard<std::mutex> lock(ul_mutex_);
 
@@ -1692,7 +1697,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
 }
 
 
-static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data, uint32_t cc_idx)
+static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data, const uint32_t cc_idx)
 {
    std::lock_guard<std::mutex> lock(ul_mutex_);
 
@@ -1751,7 +1756,7 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
 //                     srsran_ue_ul_cfg_t* cfg,
 //                     srsran_pusch_data_t* data);
 //
-int ue_ul_encode(srsran_ue_ul_t* q, srsran_ul_sf_cfg_t* sf, srsran_ue_ul_cfg_t* cfg, srsran_pusch_data_t* data, uint32_t cc_idx)
+int ue_ul_encode(srsran_ue_ul_t* q, srsran_ul_sf_cfg_t* sf, srsran_ue_ul_cfg_t* cfg, srsran_pusch_data_t* data, const uint32_t cc_idx)
 {
   /* Convert DTX to NACK in channel-selection mode (Release 10 only)*/
   if(cfg->ul_cfg.pucch.ack_nack_feedback_mode != SRSRAN_PUCCH_ACK_NACK_FEEDBACK_MODE_NORMAL) {
@@ -1791,22 +1796,56 @@ int ue_ul_encode(srsran_ue_ul_t* q, srsran_ul_sf_cfg_t* sf, srsran_ue_ul_cfg_t* 
     }
 }
 
+
 std::set<uint32_t>
 ue_get_detected_cells(const srsran_cell_t & cell)
 {
+   const auto time_now = time(NULL);
+
    std::set<uint32_t> detected_cells;
 
-   detected_cells.insert(99);
-
-   fprintf(stderr, "%s XXX size detected_cells %zu", __func__, detected_cells.size());
+   for(auto iter = nbr_cells_.begin(); iter != nbr_cells_.end(); /* bump below */)
+    {
+      // check time out 10 sec
+      if(std::get<3>(*iter) + 10 >= time_now)
+       {
+         detected_cells.insert(std::get<0>(*iter));
+   
+         ++iter;
+       }
+     else
+       {
+         nbr_cells_.erase(iter++);
+       }
+    }
 
    return detected_cells;
 }
 
-void ue_get_neighbor_cells(std::vector<phy_meas_t> & neighbor_cells)
-{
 
-   fprintf(stderr, "%s XXX size neighbor_cells %zu", __func__, neighbor_cells.size());
+void ue_get_refsignals(srsran_refsignal_dl_sync_t & refsignal_dl_sync, const uint32_t cell_id)
+{
+   for(const auto & nbr : nbr_cells_)
+    {
+      if(std::get<0>(nbr) == cell_id)
+        {
+          refsignal_dl_sync.found      = true;
+          refsignal_dl_sync.rsrp_dBfs  = phy_adapter::ue_snr_to_rsrp(std::get<1>(nbr));
+          refsignal_dl_sync.rsrq_dB    = phy_adapter::ue_snr_to_rsrq(std::get<1>(nbr));
+          refsignal_dl_sync.rssi_dBfs  = phy_adapter::ue_snr_to_rssi(std::get<1>(nbr), std::get<2>(nbr));
+          refsignal_dl_sync.cfo_Hz     = 0;
+          refsignal_dl_sync.peak_index = 0;
+
+          return;
+       }
+    }
+
+   refsignal_dl_sync.found      = false;
+   refsignal_dl_sync.rsrp_dBfs  = 0;
+   refsignal_dl_sync.rssi_dBfs  = 0;
+   refsignal_dl_sync.rsrq_dB    = 0;
+   refsignal_dl_sync.cfo_Hz     = 0;
+   refsignal_dl_sync.peak_index = 0;
 }
 
 
