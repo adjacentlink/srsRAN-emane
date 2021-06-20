@@ -59,19 +59,24 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz)
 
    ptr->set_frequency_hz(frequencyHz);
 
+   ptr->set_carrier_id(0);
+
    return ptr;
  }
 
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId)
+R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, const uint32_t ccId)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
-      // check freq and pci to the msg carrier tx center freq
-      if(frequencyHz == msg.carriers(idx).frequency_hz() &&
-         cellId == msg.carriers(idx).phy_cell_id())
+      const auto carrier = msg.mutable_carriers(idx);
+      // check channel freq, pci and cc
+
+      if(frequencyHz == carrier->frequency_hz() &&
+         cellId      == carrier->phy_cell_id()  &&
+         ccId        == carrier->carrier_id())
        {
-         return msg.mutable_carriers(idx);
+         return carrier;
        }
     }
   
@@ -80,6 +85,8 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId)
    ptr->set_frequency_hz(frequencyHz);
 
    ptr->set_phy_cell_id(cellId);
+
+   ptr->set_carrier_id(ccId);
 
    return ptr;
  }
