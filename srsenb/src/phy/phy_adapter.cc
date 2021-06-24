@@ -75,9 +75,6 @@ namespace {
   // track pci to carrier
   std::map<uint32_t,uint32_t> pciTable_;
 
-  // track carrier to pci
-  std::map<uint32_t,uint32_t> carrierTable_;
-
   uint64_t tx_seqnum_ = 0;
   uint32_t curr_tti_  = 0;
   uint32_t tti_tx_    = 0;
@@ -256,7 +253,7 @@ findCarriers(const EMANELTE::MHAL::UE_UL_Message & ue_dl_msg, const uint32_t cc_
       for(const auto & carrier : ue_dl_msg.carriers())
        {
          // match our rx freq to the msg carrier tx center freq and cell id
-         if(rxFreq == carrier.frequency_hz() && cell_id == carrier.phy_cell_id())
+         if((rxFreq == carrier.frequency_hz()) && (cell_id == carrier.phy_cell_id()))
           {
             carrierResults.emplace_back(carrier);
 
@@ -736,9 +733,6 @@ void enb_dl_cc_tx_init(const srsran_enb_dl_t *q,
   // cell_id cc_idx map
   pciTable_[q->cell.id] = cc_idx;
 
-  // cc_idx cell_id map
-  carrierTable_[cc_idx] = q->cell.id;
-
   // save the tti_tx
   tti_tx_ = tti_tx;
 
@@ -1116,47 +1110,18 @@ bool enb_ul_get_signal(uint32_t tti, srsran_timestamp_t * ts)
    {
      EMANELTE::MHAL::UE_UL_Message ue_ul_msg;
 
-     if(ue_ul_msg.ParseFromString(RxMessage_Data(rxMessage)))
+     if(ue_ul_msg.ParseFromString(rxMessage.data_))
       {
-        const auto & rxControl = RxMessage_RxControl(rxMessage);
-
-        EMANELTE::MHAL::SINRTester sinrTester{RxMessage_SINRTesters(rxMessage)};
-
-        int numMatch = 0;
+        const auto & rxControl = rxMessage.rxControl_;
 
         for(auto & carrier : ue_ul_msg.carriers())
          {
            if(pciTable_.count(carrier.phy_cell_id()))
             {
-              ++numMatch;
+              ulMessages_.emplace_back(ue_ul_msg, rxControl, rxMessage.sinrTesters_);
+
+              break;
             }
-         }
-
-        // need at least 1 match
-        if(numMatch)
-         {
-#if 0
-           Info("RX:%s sf_time %ld:%06ld, seqnum %lu, rnti 0x%hx, tti %u, cariers %d, match %d",
-                  __func__,
-                  rxControl.sf_time_.tv_sec,
-                  rxControl.sf_time_.tv_usec,
-                  rxControl.rx_seqnum_,
-                  ue_ul_msg.crnti(),
-                  ue_ul_msg.tti(),
-                  ue_ul_msg.carriers().size(),
-                  numMatch);
-#endif
-
-           // save for later
-           ulMessages_.emplace_back(ue_ul_msg, rxControl, sinrTester);
-         }
-        else
-         {
-           Warning("RX:%s no matching pci's, in %d carriers, drop",
-                  __func__,
-                  ue_ul_msg.carriers().size());
-
-           sinrTester.release();
          }
       }
     else

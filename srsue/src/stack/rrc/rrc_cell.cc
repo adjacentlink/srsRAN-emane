@@ -422,7 +422,7 @@ bool meas_cell_list<T>::process_new_cell_meas(const std::vector<phy_meas_t>&    
       neighbour_added |= add_meas_cell(m);
     }
 
-    logger.info("MEAS:  New measurement %s cell: earfcn=%d, pci=%d, rsrp=%.2f dBm, cfo=%+.1f Hz",
+    logger.debug("MEAS:  New measurement %s cell: earfcn=%d, pci=%d, rsrp=%.2f dBm, cfo=%+.1f Hz",
                 is_serving_cell ? "serving" : "neighbour",
                 m.earfcn,
                 m.pci,
