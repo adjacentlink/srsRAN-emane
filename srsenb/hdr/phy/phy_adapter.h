@@ -47,8 +47,8 @@ void enb_initialize(uint32_t                       sf_interval,
                     rrc_cfg_t*                     rrc_cfg);
 
  void enb_set_frequency(uint32_t cc_idx,
-                        double rx_freq_hz,
-                        double tx_freq_hz);
+                        float rx_freq_hz,
+                        float tx_freq_hz);
 
  // state start
  void enb_start();

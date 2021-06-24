@@ -561,8 +561,8 @@ void enb_init_i(uint32_t idx,
                 uint32_t sf_interval_msec, 
                 uint32_t physical_cell_id, 
                 srsran_cp_t cp,
-                double ul_freq_hz, // rx
-                double dl_freq_hz, // tx
+                float ul_freq_hz, // rx
+                float dl_freq_hz, // tx
                 int n_prb, 
                 EMANELTE::MHAL::mhal_config_t & mhal_config,
                 rrc_cfg_t * rrc_cfg)
@@ -633,8 +633,8 @@ void enb_initialize(uint32_t sf_interval_msec,
 
 
 void enb_set_frequency(uint32_t cc_idx,
-                       double rx_freq_hz,
-                       double tx_freq_hz)
+                       float rx_freq_hz,
+                       float tx_freq_hz)
 {
    carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{llround(rx_freq_hz), llround(tx_freq_hz)};
 
@@ -1166,13 +1166,18 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
 
          if(carrier.has_prach())
           {
+            const auto carrierId = carrier.carrier_id();
+
             const auto sinrResult = 
               UL_Message_SINRTester(ulMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PRACH,
-                                                          carrier.frequency_hz());
+                                                          carrier.frequency_hz(),
+                                                          carrierId);
 
             if(! sinrResult.bPassed_)
              {
-               Warning("PRACH:%s: cc=%u, fail snr, %f, skip this msg", __func__, cc_idx, sinrResult.sinr_dB_);
+               Warning("PRACH:%s: cc=%u, fail snr, %f, %d", 
+                       __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.bFound_);
+
                continue;
              }
 
@@ -1310,10 +1315,13 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
 
               if(grant.rnti() == rnti)
                {
+                 const auto carrierId = carrier.carrier_id();
+
                  const auto sinrResult = 
                    UL_Message_SINRTester(ulMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PUCCH, 
                                                                rnti, 
-                                                               carrier.frequency_hz());
+                                                               carrier.frequency_hz(),
+                                                               carrierId);
 
                  if(sinrResult.bPassed_)
                   {
@@ -1356,8 +1364,8 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                   }
                  else
                   {
-                    Warning("PUCCH:%s: cc=%u, fail snr, rnti %hu, %f", 
-                            __func__, cc_idx, rnti, sinrResult.sinr_dB_);
+                    Warning("PUCCH:%s: cc=%u, fail snr, rnti %hu, %f, found %d", 
+                            __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.bFound_);
 
                     q->chest_res.snr_db             = sinrResult.sinr_dB_;
                     q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
@@ -1419,10 +1427,13 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
 
               if(grant.rnti() == rnti)
                {
+                 const auto carrierId = carrier.carrier_id();
+
                  const auto sinrResult = 
                    UL_Message_SINRTester(ulMessage).sinrCheck2(EMANELTE::MHAL::CHAN_PUSCH,
                                                                   rnti,
-                                                                  carrier.frequency_hz());
+                                                                  carrier.frequency_hz(),
+                                                                  carrierId);
                  if(sinrResult.bPassed_)
                   {
                     const auto & ul_grant_message = grant.ul_grant();
@@ -1451,8 +1462,8 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                   }
                 else
                   {
-                    Warning("PUSCH:%s: cc=%u, fail snr, rnti %hu, %f", 
-                            __func__, cc_idx, rnti, sinrResult.sinr_dB_);
+                    Warning("PUSCH:%s: cc=%u, fail snr, rnti %hu, %f, found %d", 
+                            __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.bFound_);
 
                     q->chest_res.snr_db             = sinrResult.sinr_dB_;
                     q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;

@@ -47,13 +47,13 @@ void ue_start();
 void ue_stop();
 
 void ue_set_frequency(const uint32_t cc_idx,
-                      const double rx_freq_hz,
-                      const double tx_freq_hz);
+                      const float rx_freq_hz,
+                      const float tx_freq_hz);
 
 void ue_set_cell(const srsue::phy_cell_t* cell);
 
-void ue_set_earfcn(const double rx_freq_hz,
-                   const double tx_freq_hz,
+void ue_set_earfcn(const float rx_freq_hz,
+                   const float tx_freq_hz,
                    const uint32_t earfcn);
 
 void ue_set_bandwidth(int n_prb);

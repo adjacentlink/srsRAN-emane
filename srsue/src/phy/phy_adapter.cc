@@ -92,10 +92,10 @@ namespace {
  srslog::basic_logger * logger_phy = nullptr;
 
  struct SignalQuality {
-  double sinr_dB_;
-  double noiseFloor_dBm_;
+  const float sinr_dB_;
+  const float noiseFloor_dBm_;
 
-  SignalQuality(double sinr, double noiseFloor) :
+  SignalQuality(const float sinr, const float noiseFloor) :
    sinr_dB_(sinr),
    noiseFloor_dBm_(noiseFloor)
   { }
@@ -121,7 +121,7 @@ namespace {
        sumY_ = 0;
      }
 
-    void update(const double x, const double y)
+    void update(const float x, const float y)
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
@@ -137,7 +137,7 @@ namespace {
         }
      }
 
-    double getX()
+    float getX()
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
@@ -151,7 +151,7 @@ namespace {
         }
      }
 
-    double getY()
+    float getY()
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
@@ -167,10 +167,10 @@ namespace {
 
 
    private:
-    std::deque<std::pair<double, double>> entries_;
+    std::deque<std::pair<float, float>> entries_;
     const size_t maxEntries_;
-    double       sumX_;
-    double       sumY_;
+    float       sumX_;
+    float       sumY_;
     std::mutex   mutex_;
  };
    
@@ -530,7 +530,8 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
               const auto sinrResult = 
                 DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PDCCH,
                                                          rnti, 
-                                                         carrier.frequency_hz());
+                                                         carrier.frequency_hz(),
+                                                         carrierId);
 
               if(sinrResult.bPassed_)
                {
@@ -542,8 +543,8 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                }
               else
                {
-                 Warning("PUCCH:%s: carrierId %u, fail cc=%u, rnti 0x%hx, sinr %f, noise %f",
-                         __func__, carrierId, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                 Warning("PUCCH:%s: carrierId %u, fail cc=%u, rnti 0x%hx, sinr %f, noise %f, found %d",
+                         __func__, carrierId, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
                }
 
               break; // rnti found, done
@@ -579,7 +580,8 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
               const auto sinrResult = 
                  DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PDCCH,
                                                           rnti,
-                                                          carrier.frequency_hz());
+                                                          carrier.frequency_hz(),
+                                                          carrierId);
 
               if(sinrResult.bPassed_)
                {
@@ -590,8 +592,8 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                }
               else
                {
-                 Warning("PDSCH:%s: carrierId %u, fail cc=%u, rnti 0x%hx, sinr %f, noise %f",
-                         __func__, carrierId, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                 Warning("PDSCH:%s: carrierId %u, fail cc=%u, rnti 0x%hx, sinr %f, noise %f, found %d",
+                         __func__, carrierId, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
                }
 
               break; // rnti found, done
@@ -625,7 +627,8 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
         const auto sinrResult = 
           DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PDSCH,
                                                    rnti,
-                                                   carrier.frequency_hz());
+                                                   carrier.frequency_hz(),
+                                                   carrierId);
 
         if(sinrResult.bPassed_)
          {
@@ -646,8 +649,8 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
          }
         else
          {
-           Warning("PDSCH:%s: carrierId %u, fail cc=%u, sinr %f, noise %f",
-                   __func__, carrierId, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           Warning("PDSCH:%s: carrierId %u, fail cc=%u, sinr %f, noise %f, found %d",
+                   __func__, carrierId, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
          }
       }
    }
@@ -681,7 +684,7 @@ void ue_initialize(const uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_
 }
 
 
-void ue_set_earfcn(const double rx_freq_hz, const double tx_freq_hz, const uint32_t earfcn)
+void ue_set_earfcn(const float rx_freq_hz, const float tx_freq_hz, const uint32_t earfcn)
 {
   Info("INIT:%s rx_freq %6.4f MHz, tx_freq %6.4f MHz, earfcn %u -> %u",
        __func__,
@@ -694,8 +697,8 @@ void ue_set_earfcn(const double rx_freq_hz, const double tx_freq_hz, const uint3
 }
 
 void ue_set_frequency(uint32_t cc_idx,
-                      double rx_freq_hz,
-                      double tx_freq_hz)
+                      float rx_freq_hz,
+                      float tx_freq_hz)
 {
    carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{llround(rx_freq_hz), llround(tx_freq_hz)}; // rx/tx
 
@@ -857,6 +860,8 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
               continue;
             }
 
+           
+           // XXX no sinr check here ???
            // search for pss/sss
            if(carrier.has_pss_sss())
             {
@@ -971,7 +976,8 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
 
               const auto sinrResult = 
                  DL_SINRTester_Get(dlMessages[0]).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
-                                                             carrier.frequency_hz());
+                                                             carrier.frequency_hz(),
+                                                             carrierId);
 
               if(sinrResult.bPassed_)
                {
@@ -981,8 +987,8 @@ int ue_dl_mib_search(const srsran_ue_cellsearch_t * cs,
                }
               else
                {
-                 Warning("PBCH:%s carrierId %u, fail sinr %f, noise %f",
-                         __func__, carrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                 Warning("PBCH:%s carrierId %u, fail sinr %f, noise %f, found %d",
+                         __func__, carrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
 
                  continue;
                }
@@ -1084,7 +1090,8 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
               // check for PSS SSS if PBCH is good
               const auto sinrResult = 
                 DL_SINRTester_Get(dlMessages[0]).sinrCheck2(EMANELTE::MHAL::CHAN_PBCH,
-                                                            carrier.frequency_hz());
+                                                            carrier.frequency_hz(),
+                                                            carrierId);
 
               if(sinrResult.bPassed_)
                {
@@ -1093,8 +1100,8 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
                }
               else
                {
-                 Warning("PBCH:%s carrierId %u, fail sinr %f, noise %f",
-                         __func__, carrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                 Warning("PBCH:%s carrierId %u, fail sinr %f, noise %f, found %d",
+                         __func__, carrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
 
                  continue;
                }
@@ -1403,7 +1410,8 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
         const auto sinrResult = 
           DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PHICH,
                                                    rnti,
-                                                   carrier.frequency_hz());
+                                                   carrier.frequency_hz(),
+                                                   carrierId);
 
 
         if(sinrResult.bPassed_)
@@ -1427,8 +1435,8 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
          }
         else
          {
-           Warning("PHICH:%s carrierId %u, fail cc=%u, sinr %f, noise %f",
-                   __func__, carrierId, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           Warning("PHICH:%s carrierId %u, fail cc=%u, sinr %f, noise %f, found %d",
+                   __func__, carrierId, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
          }
       }
    }
@@ -1465,7 +1473,8 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                 {
                   const auto sinrResult = 
                     DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PMCH,
-                                                             carrier.frequency_hz());
+                                                             carrier.frequency_hz(),
+                                                             carrierId);
 
                   if(sinrResult.bPassed_)
                    {
@@ -1482,8 +1491,8 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                    }
                   else
                    {
-                     Warning("PMCH:%s: carrierId %u, fail cc=%u, sinr %f, noise %f",
-                         __func__, carrierId, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                     Warning("PMCH:%s: carrierId %u, fail cc=%u, sinr %f, noise %f, found %d",
+                         __func__, carrierId, cc_idx, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_, sinrResult.bFound_);
                    }
                 }
               else
