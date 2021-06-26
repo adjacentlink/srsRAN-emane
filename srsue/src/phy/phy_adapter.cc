@@ -861,7 +861,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
             }
 
            
-           // XXX no sinr check here ???
+           // XXX TODO add sinr check ???
            // search for pss/sss
            if(carrier.has_pss_sss())
             {
@@ -876,7 +876,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
               ++num_pss_sss_found;
 
               Info("RX:%s: PCI %u, carrierId %u, peak_sum %0.1f, num_samples %d",
-                   __func__, carrierId, pci, peak_sum, num_samples);
+                   __func__, pci, carrierId, peak_sum, num_samples);
 
               if(num_samples > 0)
                {

@@ -1118,6 +1118,7 @@ bool enb_ul_get_signal(uint32_t tti, srsran_timestamp_t * ts)
          {
            if(pciTable_.count(carrier.phy_cell_id()))
             {
+              // found a match, save entry
               ulMessages_.emplace_back(ue_ul_msg, rxControl, rxMessage.sinrTesters_);
 
               break;
@@ -1146,15 +1147,15 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
 
   int result = SRSRAN_SUCCESS;
 
-  num_entries = 0;
-
   std::set<uint32_t> unique;
+
+  num_entries = 0;
 
   for(const auto & ulMessage : ulMessages_)
     {
       if(num_entries >= max_entries)
        {
-         Info("PRACH:num_entries %u > max_entries %u, quit", __func__, num_entries, max_entries);
+         Warning("PRACH:num_entries %u > max_entries %u, quit", __func__, num_entries, max_entries);
          break;
        }
 
@@ -1173,10 +1174,15 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
                                                           carrier.frequency_hz(),
                                                           carrierId);
 
-            if(! sinrResult.bPassed_)
+            if(sinrResult.bPassed_)
              {
-               Warning("PRACH:%s: cc=%u, fail snr, %f, %d", 
-                       __func__, cc_idx, sinrResult.sinr_dB_, sinrResult.bFound_);
+               Info("PRACH:%s: cc=%u, carrierId %u, pass snr %f",
+                    __func__, cc_idx, carrierId, sinrResult.sinr_dB_);
+             }
+            else
+             {
+               Warning("PRACH:%s: cc=%u, carrierId %u, fail snr, %f, found %d", 
+                       __func__, cc_idx, carrierId, sinrResult.sinr_dB_, sinrResult.bFound_);
 
                continue;
              }
@@ -1197,18 +1203,14 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
 
               ++num_entries;
 
-              Warning("PRACH:%s cc=%u, entry[%u], accept index %d",
-                      __func__, cc_idx, num_entries, preamble.index());
+              Info("PRACH:%s cc=%u, carrierId %u, entry[%u], accept index %d",
+                    __func__, cc_idx, carrierId, num_entries, preamble.index());
             }
           else
            {
-             Info("PRACH:%s entry[%u], ignore duplicate index %d",
-                  __func__, num_entries, preamble.index());
+             Info("PRACH:%s cc=%u, carrierId %u, entry[%u], ignore duplicate index %d",
+                  __func__, cc_idx, carrierId, num_entries, preamble.index());
           }
-        }
-       else
-        {
-          Debug("PRACH:%s no preambles", __func__);
         }
       }
     }
@@ -1311,8 +1313,6 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                    srsran_uci_cfg_total_ack(&cfg->uci_cfg),
                    grant.rnti(), rnti, pucch_message.grant_size());
 
-              std::string format;
-
               if(grant.rnti() == rnti)
                {
                  const auto carrierId = carrier.carrier_id();
@@ -1323,23 +1323,25 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                                                                carrier.frequency_hz(),
                                                                carrierId);
 
+                 q->chest_res.snr_db             = sinrResult.sinr_dB_;
+                 q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
+
                  if(sinrResult.bPassed_)
                   {
+                    Info("PUCCH:%s: cc=%u, carrierId %u, rnti %hu, format %d, pass snr %f", 
+                            __func__, cc_idx, carrierId, rnti, cfg->format, sinrResult.sinr_dB_);
+
                     const auto & uci_message = grant.uci();
 
                     memcpy(&res->uci_data, uci_message.data(), uci_message.length());
 
                     res->detected = true;
 
-                    q->chest_res.snr_db             = sinrResult.sinr_dB_;
-                    q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
-
                     // from lib/src/phy/phch/pucch.c srsran_pucch_decode()
                     switch (cfg->format) {
                      case SRSRAN_PUCCH_FORMAT_1A:
                      case SRSRAN_PUCCH_FORMAT_1B:
                        res->uci_data.ack.valid = true;
-                       format = "1A/1B";
                      break;
 
                      case SRSRAN_PUCCH_FORMAT_2:
@@ -1347,16 +1349,14 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                      case SRSRAN_PUCCH_FORMAT_2B:
                        res->uci_data.ack.valid    = true;
                        res->uci_data.cqi.data_crc = true;
-                       format = "2";
                      break;
 
                      case SRSRAN_PUCCH_FORMAT_1:
                      case SRSRAN_PUCCH_FORMAT_3:
-                       format = "1/3";
                      break;
 
-                     default:
-                       format = "default";
+                     case SRSRAN_PUCCH_FORMAT_ERROR:
+                     break;
                     }
 
                     // pass
@@ -1364,11 +1364,10 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                   }
                  else
                   {
-                    Warning("PUCCH:%s: cc=%u, fail snr, rnti %hu, %f, found %d", 
-                            __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.bFound_);
+                    Warning("PUCCH:%s: cc=%u, carrierId %u, fail snr, rnti %hu, %f, found %d", 
+                            __func__, cc_idx, carrierId, rnti, sinrResult.sinr_dB_, sinrResult.bFound_);
 
-                    q->chest_res.snr_db             = sinrResult.sinr_dB_;
-                    q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
+                    res->detected = false;
 
                     // PUCCH failed snr, ignore
                     ENBSTATS::getPUCCH(rnti, false);
@@ -1434,6 +1433,10 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                                                                   rnti,
                                                                   carrier.frequency_hz(),
                                                                   carrierId);
+
+                 q->chest_res.snr_db             = sinrResult.sinr_dB_;
+                 q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
+
                  if(sinrResult.bPassed_)
                   {
                     const auto & ul_grant_message = grant.ul_grant();
@@ -1454,9 +1457,6 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                     res->crc                  = true;
                     res->uci.ack.valid        = true;
 
-                    q->chest_res.snr_db             = sinrResult.sinr_dB_;
-                    q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
-
                     // pass
                     ENBSTATS::getPUSCH(rnti, true);
                   }
@@ -1465,8 +1465,8 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                     Warning("PUSCH:%s: cc=%u, fail snr, rnti %hu, %f, found %d", 
                             __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.bFound_);
 
-                    q->chest_res.snr_db             = sinrResult.sinr_dB_;
-                    q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
+                    res->crc                  = false;
+                    res->uci.ack.valid        = false;
 
                     // PUSCH failed snr, ignore
                     ENBSTATS::getPUSCH(rnti, false);
