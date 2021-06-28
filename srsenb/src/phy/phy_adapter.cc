@@ -133,19 +133,37 @@ namespace {
   inline int bits_to_bytes(int bits) { return bits/8; }
 }
 
-#define Error(fmt, ...)                               \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+#if 0
+// compile time log format checks are no longer used, runtime is often too late
+void Error(const char* fmt, ...)   __attribute__ ((format (printf, 1, 2)));
+void Warning(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
+void Info(const char* fmt, ...)    __attribute__ ((format (printf, 1, 2)));
+void Debug(const char* fmt, ...)   __attribute__ ((format (printf, 1, 2)));
+
+void Error(const char* , ...)   { }
+void Warning(const char* , ...) { }
+void Info(const char* , ...)    { }
+void Debug(const char* , ...)   { }
+
+#else
+
+#define Error(fmt, ...)                    \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->error(fmt, ##__VA_ARGS__)
-#define Warning(fmt, ...)                             \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+
+#define Warning(fmt, ...)                  \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->warning(fmt, ##__VA_ARGS__)
-#define Info(fmt, ...)                                \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+
+#define Info(fmt, ...)                     \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->info(fmt, ##__VA_ARGS__)
-#define Debug(fmt, ...)                               \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+
+#define Debug(fmt, ...)                    \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->debug(fmt, ##__VA_ARGS__)
 
+#endif
 
 namespace srsenb {
 namespace phy_adapter {
@@ -263,8 +281,6 @@ findCarriers(const EMANELTE::MHAL::UE_UL_Message & ue_dl_msg, const uint32_t cc_
        }
     }
 
-  // Info("%s: cc=%u, rxFreq %u found %zu entries", __func__, cc_idx, rxFreq, carrierResults.size());
-             
   return carrierResults;
 }
 
@@ -416,11 +432,6 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
      ul_dci_msg->set_format(convert(dci_msg->format));
    }
 
-#if 0
-  Info("PDCCH:%s cc=%u, type %s, rnti 0x%hx, %s", 
-       __func__, cc_idx, type ? "UL" : "DL", rnti, pdcch_message->DebugString().c_str());
-#endif
-
   return SRSRAN_SUCCESS;
 }
 
@@ -494,11 +505,6 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
    pdsch_data->set_data(data, bits_to_bytes(grant.tb[tb].tbs));
    
    ENBSTATS::putDLGrant(rnti);
-
-#if 0
-   Info("PDSCH:%s cc=%u, rnti 0x%hx, %s", 
-        __func__, cc_idx, rnti, pdsch_message->DebugString().c_str());
-#endif
 
    return SRSRAN_SUCCESS;
 }
@@ -758,6 +764,8 @@ void enb_dl_cc_tx_init(const srsran_enb_dl_t *q,
 
       //srsran_regs_ch_t * pcfich = &((q->pcfich.regs)->pcfich);
       uint32_t rb = k0 / 12;
+
+#if 0
       Debug("TX:%s PCFICH cc=%u group i=%d on this subframe placed at resource starting at "
             "(l=%u, "
             "k0=%u, "
@@ -765,6 +773,7 @@ void enb_dl_cc_tx_init(const srsran_enb_dl_t *q,
             "k[1]=%u "
             "k[2]=%u "
             "k[3]=%u) in resource block=%u", __func__, cc_idx, i, l, k0, k[0], k[1], k[2], k[3], rb);
+#endif
 
       channelMessage->add_resource_block_frequencies_slot1(EMANELTE::MHAL::ENB::get_tx_prb_frequency(rb, frequencyHz));
     }
@@ -869,14 +878,6 @@ void enb_dl_send_signal(time_t sot_sec, float frac_sec)
      txControl_.set_tx_seqnum(tx_seqnum_++);
      txControl_.set_tti_tx(tti_tx_);
 
-#if 0
-     Info("TX:%s msg: %s", __func__, enb_dl_msg_.DebugString().c_str());
-#endif
-
-#if 0
-     Info("TX:%s ctrl:%s", __func__, txControl_.DebugString().c_str());
-#endif
-
      EMANELTE::MHAL::ENB::send_msg(data, txControl_);
    }
   else
@@ -938,7 +939,7 @@ int enb_dl_cc_put_pdcch_dl(srsran_enb_dl_t* q,
        {
          if(enb_dl_put_pdcch_dl_i(q, dci_cfg, &grant->dci, ref, cc_idx))
           {
-             Error("PDCCH:%s cc=%u, Error ref %u, tb %u, rnti 0x%hx", 
+             Error("PDCCH:%s cc=%u, error ref %u, tb %u, rnti 0x%hx", 
                    __func__, cc_idx, ref, tb, grant->dci.rnti);
           }
        }
@@ -961,7 +962,7 @@ int enb_dl_cc_put_pdsch_dl(srsran_enb_dl_t* q,
        {
          if(enb_dl_put_dl_pdsch_i(q, pdsch, grant->data[tb], ref, tb, cc_idx) != SRSRAN_SUCCESS)
            {
-             Error("PDSCH:%s cc=%u, Error ref %u, tb %u, rnti 0x%hx", 
+             Error("PDSCH:%s cc=%u, error ref %u, tb %u, rnti 0x%hx", 
                    __func__, cc_idx, ref, tb, grant->dci.rnti);
           }
       }
@@ -1157,7 +1158,7 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
     {
       if(num_entries >= max_entries)
        {
-         Warning("PRACH:num_entries %u > max_entries %u, quit", __func__, num_entries, max_entries);
+         Warning("PRACH:%s num_entries %u > max_entries %u, quit", __func__, num_entries, max_entries);
          break;
        }
 
@@ -1184,7 +1185,7 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
              }
             else
              {
-               Warning("PRACH:%s: fail, cc=%u, txAntennaId %u, snr %f, noise %d", 
+               Warning("PRACH:%s: fail, cc=%u, txAntennaId %u, snr %f, noise %f", 
                        __func__, cc_idx, txAntennaId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                continue;
@@ -1256,7 +1257,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
   // Select format
   cfg->format = srsran_pucch_proc_select_format(&q->cell, cfg, &cfg->uci_cfg, NULL);
   if (cfg->format == SRSRAN_PUCCH_FORMAT_ERROR) {
-    ERROR("Returned Error while selecting PUCCH format");
+    ERROR("Returned error while selecting PUCCH format");
     return SRSRAN_ERROR;
   }
 
@@ -1294,7 +1295,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
    {
      if(res->detected)
       {
-        Info("PUCCH:res->detected set, quit", __func__);
+        Info("PUCCH:%s res->detected set, quit", __func__);
         break;
       } 
 

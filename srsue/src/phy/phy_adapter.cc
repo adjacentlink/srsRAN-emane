@@ -253,22 +253,42 @@ namespace {
 
 }
 
-namespace srsue {
-namespace phy_adapter {
+#if 0
+// compile time log format checks are no longer used, runtime is often too late
+void Error(const char* fmt, ...)   __attribute__ ((format (printf, 1, 2)));
+void Warning(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
+void Info(const char* fmt, ...)    __attribute__ ((format (printf, 1, 2)));
+void Debug(const char* fmt, ...)   __attribute__ ((format (printf, 1, 2)));
 
-#define Error(fmt, ...)                               \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+void Error(const char* , ...)   { }
+void Warning(const char* , ...) { }
+void Info(const char* , ...)    { }
+void Debug(const char* , ...)   { }
+
+#else
+
+#define Error(fmt, ...)                    \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->error(fmt, ##__VA_ARGS__)
-#define Warning(fmt, ...)                             \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+
+#define Warning(fmt, ...)                  \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->warning(fmt, ##__VA_ARGS__)
-#define Info(fmt, ...)                                \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+
+#define Info(fmt, ...)                     \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->info(fmt, ##__VA_ARGS__)
-#define Debug(fmt, ...)                               \
-  if (SRSRAN_DEBUG_ENABLED && logger_phy)             \
+
+#define Debug(fmt, ...)                    \
+  if (SRSRAN_DEBUG_ENABLED && logger_phy)  \
   logger_phy->debug(fmt, ##__VA_ARGS__)
 
+#endif
+
+
+
+namespace srsue {
+namespace phy_adapter {
 
 typedef std::vector<EMANELTE::MHAL::ENB_DL_Message_PDCCH_DL_DCI> DL_DCI_Results;
 
