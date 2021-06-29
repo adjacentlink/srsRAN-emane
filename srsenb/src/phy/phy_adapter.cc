@@ -579,8 +579,8 @@ void enb_init_i(uint32_t idx,
 
   Info("INIT:%s idx=%u, PCI=%u\n"
        "\tsf_interval=%u msec\n"
-       "\trx_freq=%6.4f MHz\n"
-       "\ttx_freq=%6.4f MHz\n"
+       "\trx_freq=%lu Hz\n"
+       "\ttx_freq=%lu Hz\n"
        "\tn_prb=%d\n"
        "\trs_power=%d\n"
        "\tpdsch_rs_power_milliwatt=%0.2f\n"
@@ -590,8 +590,8 @@ void enb_init_i(uint32_t idx,
        idx,
        physical_cell_id,
        sf_interval_msec,
-       ul_freq_hz/1e6,
-       dl_freq_hz/1e6,
+       trunc_e6(ul_freq_hz),
+       trunc_e6(dl_freq_hz),
        n_prb,
        rrc_cfg->sibs[1].sib2().rr_cfg_common.pdsch_cfg_common.ref_sig_pwr,
        pdsch_rs_power_milliwatt_,
@@ -603,8 +603,8 @@ void enb_init_i(uint32_t idx,
      EMANELTE::MHAL::ENB::mhal_enb_config_t(physical_cell_id,
                                             sf_interval_msec,
                                             cp == SRSRAN_CP_NORM ? SRSRAN_CP_NORM_NSYMB : SRSRAN_CP_EXT_NSYMB,
-                                            ul_freq_hz, // rx
-                                            dl_freq_hz, // tx
+                                            trunc_e6(ul_freq_hz), // rx
+                                            trunc_e6(dl_freq_hz), // tx
                                             n_prb,
                                             pdsch_rs_power_milliwatt_,
                                             pdsch_rho_b_over_rho_a_));
@@ -629,8 +629,8 @@ void enb_initialize(uint32_t sf_interval_msec,
                   sf_interval_msec, 
                   cell_cfg.cell.id, 
                   cell_cfg.cell.cp, 
-                  cell_cfg.ul_freq_hz, 
-                  cell_cfg.dl_freq_hz, 
+                  trunc_e6(cell_cfg.ul_freq_hz), 
+                  trunc_e6(cell_cfg.dl_freq_hz), 
                   cell_cfg.cell.nof_prb, 
                   mhal_config,
                   rrc_cfg);
@@ -642,13 +642,13 @@ void enb_set_frequency(uint32_t cc_idx,
                        float rx_freq_hz,
                        float tx_freq_hz)
 {
-   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{llround(rx_freq_hz), llround(tx_freq_hz)};
+   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz)}; // rx/tx
 
-   Warning("%s cc_idx %u, rx_freq %6.4f MHz, tx_freq %6.4f MHz",
-       __func__,
-       cc_idx,
-       rx_freq_hz/1e6,
-       tx_freq_hz/1e6);
+   Warning("%s cc=%u, rx_freq %lu Hz, tx_freq %lu Hz",
+           __func__,
+           cc_idx,
+           trunc_e6(rx_freq_hz),
+           trunc_e6(tx_freq_hz));
 }
 
 

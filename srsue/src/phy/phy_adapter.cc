@@ -137,7 +137,7 @@ namespace {
         }
      }
 
-    float getX()
+    float snr()
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
@@ -151,7 +151,7 @@ namespace {
         }
      }
 
-    float getY()
+    float nf()
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
@@ -745,17 +745,17 @@ void ue_set_frequency(uint32_t cc_idx,
                       float rx_freq_hz,
                       float tx_freq_hz)
 {
-   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{llround(rx_freq_hz), llround(tx_freq_hz)}; // rx/tx
+   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz)}; // rx/tx
 
-   localCarrierTable_[llround(rx_freq_hz)] = cc_idx;
-
-   Warning("%s cc=%u, rx_freq %6.4f MHz, tx_freq %6.4f MHz",
+   Warning("%s cc=%u, rx_freq %lu Hz, tx_freq %lu Hz",
            __func__,
            cc_idx,
-           rx_freq_hz/1e6,
-           tx_freq_hz/1e6);
+           trunc_e6(rx_freq_hz),
+           trunc_e6(tx_freq_hz));
 
-   EMANELTE::MHAL::UE::set_frequencies(cc_idx, rx_freq_hz, tx_freq_hz);
+   localCarrierTable_[trunc_e6(rx_freq_hz)] = cc_idx;
+
+   EMANELTE::MHAL::UE::set_frequencies(cc_idx, trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz));
 }
 
 
@@ -920,7 +920,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
 
               ++num_pss_sss_found;
 
-              Info("RX:%s: PCI %u, carrierId %u, peak_sum %0.1f, num_samples %d",
+              Info("RX:%s: detected PCI %u, carrierId %u, peak_sum %0.1f, num_samples %d",
                    __func__, pci, carrierId, peak_sum, num_samples);
 
               if(num_samples > 0)
@@ -956,6 +956,11 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
                        res[n_id_2].cp      = cp;
                        res[n_id_2].peak    = peak_avg;
                      } 
+                    else
+                     {
+                       Info("RX:%s: ignore PCI %u, n_id_1 %u, n_id_2 %u, peak_avg %f <= current peak %f",
+                             __func__, pci, n_id_1, n_id_2, peak_avg, res[n_id_2].peak);
+                     }
                   }
                }
             }
@@ -1228,12 +1233,12 @@ int ue_dl_sync_search(srsran_ue_sync_t * ue_sync, const uint32_t tti)
 
 float ue_dl_get_snr(const uint32_t cc_idx)
 {
-   return sinrManager_[cc_idx].getX();
+   return sinrManager_[cc_idx].snr();
 }
 
 float ue_dl_get_nf(const uint32_t cc_idx)
 {
-   return sinrManager_[cc_idx].getY();
+   return sinrManager_[cc_idx].nf();
 }
 
 // see ue_dl_find_dl_dc

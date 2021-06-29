@@ -34,6 +34,15 @@
 
 const size_t MAX_NUM_CARRIERS = 5;
 
+// uee full MHz units for rounding sake
+// float types introduce some inaccuracy
+inline uint64_t trunc_e6(const float value)
+{
+  const uint64_t tmp = (value / 1000000LL);
+
+  return tmp * 1000000LL;
+}
+
 // always rx/tx
 using FrequencyPair = std::pair<uint64_t, uint64_t>;
 
