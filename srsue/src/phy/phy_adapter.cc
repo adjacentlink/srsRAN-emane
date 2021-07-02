@@ -82,7 +82,7 @@ namespace {
  // dl message for this frame
  DL_Message dlMessage_{{},{},{{}}};
 
- uint32_t my_cell_id_ = 0;
+ uint32_t my_pci_ = 0;
 
  // cell_id, sinr, noise floor, timestamp
  using NbrCell = std::tuple<uint32_t, float, float, time_t>;
@@ -765,13 +765,13 @@ void ue_set_sync(srsue::sync * sync)
 }
 
 
-void ue_set_cell(const srsue::phy_cell_t* cell)
+void ue_set_pci(const uint32_t pci)
 {
-  if(cell->pci != my_cell_id_)
+  if(pci != my_pci_)
    {
-     Warning("%s pci %u -> %u", __func__, my_cell_id_, cell->pci);
+     Info("%s pci %u -> %u", __func__, my_pci_, pci);
 
-     my_cell_id_ = cell->pci;
+     my_pci_ = pci;
    }
 }
 
@@ -822,9 +822,9 @@ void ue_stop()
 }
 
 
-void ue_set_prach_freq_offset(const uint32_t freq_offset)
+void ue_set_prach_freq_offset(const uint32_t freq_offset, const uint32_t cell_id)
 {
-  Info("MHAL:%s %u", __func__, freq_offset);
+  Info("MHAL:%s freq_offset %u, cell_id %u", __func__, freq_offset, cell_id);
 
   prach_freq_offset_ = freq_offset;
 }
@@ -869,7 +869,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
   uint32_t try_num           = 0;
 
   // reset my cell id
-  my_cell_id_ = 0;
+  my_pci_ = 0;
 
   // notify in cell search
   EMANELTE::MHAL::UE::begin_cell_search();
@@ -885,7 +885,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
      // for each enb msg (if any)
      for(const auto & dlMessage : dlMessages)
       {
-        const auto carrierResults = findCarriers(dlMessage, cc_idx, my_cell_id_);
+        const auto carrierResults = findCarriers(dlMessage, cc_idx, my_pci_);
 
         for(const auto & carrier : carrierResults)
          {
@@ -1627,7 +1627,7 @@ void ue_ul_put_prach(const int index)
   std::lock_guard<std::mutex> lock(ul_mutex_);
 
   // use carrier 0 for prach
-  const std::uint32_t cc_idx = 0;
+  const uint32_t cc_idx = 0;
 
   // tx frequency for carrier idx
   const auto frequencyHz = getTxFrequency(cc_idx);

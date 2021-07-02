@@ -260,15 +260,17 @@ static inline uint64_t getRxFrequency(uint32_t cc_idx)
 
 // lookup carrier that matches the frequency associated with the cc_idx
 static CarrierResults
-findCarriers(const EMANELTE::MHAL::UE_UL_Message & ue_dl_msg, const uint32_t cc_idx, const uint32_t cell_id)
+findCarriers(const UL_Message & ulMessage, const uint32_t cc_idx, const uint32_t cell_id)
 {
    CarrierResults carrierResults;
 
    const auto rxFreq = getRxFrequency(cc_idx);
 
+   const auto & ue_ul_msg = UL_Message_Message(ulMessage);
+
    if(rxFreq != 0)
     {
-      for(const auto & carrier : ue_dl_msg.carriers())
+      for(const auto & carrier : ue_ul_msg.carriers())
        {
          // match our rx freq to the msg carrier tx center freq and cell id
          if((rxFreq == carrier.frequency_hz()) && (cell_id == carrier.phy_cell_id()))
@@ -1162,7 +1164,7 @@ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
          break;
        }
 
-      const auto carrierResults = findCarriers(UL_Message_Message(ulMessage), cc_idx, cell->id);
+      const auto carrierResults = findCarriers(ulMessage, cc_idx, cell->id);
 
       if(! carrierResults.empty())
        {
@@ -1299,7 +1301,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
         break;
       } 
 
-     const auto carrierResults = findCarriers(UL_Message_Message(ulMessage), cc_idx, q->cell.id);
+     const auto carrierResults = findCarriers(ulMessage, cc_idx, q->cell.id);
 
      if(! carrierResults.empty())
       {
@@ -1417,7 +1419,7 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
         break;
       }
 
-     const auto carrierResults = findCarriers(UL_Message_Message(ulMessage), cc_idx, q->cell.id);
+     const auto carrierResults = findCarriers(ulMessage, cc_idx, q->cell.id);
  
      if(! carrierResults.empty())
       {

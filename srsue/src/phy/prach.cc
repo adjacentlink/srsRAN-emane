@@ -128,7 +128,7 @@ bool prach::set_cell(srsran_cell_t cell_, srsran_prach_cfg_t prach_cfg)
   }
 
 #ifdef PHY_ADAPTER_ENABLE
-  phy_adapter::ue_set_prach_freq_offset(prach_cfg.freq_offset);
+  phy_adapter::ue_set_prach_freq_offset(prach_cfg.freq_offset, cell.id);
 #endif
 
   buffer_bitmask.reset();

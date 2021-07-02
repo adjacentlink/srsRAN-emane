@@ -50,7 +50,7 @@ void ue_set_frequency(const uint32_t cc_idx,
                       const float rx_freq_hz,
                       const float tx_freq_hz);
 
-void ue_set_cell(const srsue::phy_cell_t* cell);
+void ue_set_pci(const uint32_t pci);
 
 void ue_set_earfcn(const float rx_freq_hz,
                    const float tx_freq_hz,
@@ -58,7 +58,7 @@ void ue_set_earfcn(const float rx_freq_hz,
 
 void ue_set_bandwidth(int n_prb);
 
-void ue_set_prach_freq_offset(const uint32_t freq_offset);
+void ue_set_prach_freq_offset(const uint32_t freq_offset, const uint32_t cell_id);
 
 void ue_set_sync(sync * sync);
 

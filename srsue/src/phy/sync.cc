@@ -308,7 +308,7 @@ bool sync::cell_select_init(phy_cell_t new_cell)
   }
 
 #ifdef PHY_ADAPTER_ENABLE
-  phy_adapter::ue_set_cell(&new_cell);
+  phy_adapter::ue_set_pci(new_cell.pci);
 #endif
 
   Info("Cell Select: Going to IDLE");
