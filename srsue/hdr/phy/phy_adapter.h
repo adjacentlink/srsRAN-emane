@@ -47,6 +47,7 @@ void ue_start();
 void ue_stop();
 
 void ue_set_frequency(const uint32_t cc_idx,
+                      const bool scell,
                       const float rx_freq_hz,
                       const float tx_freq_hz);
 
@@ -56,7 +57,7 @@ void ue_set_earfcn(const float rx_freq_hz,
                    const float tx_freq_hz,
                    const uint32_t earfcn);
 
-void ue_set_bandwidth(int n_prb);
+void ue_set_bandwidth(const int n_prb);
 
 void ue_set_prach_freq_offset(const uint32_t freq_offset, const uint32_t cell_id);
 

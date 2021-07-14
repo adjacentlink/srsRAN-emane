@@ -951,7 +951,7 @@ bool nas::handle_attach_request(srsran::byte_buffer_t* nas_rx)
 bool nas::handle_authentication_response(srsran::byte_buffer_t* nas_rx)
 {
   LIBLTE_MME_AUTHENTICATION_RESPONSE_MSG_STRUCT auth_resp = {};
-  bool                                          ue_valid  = true;
+  bool                                          ue_valid = true;
 
   // Get NAS authentication response
   LIBLTE_ERROR_ENUM err = liblte_mme_unpack_authentication_response_msg((LIBLTE_BYTE_MSG_STRUCT*)nas_rx, &auth_resp);

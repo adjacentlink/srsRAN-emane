@@ -55,15 +55,23 @@ namespace {
  #define DL_RxControl_Get(x)  std::get<1>((x))
  #define DL_SINRTester_Get(x) std::get<2>((x))
 
+ // dl message for this frame
+ DL_Message dlMessage_{{},{},{{}}};
+
+
  // vector of dl signals from each enb
  using DL_Messages = std::vector<DL_Message>;
 
- // time stamp and mhal rx messages for a frame
+ // status, time stamp and mhal rx messages for a frame
  using FrameSignals = std::tuple<bool, struct timeval, EMANELTE::MHAL::RxMessages>;
  // helpers
- #define FrameMessage_isSet(x)      std::get<0>((x))
- #define FrameMessage_timestamp(x)  std::get<1>((x))
- #define FrameMessage_rxMessages(x) std::get<2>((x))
+ #define FrameMessage_IsSet_Get(x)      std::get<0>((x))
+ #define FrameMessage_Timestamp_Get(x)  std::get<1>((x))
+ #define FrameMessage_RxMessages_Get(x) std::get<2>((x))
+
+ // all rx messages for this frame
+ FrameSignals frameSignals_{false, {0,0}, {}};
+
 
  // search for carrier result
  using CarrierResults = std::vector<EMANELTE::MHAL::ENB_DL_Message_CarrierMessage>;
@@ -71,21 +79,20 @@ namespace {
  // track carrierIndex to rx/tx carrier center frequency
  CarrierIndexFrequencyTable carrierIndexFrequencyTable_;
 
+ // our configured carrier frequencies
  FrequencyToCarrierIndex localCarrierTable_;
 
  // for use into srsran lib calls
  srsran::rf_buffer_t buffer_(1);
 
- // all rx messages for this frame
- FrameSignals frameSignals_{false, {0,0}, {}};
-
- // dl message for this frame
- DL_Message dlMessage_{{},{},{{}}};
-
  uint32_t my_pci_ = 0;
 
  // cell_id, sinr, noise floor, timestamp
  using NbrCell = std::tuple<uint32_t, float, float, time_t>;
+ #define NbrCell_Cellid_Get(x)     std::get<0>((x))
+ #define NbrCell_Snr_Get(x)        std::get<1>((x))
+ #define NbrCell_Nf_Get(x)         std::get<2>((x))
+ #define NbrCell_Timestamp_Get(x)  std::get<3>((x))
 
  std::list<NbrCell> nbr_cells_;
 
@@ -108,8 +115,8 @@ namespace {
     SINRManager(const size_t maxEntries = 1000) :
      maxEntries_(maxEntries)
     { 
-      sumX_ = 0;
-      sumY_ = 0;
+      sumSignal_ = 0;
+      sumNoise_  = 0;
     }
  
     void clear()
@@ -117,22 +124,22 @@ namespace {
        std::lock_guard<std::mutex> lock(mutex_);
 
        entries_.clear();
-       sumX_ = 0;
-       sumY_ = 0;
+       sumSignal_ = 0;
+       sumNoise_  = 0;
      }
 
     void update(const float x, const float y)
      {
        std::lock_guard<std::mutex> lock(mutex_);
 
-       sumX_ += x;
-       sumY_ += y;
+       sumSignal_ += x;
+       sumNoise_  += y;
        entries_.emplace_front(x,y);
 
        if(entries_.size() > maxEntries_)
         {
-          sumX_ -= entries_.back().first;
-          sumY_ -= entries_.back().second;
+          sumSignal_ -= entries_.back().first;
+          sumNoise_ -= entries_.back().second;
           entries_.pop_back();
         }
      }
@@ -147,7 +154,7 @@ namespace {
         }
        else
         {
-          return sumX_/entries_.size();
+          return sumSignal_/entries_.size();
         }
      }
 
@@ -161,7 +168,7 @@ namespace {
         }
        else
         {
-          return sumY_/entries_.size();
+          return sumNoise_/entries_.size();
         }
      }
 
@@ -169,8 +176,8 @@ namespace {
    private:
     std::deque<std::pair<float, float>> entries_;
     const size_t maxEntries_;
-    float       sumX_;
-    float       sumY_;
+    float        sumSignal_;
+    float        sumNoise_;
     std::mutex   mutex_;
  };
    
@@ -355,15 +362,16 @@ static inline uint64_t getRxFrequency(const uint32_t cc_idx)
  }
 
 
-// lookup carrier that matches the frequency associated with the cc_idx
+// lookup carrier that matches the frequency associated with the cc_idx and cell_id
 static CarrierResults
 findCarriers(const DL_Message & dlMessage, const uint32_t cc_idx, const uint32_t cell_id)
  {
    CarrierResults carrierResults;
 
-   const auto enb_dl_msg = DL_EnbMsg_Get(dlMessage);
-   const auto rxControl  = DL_RxControl_Get(dlMessage);
+   const auto & enb_dl_msg = DL_EnbMsg_Get(dlMessage);
+   const auto & rxControl  = DL_RxControl_Get(dlMessage);
 
+   // get the carrier frequency for this cc worker
    const auto rxFrequency = getRxFrequency(cc_idx);
 
    if(rxFrequency != 0)
@@ -374,6 +382,7 @@ findCarriers(const DL_Message & dlMessage, const uint32_t cc_idx, const uint32_t
          // carrier is valid and match our rx freq to the msg carrier tx center freq
          if(rxControl.is_valid_[carrier.carrier_id()] && (rxFrequency == carrier.frequency_hz()))
           {
+            // check for cell id match
             if((cell_id == 0) || (cell_id == carrier.phy_cell_id()))
              {
                carrierResults.emplace_back(carrier);
@@ -425,7 +434,7 @@ static void ue_dl_update_chest_i(srsran_chest_dl_res_t * chest_res, const float 
 // get all ota messages (all enb dl messages and rx control info)
 static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
 {
-  if(! FrameMessage_isSet(frameSignals_))
+  if(! FrameMessage_IsSet_Get(frameSignals_))
    {
       Error("No Messages:%s:", __func__);
 
@@ -434,15 +443,15 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
 
   if(ts)
    {
-     ts->full_secs = FrameMessage_timestamp(frameSignals_).tv_sec;
-     ts->frac_secs = FrameMessage_timestamp(frameSignals_).tv_usec / 1e6;
+     ts->full_secs = FrameMessage_Timestamp_Get(frameSignals_).tv_sec;
+     ts->frac_secs = FrameMessage_Timestamp_Get(frameSignals_).tv_usec / 1e6;
    }
 
   // all msgs from all enbs
   DL_Messages dlMessages;
 
   // for each rx message
-  for(const auto & rxMessage : FrameMessage_rxMessages(frameSignals_))
+  for(const auto & rxMessage : FrameMessage_RxMessages_Get(frameSignals_))
    {
      EMANELTE::MHAL::ENB_DL_Message enb_dl_msg;
 
@@ -703,6 +712,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
   return pdsch_results;
 }
 
+
 static void ue_set_crnti_i(uint16_t crnti)
 {
   if(crnti_ != crnti)
@@ -731,31 +741,39 @@ void ue_initialize(const uint32_t sf_interval_msec, EMANELTE::MHAL::mhal_config_
 
 void ue_set_earfcn(const float rx_freq_hz, const float tx_freq_hz, const uint32_t earfcn)
 {
-  Info("INIT:%s rx_freq %6.4f MHz, tx_freq %6.4f MHz, earfcn %u -> %u",
+  Info("INIT:%s rx_freq %lu Hz, tx_freq %lu Hz, earfcn %u -> %u",
        __func__,
-       rx_freq_hz/1e6,
-       tx_freq_hz/1e6,
+       trunc_e6(rx_freq_hz),
+       trunc_e6(tx_freq_hz),
        earfcn_,
        earfcn);
 
   earfcn_ = earfcn;
 }
 
-void ue_set_frequency(uint32_t cc_idx,
-                      float rx_freq_hz,
-                      float tx_freq_hz)
+
+void ue_set_frequency(const uint32_t cc_idx,
+                      const bool scell,
+                      const float rx_freq_hz,
+                      const float tx_freq_hz)
 {
+   // set frequencies, truncate to MHz, float types may introduce some precision errors
    carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz)}; // rx/tx
 
-   Warning("%s cc=%u, rx_freq %lu Hz, tx_freq %lu Hz",
+   Warning("%s my_pci %u, cc=%u, scell %s, rx_freq %lu Hz, tx_freq %lu Hz",
            __func__,
+           my_pci_,
            cc_idx,
+           scell ? "yes" : "no",
            trunc_e6(rx_freq_hz),
            trunc_e6(tx_freq_hz));
 
    localCarrierTable_[trunc_e6(rx_freq_hz)] = cc_idx;
 
-   EMANELTE::MHAL::UE::set_frequencies(cc_idx, trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz));
+   EMANELTE::MHAL::UE::set_frequencies(cc_idx,
+                                       my_pci_,
+                                       trunc_e6(rx_freq_hz),
+                                       trunc_e6(tx_freq_hz));
 }
 
 
@@ -833,11 +851,11 @@ void ue_set_prach_freq_offset(const uint32_t freq_offset, const uint32_t cell_id
 // read frame for this tti common to all states
 int ue_dl_read_frame(srsran_timestamp_t* rx_time)
 {
-  auto & tv_tti = FrameMessage_timestamp(frameSignals_);
+  auto & tv_tti = FrameMessage_Timestamp_Get(frameSignals_);
 
-  EMANELTE::MHAL::UE::get_messages(FrameMessage_rxMessages(frameSignals_), tv_tti);
+  EMANELTE::MHAL::UE::get_messages(FrameMessage_RxMessages_Get(frameSignals_), tv_tti);
 
-  FrameMessage_isSet(frameSignals_) = true;
+  FrameMessage_IsSet_Get(frameSignals_) = true;
 
   // set rx time for caller
   if(rx_time)
@@ -860,6 +878,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
   const uint32_t max_tries = cs->max_frames * 5; // 40 sf
 
   const uint32_t cc_idx = 0;
+
   // n_id_2's
   std::set<uint32_t> n_id2s;
 
@@ -872,7 +891,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
   my_pci_ = 0;
 
   // notify in cell search
-  EMANELTE::MHAL::UE::begin_cell_search();
+  EMANELTE::MHAL::UE::cell_search();
 
   while(++try_num <= max_tries)
    {
@@ -905,9 +924,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
               continue;
             }
 
-           
-           // XXX TODO add sinr check ???
-           // search for pss/sss
+           // no sinr check for pss/sss, just search for pss/sss
            if(carrier.has_pss_sss())
             {
               const auto & pss_sss = carrier.pss_sss();
@@ -1116,7 +1133,7 @@ int ue_dl_system_frame_search(srsran_ue_sync_t * ue_sync, uint32_t * sfn)
 {
   const uint32_t max_tries   = 1;
   const uint32_t rxAntennaId = 0;
-  const uint32_t cc_idx      = 0;
+  const uint32_t cc_idx      = 0; // only supported on cc 0
 
   uint32_t try_num = 0;
 
@@ -1231,15 +1248,18 @@ int ue_dl_sync_search(srsran_ue_sync_t * ue_sync, const uint32_t tti)
    return dlMessages.size();
 }
 
+
 float ue_dl_get_snr(const uint32_t cc_idx)
 {
    return sinrManager_[cc_idx].snr();
 }
 
+
 float ue_dl_get_nf(const uint32_t cc_idx)
 {
    return sinrManager_[cc_idx].nf();
 }
+
 
 // see ue_dl_find_dl_dc
 // int srsran_ue_dl_find_dl_dci(srsran_ue_dl_t*     q,
@@ -1573,6 +1593,7 @@ void ue_ul_tx_init()
   Debug("TX:%s:", __func__);
 }
 
+
 // send to mhal
 void ue_ul_send_signal(const time_t sot_sec, const float frac_sec, const srsran_cell_t & cell)
 {
@@ -1582,12 +1603,13 @@ void ue_ul_send_signal(const time_t sot_sec, const float frac_sec, const srsran_
   ulMessage_.set_crnti(crnti_);
   ulMessage_.set_tti(tti_tx_);
 
-  // finalize  ul_msg/txControl
+  // finalize ul_msg
   for(int idx = 0; idx < ulMessage_.carriers().size(); ++idx)
    {
      ulMessage_.mutable_carriers(idx)->set_phy_cell_id(cell.id);
    }
 
+  // finalize txControl
   for(int idx = 0; idx < txControl_.carriers().size(); ++idx)
    {
      txControl_.mutable_carriers(idx)->set_phy_cell_id(cell.id);
@@ -1626,7 +1648,7 @@ void ue_ul_put_prach(const int index)
 {
   std::lock_guard<std::mutex> lock(ul_mutex_);
 
-  // use carrier 0 for prach
+  // use cc_idx 0 for prach
   const uint32_t cc_idx = 0;
 
   // tx frequency for carrier idx
@@ -1878,14 +1900,16 @@ ue_get_detected_cells(const srsran_cell_t & cell)
 {
    const auto time_now = time(NULL);
 
+   // time out > 10 sec
+   const time_t timeout = 10;
+
    std::set<uint32_t> detected_cells;
 
-   for(auto iter = nbr_cells_.begin(); iter != nbr_cells_.end(); /* bump below */)
+   for(auto iter = nbr_cells_.begin(); iter != nbr_cells_.end(); /* check/bump below */)
     {
-      // check time out > 10 sec
-      if(std::get<3>(*iter) + 10 >= time_now)
+      if(NbrCell_Timestamp_Get(*iter) + timeout >= time_now)
        {
-         detected_cells.insert(std::get<0>(*iter));
+         detected_cells.insert(NbrCell_Cellid_Get(*iter));
    
          ++iter;
        }
@@ -1903,12 +1927,12 @@ void ue_get_refsignals(srsran_refsignal_dl_sync_t & refsignal_dl_sync, const uin
 {
    for(const auto & nbr : nbr_cells_)
     {
-      if(std::get<0>(nbr) == cell_id)
+      if(NbrCell_Cellid_Get(nbr) == cell_id)
         {
           refsignal_dl_sync.found      = true;
-          refsignal_dl_sync.rsrp_dBfs  = phy_adapter::ue_snr_to_rsrp(std::get<1>(nbr));
-          refsignal_dl_sync.rsrq_dB    = phy_adapter::ue_snr_to_rsrq(std::get<1>(nbr));
-          refsignal_dl_sync.rssi_dBfs  = phy_adapter::ue_snr_to_rssi(std::get<1>(nbr), std::get<2>(nbr));
+          refsignal_dl_sync.rsrp_dBfs  = phy_adapter::ue_snr_to_rsrp(NbrCell_Snr_Get(nbr));
+          refsignal_dl_sync.rsrq_dB    = phy_adapter::ue_snr_to_rsrq(NbrCell_Snr_Get(nbr));
+          refsignal_dl_sync.rssi_dBfs  = phy_adapter::ue_snr_to_rssi(NbrCell_Snr_Get(nbr), NbrCell_Nf_Get(nbr));
           refsignal_dl_sync.cfo_Hz     = 0;
           refsignal_dl_sync.peak_index = 0;
 

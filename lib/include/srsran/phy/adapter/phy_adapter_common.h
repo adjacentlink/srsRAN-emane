@@ -34,8 +34,8 @@
 
 const size_t MAX_NUM_CARRIERS = 5;
 
-// uee full MHz units for rounding sake
-// float types introduce some inaccuracy
+// use full MHz units for rounding sake
+// float types may introduce some inaccuracy
 inline uint64_t trunc_e6(const float value)
 {
   const uint64_t tmp = (value / 1000000LL);

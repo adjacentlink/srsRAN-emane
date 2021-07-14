@@ -885,7 +885,7 @@ bool sync::set_frequency()
 
 #ifdef PHY_ADAPTER_ENABLE
     phy_adapter::ue_set_earfcn(set_dl_freq, set_ul_freq, current_earfcn); // rx/tx
-    phy_adapter::ue_set_frequency(0, set_dl_freq, set_ul_freq);           // rx/tx
+    phy_adapter::ue_set_frequency(0, false, set_dl_freq, set_ul_freq);           // rx/tx
     phy_adapter::ue_set_sync(this);
 #endif
 
