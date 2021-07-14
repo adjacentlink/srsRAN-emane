@@ -390,7 +390,7 @@ findCarriers(const DL_Message & dlMessage, const uint32_t cc_idx, const uint32_t
           }
        }
     }
-             
+ 
    return carrierResults;
  }
 
@@ -464,6 +464,11 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
          {
            const auto carrierFrequencyHz = carrier.frequency_hz();
            const auto txAntennaId        = carrier.carrier_id();
+
+#if 0
+fprintf(stderr, "%s, carrierFrequency %lu, carrierId %u, isValid %d\n",
+        __func__, carrier.frequency_hz(), carrier.carrier_id(), rxControl.is_valid_[txAntennaId]);
+#endif
 
            // check for valid carrier
            if(rxControl.is_valid_[txAntennaId])
@@ -1655,7 +1660,7 @@ void ue_ul_put_prach(const int index)
   const auto frequencyHz = getTxFrequency(cc_idx);
 
   auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+                            EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
 
   auto channelMessage = control->mutable_uplink()->mutable_prach();
 
@@ -1747,7 +1752,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
      }
 
    auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+                             EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
 
    auto channelMessage = control->mutable_uplink()->add_pucch();
 
@@ -1802,7 +1807,7 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    const auto frequencyHz = getTxFrequency(cc_idx);
 
    auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
+                             EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz);
 
    auto channelMessage = control->mutable_uplink()->add_pucch();
 

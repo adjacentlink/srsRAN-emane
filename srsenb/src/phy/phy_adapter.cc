@@ -364,7 +364,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
   auto pdcch_message = carrier->add_pdcch();
 
   auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
+                            EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
 
 
   auto channelMessage = control->mutable_downlink()->add_pdcch();
@@ -468,7 +468,7 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
    const auto frequencyHz = getTxFrequency(cc_idx);
 
    auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
+                             EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
 
    auto channelMessage = control->mutable_downlink()->add_pdsch();
 
@@ -544,7 +544,7 @@ static int enb_dl_put_pmch_i(const srsran_enb_dl_t * q,
    pmch_message->set_data(data ? data : zeros_, grant.tb[tb].tbs);
 
    auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                    EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
+                             EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
 
    auto channelMessage = control->mutable_downlink()->mutable_pmch();
 
@@ -729,7 +729,7 @@ void enb_dl_cc_tx_init(const srsran_enb_dl_t *q,
                             EMANELTE::MHAL::ENB_DL_Message>(dlMessage_, frequencyHz, q->cell.id, cc_idx);
 
   auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
+                            EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
 
   auto downlink = control->mutable_downlink();
 
@@ -879,6 +879,10 @@ void enb_dl_send_signal(time_t sot_sec, float frac_sec)
      txControl_.set_message_type(EMANELTE::MHAL::DOWNLINK);
      txControl_.set_tx_seqnum(tx_seqnum_++);
      txControl_.set_tti_tx(tti_tx_);
+
+#if 0
+     fprintf(stderr, "dlMessage %s\n", dlMessage_.DebugString().c_str());
+#endif
 
      EMANELTE::MHAL::ENB::send_msg(data, txControl_);
    }
@@ -1042,7 +1046,7 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
   phich->set_num_dmrs(grant->n_dmrs);
 
   auto control = getCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                                   EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
+                            EMANELTE::MHAL::TxControlMessage>(txControl_, frequencyHz, q->cell.id, cc_idx);
 
   auto channelMessage = control->mutable_downlink()->add_phich();
 
