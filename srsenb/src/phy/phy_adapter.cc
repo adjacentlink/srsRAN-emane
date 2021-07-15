@@ -264,16 +264,17 @@ findCarriers(const UL_Message & ulMessage, const uint32_t cc_idx, const uint32_t
 {
    CarrierResults carrierResults;
 
-   const auto rxFreq = getRxFrequency(cc_idx);
-
    const auto & ue_ul_msg = UL_Message_Message(ulMessage);
 
-   if(rxFreq != 0)
+   // get the carrier frequency for this cc worker
+   const auto carrierFrequencyHz = getRxFrequency(cc_idx);
+
+   if(carrierFrequencyHz != 0)
     {
       for(const auto & carrier : ue_ul_msg.carriers())
        {
          // match our rx freq to the msg carrier tx center freq and cell id
-         if((rxFreq == carrier.frequency_hz()) && (cell_id == carrier.phy_cell_id()))
+         if((carrierFrequencyHz == carrier.frequency_hz()) && (cell_id == carrier.phy_cell_id()))
           {
             carrierResults.emplace_back(carrier);
 
@@ -282,6 +283,9 @@ findCarriers(const UL_Message & ulMessage, const uint32_t cc_idx, const uint32_t
           }
        }
     }
+
+  fprintf(stderr, "cc_idx %u, cell_id %u, rxFrequency %lu, msg carriers %d, result %zu\n",
+          cc_idx, cell_id, carrierFrequencyHz, ue_ul_msg.carriers().size(), carrierResults.size());
 
   return carrierResults;
 }
@@ -575,7 +579,7 @@ void enb_init_i(uint32_t idx,
                 EMANELTE::MHAL::mhal_config_t & mhal_config,
                 rrc_cfg_t * rrc_cfg)
 {
-  pdsch_rs_power_milliwatt_ = pow(10.0, static_cast<float>(rrc_cfg->sibs[1].sib2().rr_cfg_common.pdsch_cfg_common.ref_sig_pwr) / 10.0);
+  pdsch_rs_power_milliwatt_ = powf(10.0f, static_cast<float>(rrc_cfg->sibs[1].sib2().rr_cfg_common.pdsch_cfg_common.ref_sig_pwr) / 10.0f);
 
   cell_cp_ = cp;
 

@@ -53,7 +53,7 @@ using FrequencyToCarrierIndex = std::map<std::uint64_t, uint32_t>;
 
 // lookup carrier that matches the frequency, create if needed
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t frequencyHz)
+R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t carrierId)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
@@ -68,7 +68,7 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz)
 
    ptr->set_frequency_hz(frequencyHz);
 
-   ptr->set_carrier_id(0);
+   ptr->set_carrier_id(carrierId);
 
    return ptr;
  }
@@ -76,7 +76,7 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz)
 
 // lookup carrier that matches the frequency, cellId and cc worker, create if needed
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, const uint32_t ccWorker)
+R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, const uint32_t carrierId)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
@@ -85,7 +85,7 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, cons
 
       if(frequencyHz == carrier->frequency_hz() &&
          cellId      == carrier->phy_cell_id()  &&
-         ccWorker    == carrier->carrier_id())
+         carrierId   == carrier->carrier_id())
        {
          return carrier;
        }
@@ -97,7 +97,7 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, cons
 
    ptr->set_phy_cell_id(cellId);
 
-   ptr->set_carrier_id(ccWorker);
+   ptr->set_carrier_id(carrierId);
 
    return ptr;
  }
