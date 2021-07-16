@@ -34,13 +34,13 @@
 
 const size_t MAX_NUM_CARRIERS = 5;
 
-// use full MHz units for rounding sake
 // float types may introduce some inaccuracy
-inline uint64_t trunc_e6(const float value)
+// round off to KHz
+inline uint64_t trunc_freq(const float value)
 {
-  const uint64_t tmp = (value / 1000000LL);
+  const uint64_t tmp = (value / 1000LL);
 
-  return tmp * 1000000LL;
+  return tmp * 1000LL;
 }
 
 // always rx/tx

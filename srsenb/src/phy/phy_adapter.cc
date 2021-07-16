@@ -284,8 +284,10 @@ findCarriers(const UL_Message & ulMessage, const uint32_t cc_idx, const uint32_t
        }
     }
 
-  fprintf(stderr, "cc_idx %u, cell_id %u, rxFrequency %lu, msg carriers %d, result %zu\n",
-          cc_idx, cell_id, carrierFrequencyHz, ue_ul_msg.carriers().size(), carrierResults.size());
+#if 0
+      Info("%s, cc_idx %u, cell_id %u, rxFrequency %lu, msg carriers %d, result %zu",
+           __func__, cc_idx, cell_id, carrierFrequencyHz, ue_ul_msg.carriers().size(), carrierResults.size());
+#endif
 
   return carrierResults;
 }
@@ -596,8 +598,8 @@ void enb_init_i(uint32_t idx,
        idx,
        physical_cell_id,
        sf_interval_msec,
-       trunc_e6(ul_freq_hz),
-       trunc_e6(dl_freq_hz),
+       trunc_freq(ul_freq_hz),
+       trunc_freq(dl_freq_hz),
        n_prb,
        rrc_cfg->sibs[1].sib2().rr_cfg_common.pdsch_cfg_common.ref_sig_pwr,
        pdsch_rs_power_milliwatt_,
@@ -609,8 +611,8 @@ void enb_init_i(uint32_t idx,
      EMANELTE::MHAL::ENB::mhal_enb_config_t(physical_cell_id,
                                             sf_interval_msec,
                                             cp == SRSRAN_CP_NORM ? SRSRAN_CP_NORM_NSYMB : SRSRAN_CP_EXT_NSYMB,
-                                            trunc_e6(ul_freq_hz), // rx
-                                            trunc_e6(dl_freq_hz), // tx
+                                            trunc_freq(ul_freq_hz), // rx
+                                            trunc_freq(dl_freq_hz), // tx
                                             n_prb,
                                             pdsch_rs_power_milliwatt_,
                                             pdsch_rho_b_over_rho_a_));
@@ -635,8 +637,8 @@ void enb_initialize(uint32_t sf_interval_msec,
                   sf_interval_msec, 
                   cell_cfg.cell.id, 
                   cell_cfg.cell.cp, 
-                  trunc_e6(cell_cfg.ul_freq_hz), 
-                  trunc_e6(cell_cfg.dl_freq_hz), 
+                  trunc_freq(cell_cfg.ul_freq_hz), 
+                  trunc_freq(cell_cfg.dl_freq_hz), 
                   cell_cfg.cell.nof_prb, 
                   mhal_config,
                   rrc_cfg);
@@ -648,13 +650,13 @@ void enb_set_frequency(uint32_t cc_idx,
                        float rx_freq_hz,
                        float tx_freq_hz)
 {
-   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz)}; // rx/tx
+   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_freq(rx_freq_hz), trunc_freq(tx_freq_hz)}; // rx/tx
 
    Warning("%s cc=%u, rx_freq %lu Hz, tx_freq %lu Hz",
            __func__,
            cc_idx,
-           trunc_e6(rx_freq_hz),
-           trunc_e6(tx_freq_hz));
+           trunc_freq(rx_freq_hz),
+           trunc_freq(tx_freq_hz));
 }
 
 

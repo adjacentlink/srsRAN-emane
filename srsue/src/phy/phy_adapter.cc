@@ -390,9 +390,11 @@ findCarriers(const DL_Message & dlMessage, const uint32_t cc_idx, const uint32_t
           }
        }
     }
- 
-   fprintf(stderr, "%s: cc_idx %u, cell_id %u, carrierFrequencyHz %lu, msg carriers %d, result %zu\n", 
-           __func__, cc_idx, cell_id, carrierFrequencyHz, enb_dl_msg.carriers().size(), carrierResults.size());
+
+#if 0
+   Info("%s: cc_idx %u, cell_id %u, carrierFrequencyHz %lu, msg carriers %d, result %zu", 
+        __func__, cc_idx, cell_id, carrierFrequencyHz, enb_dl_msg.carriers().size(), carrierResults.size());
+#endif
 
    return carrierResults;
  }
@@ -469,8 +471,8 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
            const auto txAntennaId        = carrier.carrier_id();
 
 #if 0
-fprintf(stderr, "%s, carrierFrequency %lu, carrierId %u, isValid %d\n",
-        __func__, carrier.frequency_hz(), carrier.carrier_id(), rxControl.is_valid_[txAntennaId]);
+           Info("%s, carrierFrequency %lu, carrierId %u, isValid %d",
+                __func__, carrier.frequency_hz(), carrier.carrier_id(), rxControl.is_valid_[txAntennaId]);
 #endif
 
            // check for valid carrier
@@ -751,8 +753,8 @@ void ue_set_earfcn(const float rx_freq_hz, const float tx_freq_hz, const uint32_
 {
   Info("INIT:%s rx_freq %lu Hz, tx_freq %lu Hz, earfcn %u -> %u",
        __func__,
-       trunc_e6(rx_freq_hz),
-       trunc_e6(tx_freq_hz),
+       trunc_freq(rx_freq_hz),
+       trunc_freq(tx_freq_hz),
        earfcn_,
        earfcn);
 
@@ -766,22 +768,22 @@ void ue_set_frequency(const uint32_t cc_idx,
                       const float tx_freq_hz)
 {
    // set frequencies, truncate to MHz, float types may introduce some precision errors
-   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_e6(rx_freq_hz), trunc_e6(tx_freq_hz)}; // rx/tx
+   carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{trunc_freq(rx_freq_hz), trunc_freq(tx_freq_hz)}; // rx/tx
 
    Warning("%s my_pci %u, cc=%u, scell %s, rx_freq %lu Hz, tx_freq %lu Hz",
            __func__,
            my_pci_,
            cc_idx,
            scell ? "yes" : "no",
-           trunc_e6(rx_freq_hz),
-           trunc_e6(tx_freq_hz));
+           trunc_freq(rx_freq_hz),
+           trunc_freq(tx_freq_hz));
 
-   localCarrierTable_[trunc_e6(rx_freq_hz)] = cc_idx;
+   localCarrierTable_[trunc_freq(rx_freq_hz)] = cc_idx;
 
    EMANELTE::MHAL::UE::set_frequencies(cc_idx,
                                        my_pci_,
-                                       trunc_e6(rx_freq_hz),
-                                       trunc_e6(tx_freq_hz));
+                                       trunc_freq(rx_freq_hz),
+                                       trunc_freq(tx_freq_hz));
 }
 
 
