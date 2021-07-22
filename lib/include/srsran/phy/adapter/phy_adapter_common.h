@@ -36,9 +36,9 @@ const size_t MAX_NUM_CARRIERS = 5;
 
 // float types may introduce some inaccuracy
 // round off to KHz
-inline uint64_t trunc_freq(const float value)
+inline uint64_t round_freq(const float value)
 {
-  const uint64_t tmp = (value / 1000LL);
+  const uint64_t tmp = roundf(value / 1000LL);
 
   return tmp * 1000LL;
 }
