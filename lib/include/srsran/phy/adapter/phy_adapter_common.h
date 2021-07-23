@@ -53,7 +53,7 @@ using FrequencyToCarrierIndex = std::map<std::uint64_t, uint32_t>;
 
 // lookup carrier that matches the frequency, create if needed
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cc_idx)
+R *  getTxCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cc_idx)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
@@ -79,7 +79,7 @@ R *  getCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cc_idx)
 
 // lookup carrier that matches the frequency, cellId and cc worker, create if needed
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cellId, const uint32_t cc_idx)
+R *  getTxCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cellId, const uint32_t cc_idx)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
