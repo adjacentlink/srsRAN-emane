@@ -53,12 +53,15 @@ using FrequencyToCarrierIndex = std::map<std::uint64_t, uint32_t>;
 
 // lookup carrier that matches the frequency, create if needed
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t carrierId)
+R *  getCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cc_idx)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
+      const auto carrier = msg.mutable_carriers(idx);
+
       // check freq to the msg carrier tx center freq
-      if(frequencyHz == msg.carriers(idx).frequency_hz())
+      if((txFrequencyHz == carrier->frequency_hz()) &&
+         (cc_idx        == carrier->carrier_id()))
        {
          return msg.mutable_carriers(idx);
        }
@@ -66,9 +69,9 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t carrierId)
   
    auto ptr = msg.add_carriers();
 
-   ptr->set_frequency_hz(frequencyHz);
+   ptr->set_frequency_hz(txFrequencyHz);
 
-   ptr->set_carrier_id(carrierId);
+   ptr->set_carrier_id(cc_idx);
 
    return ptr;
  }
@@ -76,16 +79,16 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t carrierId)
 
 // lookup carrier that matches the frequency, cellId and cc worker, create if needed
 template<typename R, typename T>
-R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, const uint32_t carrierId)
+R *  getCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cellId, const uint32_t cc_idx)
  {
    for(int idx = 0; idx < msg.carriers().size(); ++idx)
     {
       const auto carrier = msg.mutable_carriers(idx);
       // check channel freq, pci and cc
 
-      if(frequencyHz == carrier->frequency_hz() &&
-         cellId      == carrier->phy_cell_id()  &&
-         carrierId   == carrier->carrier_id())
+      if((txFrequencyHz == carrier->frequency_hz()) &&
+         (cc_idx        == carrier->carrier_id())  &&
+         (cellId        == carrier->phy_cell_id()))
        {
          return carrier;
        }
@@ -93,11 +96,11 @@ R *  getCarrier(T & msg, const uint64_t frequencyHz, const uint32_t cellId, cons
   
    auto ptr = msg.add_carriers();
 
-   ptr->set_frequency_hz(frequencyHz);
+   ptr->set_frequency_hz(txFrequencyHz);
 
    ptr->set_phy_cell_id(cellId);
 
-   ptr->set_carrier_id(carrierId);
+   ptr->set_carrier_id(cc_idx);
 
    return ptr;
  }
