@@ -26,6 +26,8 @@
 #include <cmath>
 #include <inttypes.h> // for printing uint64_t
 
+#include "libemanelte/epcstatisticmanager.h"
+
 namespace srsepc {
 
 s1ap*           s1ap::m_instance    = NULL;
@@ -661,5 +663,97 @@ bool s1ap::expire_nas_timer(enum nas_timer_type type, uint64_t imsi)
   bool err = nas_ctx->expire_timer(type);
   return err;
 }
+
+
+#ifdef PHY_ADAPTER_ENABLE
+void s1ap::update_statistics()
+{
+  /*
+  std::map<uint64_t, nas*> m_imsi_to_nas_ctx;
+  std::map<uint32_t, nas*> m_mme_ue_s1ap_id_to_nas_ctx;
+  */
+
+  EPCSTATS::clearEMMContexts();
+  EPCSTATS::clearECMContexts();
+  EPCSTATS::clearESMContexts();
+
+  std::set<nas*> nas_ctx_set{};
+
+  for(auto ctx_it = m_imsi_to_nas_ctx.begin(); ctx_it != m_imsi_to_nas_ctx.end(); ++ctx_it)
+    {
+      nas* nas_ctx = ctx_it->second;
+
+      nas_ctx_set.emplace(nas_ctx);
+
+      EPCSTATS::addEMMContext(nas_ctx->m_emm_ctx.imsi,
+			      nas_ctx->m_ecm_ctx.mme_ue_s1ap_id,
+			      emm_state_text[nas_ctx->m_emm_ctx.state],
+			      nas_ctx->m_emm_ctx.procedure_transaction_id,
+			      nas_ctx->m_emm_ctx.attach_type,
+			      nas_ctx->m_emm_ctx.ue_ip.s_addr,
+			      nas_ctx->m_emm_ctx.sgw_ctrl_fteid.teid);
+
+      EPCSTATS::addECMContext(nas_ctx->m_emm_ctx.imsi,
+			      nas_ctx->m_ecm_ctx.mme_ue_s1ap_id,
+			      ecm_state_text[nas_ctx->m_ecm_ctx.state],
+			      nas_ctx->m_ecm_ctx.enb_ue_s1ap_id,
+			      // struct sctp_sndrcvinfo enb_sri,
+			      nas_ctx->m_ecm_ctx.eit);
+
+      for(size_t i=0; i<MAX_ERABS_PER_UE; ++i)
+	{
+	  if(nas_ctx->m_esm_ctx[i].state)
+	    {
+	      EPCSTATS::addESMContext(nas_ctx->m_emm_ctx.imsi,
+				      nas_ctx->m_ecm_ctx.mme_ue_s1ap_id,
+				      nas_ctx->m_esm_ctx[i].erab_id,
+				      esm_state_text[nas_ctx->m_esm_ctx[i].state],
+				      nas_ctx->m_esm_ctx[i].qci,
+				      nas_ctx->m_esm_ctx[i].enb_fteid.teid,
+				      nas_ctx->m_esm_ctx[i].sgw_s1u_fteid.teid);
+	    }
+	}
+    }
+
+  for(auto ctx_it2 = m_mme_ue_s1ap_id_to_nas_ctx.begin(); ctx_it2 != m_mme_ue_s1ap_id_to_nas_ctx.end(); ++ctx_it2)
+    {
+      nas* nas_ctx = ctx_it2->second;
+
+      if(nas_ctx_set.find(nas_ctx) == nas_ctx_set.end())
+	{
+	  nas_ctx_set.emplace(nas_ctx);
+
+	  EPCSTATS::addEMMContext(nas_ctx->m_emm_ctx.imsi,
+				  nas_ctx->m_ecm_ctx.mme_ue_s1ap_id,
+				  emm_state_text[nas_ctx->m_emm_ctx.state],
+				  nas_ctx->m_emm_ctx.procedure_transaction_id,
+				  nas_ctx->m_emm_ctx.attach_type,
+				  nas_ctx->m_emm_ctx.ue_ip.s_addr,
+				  nas_ctx->m_emm_ctx.sgw_ctrl_fteid.teid);
+
+	  EPCSTATS::addECMContext(nas_ctx->m_emm_ctx.imsi,
+				  nas_ctx->m_ecm_ctx.mme_ue_s1ap_id,
+				  ecm_state_text[nas_ctx->m_ecm_ctx.state],
+				  nas_ctx->m_ecm_ctx.enb_ue_s1ap_id,
+				  // struct sctp_sndrcvinfo enb_sri,
+				  nas_ctx->m_ecm_ctx.eit);
+
+	  for(size_t i=0; i<MAX_ERABS_PER_UE; ++i)
+	    {
+	      if(nas_ctx->m_esm_ctx[i].state)
+		{
+		  EPCSTATS::addESMContext(nas_ctx->m_emm_ctx.imsi,
+					  nas_ctx->m_ecm_ctx.mme_ue_s1ap_id,
+					  nas_ctx->m_esm_ctx[i].erab_id,
+					  esm_state_text[nas_ctx->m_esm_ctx[i].state],
+					  nas_ctx->m_esm_ctx[i].qci,
+					  nas_ctx->m_esm_ctx[i].enb_fteid.teid,
+					  nas_ctx->m_esm_ctx[i].sgw_s1u_fteid.teid);
+		}
+	    }
+	}
+    }
+}
+#endif
 
 } // namespace srsepc

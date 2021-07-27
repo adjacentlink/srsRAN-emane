@@ -128,6 +128,10 @@ public:
 
   virtual bool expire_nas_timer(enum nas_timer_type type, uint64_t imsi);
 
+#ifdef PHY_ADAPTER_ENABLE
+  void update_statistics();
+#endif
+
 private:
   s1ap();
   virtual ~s1ap();

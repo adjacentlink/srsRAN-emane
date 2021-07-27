@@ -184,7 +184,13 @@ void mme::run_thread()
     } else {
       m_s1ap_logger.debug("No data from select.");
     }
+
+#ifdef PHY_ADAPTER_ENABLE
+    m_s1ap->update_statistics();
+#endif
   }
+
+
   return;
 }
 
