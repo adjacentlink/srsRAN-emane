@@ -51,31 +51,6 @@ using CarrierIndexFrequencyTable = std::map<uint32_t, FrequencyPair>;
 
 using FrequencyToCarrierIndex = std::map<std::uint64_t, uint32_t>;
 
-// lookup carrier that matches the frequency, create if needed
-template<typename R, typename T>
-R *  getTxCarrier(T & msg, const uint64_t txFrequencyHz, const uint32_t cc_idx)
- {
-   for(int idx = 0; idx < msg.carriers().size(); ++idx)
-    {
-      const auto carrier = msg.mutable_carriers(idx);
-
-      // check freq to the msg carrier tx center freq
-      if((txFrequencyHz == carrier->frequency_hz()) &&
-         (cc_idx        == carrier->carrier_id()))
-       {
-         return msg.mutable_carriers(idx);
-       }
-    }
-  
-   auto ptr = msg.add_carriers();
-
-   ptr->set_frequency_hz(txFrequencyHz);
-
-   ptr->set_carrier_id(cc_idx);
-
-   return ptr;
- }
-
 
 // lookup carrier that matches the frequency, cellId and cc worker, create if needed
 template<typename R, typename T>

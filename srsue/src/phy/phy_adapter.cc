@@ -85,7 +85,8 @@ namespace {
  // for use into srsran lib calls
  srsran::rf_buffer_t buffer_(1);
 
- uint32_t my_pci_ = 0;
+ // cc_idx, cellid
+ std::map<uint32_t, uint32_t> cellIdInfo_;
 
  // cell_id, sinr, noise floor, timestamp
  using NbrCell = std::tuple<uint32_t, float, float, time_t>;
@@ -194,10 +195,14 @@ namespace {
  ENB_DL_PDSCH_MESSAGES enb_dl_pdsch_messages_;
 
  uint64_t tx_seqnum_         = 0;
+ uint32_t pucch_seqnum_      = 0;
+ uint32_t pusch_seqnum_      = 0;
+
  uint16_t crnti_             = 0;
  uint32_t earfcn_            = 0;
  uint32_t tti_rx_            = 0; // curr or rx tti
  uint32_t tti_tx_            = 0; // next tx tti
+
  uint32_t prach_freq_offset_ = 0;
  srsue::sync * sync_         = nullptr;
 
@@ -396,8 +401,15 @@ getRxCarriers(const DL_Message & dlMessage, const uint32_t cc_idx, const uint32_
     }
 
 #if 0
-   Info("%s: %s, tti %u, cc_idx %u, cell_id %u, rxFrequencyHz %lu, msg carriers %d, result %zu", 
-        __func__, caller, tti_rx_, cc_idx, cell_id, rxFrequencyHz, enb_dl_msg.carriers().size(), carrierResults.size());
+   if(carrierResults.empty())
+     Info("%s, %s, tti %u, cc_idx %u, cell_id %u, rxFrequency %lu, %s",
+          __func__,
+          caller,
+          tti_rx_,
+          cc_idx,
+          cell_id,
+          rxFrequencyHz,
+          enb_dl_msg.DebugString());
 #endif
 
    return carrierResults;
@@ -584,16 +596,16 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
               if(sinrResult.bPassed_)
                {
-                 Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, sinr %f, noise %f",
-                       __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                 Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
+                       __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                  ul_dci_results.emplace_back(ul_dci_message, 
                                              SignalQuality{sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_});
                }
               else
                {
-                 Warning("PUCCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, sinr %f, noise %f",
-                         __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                 Warning("PUCCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
+                         __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
 
               break; // rnti found, done
@@ -639,12 +651,13 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
               if(sinrResult.bPassed_)
                {
-                 INFO("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, sinr %f, noise %f",
+                 INFO("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
                       __func__,
                       cc_idx,
                       txCarrierId,
                       txFrequencyHz,
                       rnti,
+                      pdcch.seqnum(),
                       sinrResult.sinr_dB_,
                       sinrResult.noiseFloor_dBm_);
 
@@ -652,12 +665,13 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                }
               else
                {
-                 Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, sinr %f, noise %f",
+                 Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
                       __func__,
                       cc_idx,
                       txCarrierId,
                       txFrequencyHz,
                       rnti,
+                      pdcch.seqnum(),
                       sinrResult.sinr_dB_,
                       sinrResult.noiseFloor_dBm_);
                }
@@ -701,12 +715,13 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
                                                    rxAntennaId,
                                                    txCarrierId);
 
+        const auto & pdsch_message = carrier.pdsch();
+
         if(sinrResult.bPassed_)
          {
-           Info("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, sinr %f, noise %f",
-                 __func__, cc_idx, txCarrierId, txFrequencyHz, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           Info("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+                 __func__, cc_idx, txCarrierId, txFrequencyHz, pdsch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
-           const auto & pdsch_message = carrier.pdsch();
 
            for(const auto & data : pdsch_message.data())
             {
@@ -720,8 +735,8 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
          }
         else
          {
-           Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, sinr %f, noise %f",
-                   __func__, cc_idx, txCarrierId, txFrequencyHz, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+                   __func__, cc_idx, txCarrierId, txFrequencyHz, pdsch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
          }
       }
    }
@@ -770,6 +785,7 @@ void ue_set_earfcn(const float rx_freq_hz, const float tx_freq_hz, const uint32_
 
 
 void ue_set_frequency(const uint32_t cc_idx,
+                      const uint32_t cellid,
                       const bool scell,
                       const float rx_freq_hz,
                       const float tx_freq_hz)
@@ -786,24 +802,34 @@ void ue_set_frequency(const uint32_t cc_idx,
       carrierIndexFrequencyTable_.clear();
 
       rxCarrierTable_.clear();
+
+      cellIdInfo_.clear();
+    }
+   else if(scell)
+    {
+      // secondary cell
+      cellIdInfo_[cc_idx] = cellid;
+
+      for(const auto e : cellIdInfo_)
+       {
+         Info("%s cc %u, cellid %u", __func__, e.first, e.second);
+       }
     }
 
    carrierIndexFrequencyTable_[cc_idx] = FrequencyPair{rx_freq_hz_rounded, tx_freq_hz_rounded}; // rx/tx
 
    rxCarrierTable_[rx_freq_hz_rounded] = cc_idx;
 
-
-   Warning("%s my_pci %u, cc=%u, scell %s, rx_freq %lu Hz, tx_freq %lu Hz",
+   Warning("%s cellid %u, cc=%u, scell %s, rx_freq %lu Hz, tx_freq %lu Hz",
            __func__,
-           my_pci_,
+           cellid,
            cc_idx,
            scell ? "yes" : "no",
            rx_freq_hz_rounded,
            tx_freq_hz_rounded);
 
-
    EMANELTE::MHAL::UE::set_frequencies(cc_idx,
-                                       my_pci_,
+                                       cellid,
                                        scell,
                                        rx_freq_hz_rounded,
                                        tx_freq_hz_rounded);
@@ -816,14 +842,14 @@ void ue_set_sync(srsue::sync * sync)
 }
 
 
-void ue_set_pci(const uint32_t pci)
+void ue_set_cellid(const uint32_t cellid)
 {
-  if(pci != my_pci_)
-   {
-     Info("%s pci %u -> %u", __func__, my_pci_, pci);
+  cellIdInfo_.clear();
 
-     my_pci_ = pci;
-   }
+  cellIdInfo_[0] = cellid;
+
+  Info("%s cellid %u", __func__, cellid);
+
 }
 
 
@@ -921,9 +947,6 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
   uint32_t num_pss_sss_found = 0;
   uint32_t try_num           = 0;
 
-  // reset my cell id
-  my_pci_ = 0;
-
   // notify in cell search
   EMANELTE::MHAL::UE::cell_search();
 
@@ -938,7 +961,7 @@ int ue_dl_cellsearch_scan(srsran_ue_cellsearch_t * cs,
      // for each enb msg (if any)
      for(const auto & dlMessage : dlMessages)
       {
-        const auto carrierResults = getRxCarriers(dlMessage, cc_idx, my_pci_, __func__);
+        const auto carrierResults = getRxCarriers(dlMessage, cc_idx, 0, __func__);
 
         for(const auto & carrier : carrierResults)
          {
@@ -1539,14 +1562,15 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
                                                    rxAntennaId,
                                                    txCarrierId);
 
+        const auto & phich_message = carrier.phich();
+
         if(sinrResult.bPassed_)
          {
-           Info("PHICH:%s pass, cc=%u, txCarrierId %u, txFrequency %lu, sinr %f, noise %f",
-                 __func__, cc_idx, txCarrierId, txFrequencyHz, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           Info("PHICH:%s pass, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+                 __func__, cc_idx, txCarrierId, txFrequencyHz, phich_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
            ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
-           const auto & phich_message = carrier.phich();
 
            if(rnti                == phich_message.rnti()        && 
               grant->n_prb_lowest == phich_message.num_prb_low() &&
@@ -1564,8 +1588,8 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
          }
         else
          {
-           Warning("PHICH:%s fail, cc=%u, txCarrierId %u, txFrequency %lu, sinr %f, noise %f",
-                 __func__, cc_idx, txCarrierId, txFrequencyHz, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           Warning("PHICH:%s fail, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+                 __func__, cc_idx, txCarrierId, txFrequencyHz, phich_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
          }
       }
    }
@@ -1657,18 +1681,6 @@ void ue_ul_send_signal(const time_t sot_sec, const float frac_sec, const srsran_
   ulMessage_.set_crnti(crnti_);
   ulMessage_.set_tti(tti_tx_);
 
-  // finalize ul_msg
-  for(int idx = 0; idx < ulMessage_.carriers().size(); ++idx)
-   {
-     ulMessage_.mutable_carriers(idx)->set_phy_cell_id(cell.id);
-   }
-
-  // finalize txControl
-  for(int idx = 0; idx < txControl_.carriers().size(); ++idx)
-   {
-     txControl_.mutable_carriers(idx)->set_phy_cell_id(cell.id);
-   }
-
   EMANELTE::MHAL::Data data;
 
   if(ulMessage_.SerializeToString(&data))
@@ -1709,7 +1721,7 @@ void ue_ul_put_prach(const int index)
   const auto txFrequencyHz = getTxFrequency(cc_idx);
 
   auto control = getTxCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                              EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, cc_idx);
+                              EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, cellIdInfo_[cc_idx], cc_idx);
 
   auto channelMessage = control->mutable_uplink()->mutable_prach();
 
@@ -1728,7 +1740,7 @@ void ue_ul_put_prach(const int index)
    }
 
   auto carrier = getTxCarrier<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
-                              EMANELTE::MHAL::UE_UL_Message>(ulMessage_, txFrequencyHz, cc_idx);
+                              EMANELTE::MHAL::UE_UL_Message>(ulMessage_, txFrequencyHz, cellIdInfo_[cc_idx], cc_idx);
 
   auto prach    = carrier->mutable_prach();
   auto preamble = prach->mutable_preamble();
@@ -1750,22 +1762,25 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
    const auto txFrequencyHz = getTxFrequency(cc_idx);
 
    auto carrier = getTxCarrier<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
-                               EMANELTE::MHAL::UE_UL_Message>(ulMessage_, txFrequencyHz, cc_idx);
-
+                               EMANELTE::MHAL::UE_UL_Message>(ulMessage_, txFrequencyHz, cellIdInfo_[cc_idx], cc_idx);
 
    auto pucch_message = carrier->mutable_pucch();
    auto grant_message = pucch_message->add_grant();
    auto pucch_cfg     = cfg->ul_cfg.pucch;
    const auto rnti    = pucch_cfg.rnti;
 
-   srsran_uci_value_t uci_value2 = *uci_data;
+   pucch_message->set_seqnum(pucch_seqnum_++);
 
+   srsran_uci_value_t uci_data2 = *uci_data;
+
+#if 0 // XXX is this needed
    // see lib/src/phy/ue/ue_ul.c
    srsran_ue_ul_pucch_resource_selection(&q->cell, 
                                          &cfg->ul_cfg.pucch,
                                          &cfg->ul_cfg.pucch.uci_cfg,
-                                         uci_data,
-                                         uci_value2.ack.ack_value);
+                                         &uci_data2,
+                                         uci_data2.ack.ack_value);
+#endif
 
    // default: SRSRAN_PUCCH_FORMAT_1
    EMANELTE::MHAL::MOD_TYPE modType = EMANELTE::MHAL::MOD_BPSK;
@@ -1805,7 +1820,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
      }
 
    auto control = getTxCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                               EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, cc_idx);
+                               EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, cellIdInfo_[cc_idx], cc_idx);
 
    auto channelMessage = control->mutable_uplink()->add_pucch();
 
@@ -1844,9 +1859,15 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
    grant_message->set_num_prb(n_prb[1]);
    grant_message->set_num_pucch(pucch_cfg.n_pucch);
    grant_message->set_rnti(rnti);
-   grant_message->set_uci(&uci_value2, sizeof(srsran_uci_value_t));
+   grant_message->set_uci(&uci_data2, sizeof(srsran_uci_value_t));
 
-   Info("PUCCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx", __func__, cc_idx, txFrequencyHz, rnti);
+#if 0
+   char logbuf[256] = {0};
+   srsran_uci_data_info(&cfg->ul_cfg.pucch.uci_cfg, &uci_data2, logbuf, sizeof(logbuf));
+
+   Info("PUCCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, seqnum %u, uci_info [%s]", 
+         __func__, cc_idx, txFrequencyHz, rnti, pucch_message->seqnum(), logbuf);
+#endif
 
    // signal ready
    return 1;
@@ -1860,7 +1881,7 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    const auto txFrequencyHz = getTxFrequency(cc_idx);
 
    auto control = getTxCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
-                               EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, cc_idx);
+                               EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, cellIdInfo_[cc_idx], cc_idx);
 
    auto channelMessage = control->mutable_uplink()->add_pucch();
 
@@ -1881,9 +1902,11 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
     }
 
    auto carrier = getTxCarrier<EMANELTE::MHAL::UE_UL_Message_CarrierMessage,
-                               EMANELTE::MHAL::UE_UL_Message>(ulMessage_, txFrequencyHz, cc_idx);
+                               EMANELTE::MHAL::UE_UL_Message>(ulMessage_, txFrequencyHz, cellIdInfo_[cc_idx], cc_idx);
 
    auto pusch_message = carrier->mutable_pusch();
+   pusch_message->set_seqnum(pusch_seqnum_++);
+
    auto grant_message = pusch_message->add_grant();
 
    grant_message->set_rnti(rnti);
@@ -1897,8 +1920,13 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    // payload
    grant_message->set_payload(data->ptr, bits_to_bytes(grant->tb.tbs));
 
-   Info("PUSCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, payload len %d",
-        __func__, cc_idx, txFrequencyHz, rnti, grant_message->payload().size());
+#if 0
+   char logbuf[256] = {0};
+   srsran_uci_data_info(&cfg->uci_cfg, &data->uci, logbuf, sizeof(logbuf));
+
+   Info("PUSCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, seqnum %u, uci_info [%s]",
+        __func__, cc_idx, txFrequencyHz, rnti, pusch_message->seqnum(), logbuf);
+#endif
 
    UESTATS::putULGrant(rnti);
 

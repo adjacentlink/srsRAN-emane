@@ -47,11 +47,12 @@ void ue_start();
 void ue_stop();
 
 void ue_set_frequency(const uint32_t cc_idx,
+                      const uint32_t cellid,
                       const bool scell,
                       const float rx_freq_hz,
                       const float tx_freq_hz);
 
-void ue_set_pci(const uint32_t pci);
+void ue_set_cellid(const uint32_t cellid);
 
 void ue_set_earfcn(const float rx_freq_hz,
                    const float tx_freq_hz,
