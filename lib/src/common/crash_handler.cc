@@ -77,11 +77,13 @@ void srsran_debug_handle_crash(int argc, char** argv)
   bt_argc = argc;
   bt_argv = argv;
 
+#if 0 // ALINK disable crash handler, create core instead
   signal(SIGSEGV, crash_handler);
   signal(SIGABRT, crash_handler);
   signal(SIGILL, crash_handler);
   signal(SIGFPE, crash_handler);
   signal(SIGPIPE, crash_handler);
+#endif
 }
 
 #endif // HAVE_BACKWARD

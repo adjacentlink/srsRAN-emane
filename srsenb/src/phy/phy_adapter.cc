@@ -136,7 +136,7 @@ namespace {
   inline int bits_to_bytes(int bits) { return bits/8; }
 }
 
-#if 0
+#if 0 // enable to check log formats here
 // compile time log format checks are no longer used, runtime is often too late
 void Error(const char* fmt, ...)   __attribute__ ((format (printf, 1, 2)));
 void Warning(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
@@ -1315,14 +1315,6 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
   srsran_uci_value_t uci_data;
   ZERO_OBJECT(uci_data);
 
-#if 0 // XXX is this needed
-  // see lib/src/phy/phch/pucch_proc.c <<srsran_pucch_proc_get_npucch>>
-  uint8_t b[SRSRAN_UCI_MAX_ACK_BITS] = {};
-
-  // see lib/src/phy/ue/ue_ul.c
-  srsran_ue_ul_pucch_resource_selection(&q->cell, cfg, &cfg->uci_cfg, &uci_data, b);
-#endif
-
   const auto rnti = cfg->rnti;
 
   res->dmrs_correlation = 1.0;
@@ -1414,7 +1406,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                  else
                   {
                     Warning("PUCCH:%s: fail, cc=%u, rnti %hu, sinr %f, noise %f", 
-                            __func__, cc_idx, txCarrierId, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                            __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     res->detected = false;
 

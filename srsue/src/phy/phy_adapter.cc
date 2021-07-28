@@ -266,7 +266,7 @@ namespace {
 
 }
 
-#if 0
+#if 0 // enable to check log formats here
 // compile time log format checks are no longer used, runtime is often too late
 void Error(const char* fmt, ...)   __attribute__ ((format (printf, 1, 2)));
 void Warning(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
@@ -1773,7 +1773,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
 
    srsran_uci_value_t uci_data2 = *uci_data;
 
-#if 0 // XXX is this needed
+#if 1 // XXX is this needed
    // see lib/src/phy/ue/ue_ul.c
    srsran_ue_ul_pucch_resource_selection(&q->cell, 
                                          &cfg->ul_cfg.pucch,
