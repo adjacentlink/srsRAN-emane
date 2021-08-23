@@ -24,6 +24,7 @@ WORKDIR srsRAN-emane
 RUN mkdir build
 WORKDIR build
 RUN cmake ..
+RUN make
 RUN make package
 RUN cp *\.rpm /opt/built
 RUN dnf -y install /opt/built/*
