@@ -544,7 +544,7 @@ bool phy::set_scell(srsran_cell_t cell_info, uint32_t cc_idx, uint32_t earfcn)
       radio->set_tx_freq(cc_idx, ul_freq);
 
 #ifdef PHY_ADAPTER_ENABLE
-      phy_adapter::ue_set_frequency(cc_idx, dl_freq, ul_freq); // rx/tx
+      phy_adapter::ue_set_frequency(cc_idx, cell_info.id, true, dl_freq, ul_freq); // rx/tx
 #endif
     }
 

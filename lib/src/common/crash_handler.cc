@@ -41,6 +41,7 @@ const static char crash_file_name[] = "./srsRAN.backtrace.crash";
 static int        bt_argc;
 static char**     bt_argv;
 
+#if 0 // ALINK remove unused crash_handler definition to compile on ubuntu 20.
 static void crash_handler(int sig)
 {
   FILE* f = fopen(crash_file_name, "a");
@@ -71,17 +72,20 @@ static void crash_handler(int sig)
   printf("---  exiting  ---\n");
   exit(1);
 }
+#endif
 
 void srsran_debug_handle_crash(int argc, char** argv)
 {
   bt_argc = argc;
   bt_argv = argv;
 
+#if 0 // ALINK disable crash handler, create core instead
   signal(SIGSEGV, crash_handler);
   signal(SIGABRT, crash_handler);
   signal(SIGILL, crash_handler);
   signal(SIGFPE, crash_handler);
   signal(SIGPIPE, crash_handler);
+#endif
 }
 
 #endif // HAVE_BACKWARD

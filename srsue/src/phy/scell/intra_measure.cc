@@ -20,6 +20,10 @@
  */
 #include "srsue/hdr/phy/scell/intra_measure.h"
 
+#ifdef PHY_ADAPTER_ENABLE
+#include "srsue/hdr/phy/phy_adapter.h"
+#endif
+
 #define Error(fmt, ...)                                                                                                \
   if (SRSRAN_DEBUG_ENABLED)                                                                                            \
   logger.error(fmt, ##__VA_ARGS__)
@@ -149,9 +153,18 @@ void intra_measure::write(uint32_t tti, cf_t* data, uint32_t nsamples)
         state.set_state(internal_state::wait);
       } else {
         // As soon as there are enough samples in the buffer, transition to measure
+#ifndef PHY_ADAPTER_ENABLE
         if (srsran_ringbuffer_status(&ring_buffer) >= required_nbytes) {
           state.set_state(internal_state::measure);
         }
+#else
+        static int num_sf = 0;
+        // update measurments every 10 sf
+        if(++num_sf >= 10) { 
+          num_sf = 0;
+          state.set_state(internal_state::measure);
+        }
+#endif
       }
       break;
   }
@@ -166,8 +179,10 @@ void intra_measure::measure_proc()
   cells_to_measure = active_pci;
   active_pci_mutex.unlock();
 
+#ifndef PHY_ADAPTER_ENABLE
   // Read data from buffer and find cells in it
   srsran_ringbuffer_read(&ring_buffer, search_buffer, (int)intra_freq_meas_len_ms * current_sflen * sizeof(cf_t));
+#endif
 
   // Go to receive before finishing, so new samples can be enqueued before the thread finishes
   if (state.get_state() == internal_state::measure) {
@@ -176,7 +191,11 @@ void intra_measure::measure_proc()
   }
 
   // Detect new cells using PSS/SSS
+#ifndef PHY_ADAPTER_ENABLE
   std::set<uint32_t> detected_cells = scell.find_cells(search_buffer, serving_cell, intra_freq_meas_len_ms);
+#else
+  std::set<uint32_t> detected_cells = srsue::phy_adapter::ue_get_detected_cells(serving_cell);
+#endif
 
   // Add detected cells to the list of cells to measure
   for (const uint32_t& c : detected_cells) {
@@ -198,7 +217,11 @@ void intra_measure::measure_proc()
     cell.id            = id;
 
     srsran_refsignal_dl_sync_set_cell(&refsignal_dl_sync, cell);
+#ifndef PHY_ADAPTER_ENABLE
     srsran_refsignal_dl_sync_run(&refsignal_dl_sync, search_buffer, intra_freq_meas_len_ms * current_sflen);
+#else
+    phy_adapter::ue_get_refsignals(refsignal_dl_sync, id);
+#endif
 
     if (refsignal_dl_sync.found) {
       phy_meas_t m = {};

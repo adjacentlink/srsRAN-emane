@@ -47,8 +47,8 @@ void enb_initialize(uint32_t                       sf_interval,
                     rrc_cfg_t*                     rrc_cfg);
 
  void enb_set_frequency(uint32_t cc_idx,
-                        double rx_freq_hz,
-                        double tx_freq_hz);
+                        float rx_freq_hz,
+                        float tx_freq_hz);
 
  // state start
  void enb_start();
@@ -63,7 +63,7 @@ void enb_initialize(uint32_t                       sf_interval,
                         uint32_t               cc_idx);
 
  // send to mhal with sot time
- bool enb_dl_send_signal(time_t sot_sec,
+ void enb_dl_send_signal(time_t sot_sec,
                          float  frac_sec);
 
  // get from mhal with sot time
@@ -117,7 +117,8 @@ void enb_initialize(uint32_t                       sf_interval,
                          uint32_t                               cc_idx);
 
  // get prach
- int enb_ul_cc_get_prach(uint32_t*  indicies, 
+ int enb_ul_cc_get_prach(const srsran_cell_t * cell,
+                         uint32_t*  indicies, 
                          float*     offsets,
                          float*     avgs,
                          uint32_t   max_entries,
