@@ -38,92 +38,26 @@ void metrics_ostatistic::set_ue_handle(ue_metrics_interface *ue_)
 
 void metrics_ostatistic::set_metrics(const ue_metrics_t &m, const uint32_t)
 {
-#if 0 // ALINK_XXX REMOVE
-  UESTATS::RLCQueueMetricsList rlcQueueMetrics;
-  UESTATS::RLCQueueMetricsList rlcMrbQueueMetrics;
-
   const auto & stack = m.stack;
-  const auto & phy   = m.phy;
-  const auto & gw    = m.gw;
   const auto & mac   = stack.mac;
-  const auto & rlc   = stack.rlc;
 
-  for(size_t n = 0; n < SRSLTE_N_RADIO_BEARERS; ++n)
-    {
-      // use capacity to determine if lcid is active
-      if(rlc.metrics[n].qmetrics.capacity > 0)
-       {
-         rlcQueueMetrics.emplace_back(
-            UESTATS::RLCQueueMetrics((int)rlc.metrics[n].mode,
-                                     rlc.metrics[n].qmetrics.capacity,
-                                     rlc.metrics[n].qmetrics.currsize,
-                                     rlc.metrics[n].qmetrics.highwater,
-                                     rlc.metrics[n].qmetrics.num_cleared,
-                                     rlc.metrics[n].qmetrics.num_push,
-                                     rlc.metrics[n].qmetrics.num_push_fail,
-                                     rlc.metrics[n].qmetrics.num_pop,
-                                     rlc.metrics[n].qmetrics.num_pop_fail));
-        }
-     }
+  UESTATS::MACMetrics metrics;
 
-   for(size_t n = 0; n < SRSLTE_N_MCH_LCIDS; ++n)
-     {
-       // use capacity to determine if lcid is active
-       if(rlc.mrb_metrics[n].qmetrics.capacity > 0)
-        {
-          rlcMrbQueueMetrics.emplace_back(
-            UESTATS::RLCQueueMetrics((int)rlc.mrb_metrics[n].mode,
-                                     rlc.mrb_metrics[n].qmetrics.capacity,
-                                     rlc.mrb_metrics[n].qmetrics.currsize,
-                                     rlc.mrb_metrics[n].qmetrics.highwater,
-                                     rlc.mrb_metrics[n].qmetrics.num_cleared,
-                                     rlc.mrb_metrics[n].qmetrics.num_push,
-                                     rlc.mrb_metrics[n].qmetrics.num_push_fail,
-                                     rlc.mrb_metrics[n].qmetrics.num_pop,
-                                     rlc.mrb_metrics[n].qmetrics.num_pop_fail));
-        }
-     }
-
-  UESTATS::setRLCMetrics(UESTATS::RLCMetrics(rlc.dl_tput_mbps, 
-                                             rlc.ul_tput_mbps,
-                                             rlcQueueMetrics,
-                                             rlc.dl_tput_mrb_mbps,
-                                             rlcMrbQueueMetrics));
-
-  UESTATS::setGWMetrics(UESTATS::GWMetrics(gw.dl_tput_mbps, gw.ul_tput_mbps));
-
-  // list 1 carrier for now
-  for(int cc = 0; cc < 1; ++cc)
+  for(int cc = 0; cc < SRSRAN_MAX_CARRIERS; ++cc)
    {
-     UESTATS::setMACMetrics(
-      UESTATS::MACMetrics(mac[cc].tx_pkts,
-                          mac[cc].tx_errors,
-                          mac[cc].tx_brate,
-                          mac[cc].rx_pkts,
-                          mac[cc].rx_errors,
-                          mac[cc].rx_brate,
-                          mac[cc].ul_buffer,
-                          mac[cc].dl_retx_avg,
-                          mac[cc].ul_retx_avg));
+     metrics.emplace_back(
+      UESTATS::MACMetric(mac[cc].tx_pkts,
+                         mac[cc].tx_errors,
+                         mac[cc].tx_brate,
+                         mac[cc].rx_pkts,
+                         mac[cc].rx_errors,
+                         mac[cc].rx_brate,
+                         mac[cc].ul_buffer,
+                         mac[cc].dl_retx_avg,
+                         mac[cc].ul_retx_avg));
+   }
 
-      UESTATS::setPHYMetrics(
-       UESTATS::PHYMetrics(phy.sync[cc].ta_us,
-                           phy.sync[cc].cfo,      
-                           phy.sync[cc].sfo,        
-                           phy.dl[cc].n,
-                           phy.dl[cc].sinr,
-                           phy.dl[cc].rsrp,
-                           phy.dl[cc].rsrq,
-                           phy.dl[cc].rssi,
-                           phy.dl[cc].turbo_iters,
-                           phy.dl[cc].mcs,
-                           phy.dl[cc].pathloss,
-                           0,   // was mabr_mbps, now unused
-                           phy.ul[cc].mcs,
-                           phy.ul[cc].power,
-                           0)); // was mabr_mbps, now unused
-    }
-#endif
+   UESTATS::setMACMetrics(metrics);
 }
 
 } // end namespace srsue
