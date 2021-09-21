@@ -50,7 +50,7 @@ namespace {
   EMANELTE::MHAL::ENB_DL_Message     dlMessage_;
   EMANELTE::MHAL::TxControlMessage   txControl_;
 
-  EMANELTE::MHAL::SINRTester         sinrTester_{{}};
+  EMANELTE::MHAL::SINRTester         sinrTester_{};
 
   // ul ue msg
   #define UL_Message_Message(x)    std::get<0>((x))

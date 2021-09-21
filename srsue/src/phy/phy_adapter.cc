@@ -56,7 +56,7 @@ namespace {
  #define DL_SINRTester_Get(x) std::get<2>((x))
 
  // dl message for this frame
- DL_Message dlMessage_{{},{},{{}}};
+ DL_Message dlMessage_{};
 
 
  // vector of dl signals from each enb
