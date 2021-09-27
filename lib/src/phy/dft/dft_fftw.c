@@ -42,7 +42,7 @@ static int get_fftw_wisdom_file(char* full_path, uint32_t n)
     homedir = getpwuid(getuid())->pw_dir;
   }
 
-  return snprintf(full_path, n, FFTW_WISDOM_FILE, homedir);
+  return snprintf(full_path, n, "%s/%s", homedir, FFTW_WISDOM_FILE);
 }
 
 #ifdef FFTW_WISDOM_FILE
