@@ -33,7 +33,7 @@
 #define dft_ceil(a, b) ((a - 1) / b + 1)
 #define dft_floor(a, b) (a / b)
 
-#define FFTW_WISDOM_FILE "%s/.srsran_fftwisdom"
+#define FFTW_WISDOM_FILE "dot_fftw_wisdom"
 
 static int get_fftw_wisdom_file(char* full_path, uint32_t n)
 {
