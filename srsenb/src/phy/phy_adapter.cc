@@ -452,7 +452,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
    }
 
 #if 0
-   Info("PDCCH:%s: cc=%u, cellId %u, rnti %hu, seqnum %u, type %s",
+   Info("PDCCH:%s: cc=%u, cellId %u, rnti %hu, pdcch_seqnum %u, type %s",
         __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
 #endif
 
@@ -533,7 +533,7 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
    ENBSTATS::putDLGrant(rnti);
 
 #if 0
-   Info("PDSCH:%s: cc=%u, cellId %u, rnti %hu, seqnum %u",
+   Info("PDSCH:%s: cc=%u, cellId %u, rnti %hu, pdsch_seqnum %u",
         __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
 #endif
 
@@ -912,7 +912,7 @@ void enb_dl_send_signal(time_t sot_sec, float frac_sec)
      txControl_.set_tti_tx(tti_tx_);
 
 #if 0
-     fprintf(stderr, "dlMessage %s\n", dlMessage_.DebugString().c_str());
+     Info("MHAL:%s dlMessage %s\n", __func__, dlMessage_.DebugString().c_str());
 #endif
 
      EMANELTE::MHAL::ENB::send_msg(data, txControl_);
@@ -1107,7 +1107,7 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
    }
 
 #if 0
-   Info("PHICH:%s cc=%u, cellId %u, rnti 0x%hx, ack %d, n_prb_L %d, n_dmrs %d, seqnum %u", 
+   Info("PHICH:%s cc=%u, cellId %u, rnti 0x%hx, ack %d, n_prb_L %d, n_dmrs %d, phich_seqnum %u", 
         __func__,
         cc_idx,
         q->cell.id,
@@ -1365,7 +1365,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                  char logbuf[256] = {0};
                  srsran_uci_data_info(&cfg->uci_cfg, uci_data, logbuf, sizeof(logbuf));
 
-                 Info("PUCCH:%s cc=%u, tcCarrierId %u, rnti 0x%hx, %d grants, seqnum %u, uci_info [%s]", 
+                 Info("PUCCH:%s cc=%u, tcCarrierId %u, rnti 0x%hx, %d grants, pucch_seqnum %u, uci_info [%s]", 
                        __func__, cc_idx, txCarrierId, rnti, pucch_message.grant_size(), pucch_message.seqnum(), logbuf);
 #endif
 
@@ -1489,7 +1489,7 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                  char logbuf[256] = {0};
                  srsran_uci_data_info(&cfg->uci_cfg, uci_data, logbuf, sizeof(logbuf));
 
-                 Info("PUSCH:%s cc=%u, txCarrierId %u, rnti 0x%hx, cellId %u, %d grants, seqnum %u, uci_info [%s]",
+                 Info("PUSCH:%s cc=%u, txCarrierId %u, rnti 0x%hx, cellId %u, %d grants, pusch_seqnum %u, uci_info [%s]",
                        __func__, cc_idx, txCarrierId, rnti, q->cell.id, pusch_message.grant_size(), pusch_message.seqnum(), logbuf);
 #endif
 
