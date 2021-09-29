@@ -77,7 +77,7 @@ __attribute__((destructor)) static void srsran_dft_exit()
 #ifdef FFTW_WISDOM_FILE
   char full_path[4096];
   get_fftw_wisdom_file(full_path, sizeof(full_path));
-  INFO("Try to export to fft_wisdom_file %s\n", full_path);
+  printf("Try to export to fft_wisdom_file %s\n", full_path); // logger is gone at this point
   fftwf_export_wisdom_to_filename(full_path);
 #endif
   fftwf_cleanup();
