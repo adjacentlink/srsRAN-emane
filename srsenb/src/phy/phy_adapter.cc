@@ -911,7 +911,7 @@ void enb_dl_send_signal(time_t sot_sec, float frac_sec)
      txControl_.set_tx_seqnum(tx_seqnum_++);
      txControl_.set_tti_tx(tti_tx_);
 
-#if 0
+#ifdef DL_PHY_DEBUG
      Info("MHAL:%s dlMessage %s\n", __func__, dlMessage_.DebugString().c_str());
 #endif
 
