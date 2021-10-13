@@ -25,6 +25,10 @@
 #include "srsran/srsran.h"
 #include "srsue/hdr/phy/phy_common.h"
 
+#ifdef PHY_ADAPTER_ENABLE
+#include "srsue/hdr/phy/phy_adapter.h"
+#endif
+
 #define Error(fmt, ...)                                                                                                \
   if (SRSRAN_DEBUG_ENABLED)                                                                                            \
   logger.error(fmt, ##__VA_ARGS__)
@@ -572,8 +576,10 @@ void phy_common::worker_end(void*                   tx_sem_id,
     tx_enable = true;
   }
 
+#ifndef PHY_ADAPTER_ENABLE
   // Add Time Alignment
   tx_time.sub((double)ta.get_sec());
+#endif
 
   // For each radio, transmit
   if (tx_enable) {
@@ -581,7 +587,11 @@ void phy_common::worker_end(void*                   tx_sem_id,
       ul_channel->run(buffer.to_cf_t(), buffer.to_cf_t(), buffer.get_nof_samples(), tx_time.get(0));
     }
 
+#ifndef PHY_ADAPTER_ENABLE
     radio_h->tx(buffer, tx_time);
+#else
+    phy_adapter::ue_ul_send_signal(tx_time.get(0).full_secs, tx_time.get(0).frac_secs, cell);
+#endif
   } else {
     if (radio_h->is_continuous_tx()) {
       if (is_pending_tx_end) {
@@ -633,6 +643,7 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
 {
   bool insync = true;
   {
+#ifndef PHY_ADAPTER_ENABLE
     std::unique_lock<std::mutex> lock(meas_mutex);
 
     float snr_ema_coeff = args->snr_ema_coeff;
@@ -738,7 +749,27 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
         avg_snr_db[cc_idx] = SRSRAN_VEC_EMA(chest_res.snr_db, avg_snr_db[cc_idx], snr_ema_coeff);
       }
     }
+#else
+     // see  lib/src/phy/phch/cqi.c cqi_to_snr_table[15] = {1.95, 4, 6, 8, 10, 11.95, 14.05, 16, 17.9, 20.9, 22.5, 24.75, 25.5, 27.30, 29};
+     // from zmq rf SNR=141 dB, RSRP=-8.3 dBm sync=in-sync from channel estimator
+     // cc_idx 0, noise 0.000, rsrp -8.3, rsrq -3.7, rssi 13.5, pathloss 8.3, sinr 141, sync_err 0.0
+     // see ue config: 
+     // in_sync_rsrp_dbm_th    default -130.0
+     // in_sync_snr_db_th      default 3.0
+     // phy.snr_ema_coeff      defualt 0.1
+     const float snr = phy_adapter::ue_dl_get_snr(cc_idx);
+     const float nf  = phy_adapter::ue_dl_get_nf (cc_idx);
 
+     // get rxpower, noise, rsrp and rsrq
+     avg_noise   [cc_idx] =  0;
+     avg_rsrp_dbm[cc_idx] =  phy_adapter::ue_snr_to_rsrp(snr);
+     avg_rsrq_db [cc_idx] =  phy_adapter::ue_snr_to_rsrq(snr);
+     avg_rssi_dbm[cc_idx] =  phy_adapter::ue_snr_to_rssi(snr,nf);
+     pathloss    [cc_idx] =  0;
+     avg_sinr_db [cc_idx] =  snr;
+     avg_snr_db  [cc_idx] =  snr;
+     avg_cfo_hz[cc_idx]   =  0;
+#endif
     // Store metrics
     ch_metrics_t ch = {};
     ch.n            = avg_noise[cc_idx];
@@ -748,6 +779,16 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
     ch.pathloss     = pathloss[cc_idx];
     ch.sinr         = avg_sinr_db[cc_idx];
     ch.sync_err     = chest_res.sync_error;
+
+    logger.debug("cc_idx %d, noise %3.3f, rsrp %3.3f, rsrq %3.3f, rssi %3.3f, pathloss %3.3f, sinr % 3.3f, sync_err %f",
+                cc_idx,
+                ch.n,
+                ch.rsrp,
+                ch.rsrq,
+                ch.rssi,
+                ch.pathloss,
+                ch.sinr,
+                ch.sync_err);
 
     set_ch_metrics(cc_idx, ch);
 

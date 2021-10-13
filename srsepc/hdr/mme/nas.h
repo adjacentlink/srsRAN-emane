@@ -75,7 +75,11 @@ static const char esm_state_text[ESM_STATE_N_ITEMS][100] = {"CONTEXT INACTIVE",
                                                             "PROCEDURE_TRANSACTION_INACTIVE"
                                                             "PROCEDURE_TRANSACTION_PENDING"};
 */
-typedef enum { ERAB_DEACTIVATED, ERAB_CTX_REQUESTED, ERAB_CTX_SETUP, ERAB_ACTIVE } esm_state_t;
+  typedef enum { ERAB_DEACTIVATED, ERAB_CTX_REQUESTED, ERAB_CTX_SETUP, ERAB_ACTIVE, ESM_STATE_N_ITEMS } esm_state_t;
+static const char esm_state_text[ESM_STATE_N_ITEMS][100] = {"DEACTIVATED",
+                                                            "CTX_REQUESTED",
+                                                            "CTX_SETUP",
+                                                            "ACTIVE"};
 
 /*
  * EMM, ECM, ESM and EPS Security context definitions

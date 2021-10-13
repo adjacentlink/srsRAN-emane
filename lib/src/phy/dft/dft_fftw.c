@@ -33,16 +33,21 @@
 #define dft_ceil(a, b) ((a - 1) / b + 1)
 #define dft_floor(a, b) (a / b)
 
-#define FFTW_WISDOM_FILE "%s/.srsran_fftwisdom"
+#define FFTW_WISDOM_FILE "dot_fftw_wisdom"
 
 static int get_fftw_wisdom_file(char* full_path, uint32_t n)
 {
-  const char* homedir = NULL;
-  if ((homedir = getenv("HOME")) == NULL) {
-    homedir = getpwuid(getuid())->pw_dir;
+  char buf[4096];
+  const char* fftdir = NULL;
+
+  if ((fftdir = getenv("DOT_FFTW_WISDOM_PATH")) != NULL) {
+    return snprintf(full_path, n, "%s/%s", fftdir, FFTW_WISDOM_FILE);
+  }
+  else if((fftdir = getcwd(buf, sizeof(buf))) != NULL) {
+    return snprintf(full_path, n, "%s/%s", fftdir, FFTW_WISDOM_FILE);
   }
 
-  return snprintf(full_path, n, FFTW_WISDOM_FILE, homedir);
+  return snprintf(full_path, n, "%s", FFTW_WISDOM_FILE);
 }
 
 #ifdef FFTW_WISDOM_FILE
@@ -57,8 +62,9 @@ static pthread_mutex_t fft_mutex = PTHREAD_MUTEX_INITIALIZER;
 __attribute__((constructor)) static void srsran_dft_load()
 {
 #ifdef FFTW_WISDOM_FILE
-  char full_path[256];
+  char full_path[4096];
   get_fftw_wisdom_file(full_path, sizeof(full_path));
+  INFO("Try to load fft_wisdom_file %s\n", full_path);
   fftwf_import_wisdom_from_filename(full_path);
 #else
   printf("Warning: FFTW Wisdom file not defined\n");
@@ -69,8 +75,9 @@ __attribute__((constructor)) static void srsran_dft_load()
 __attribute__((destructor)) static void srsran_dft_exit()
 {
 #ifdef FFTW_WISDOM_FILE
-  char full_path[256];
+  char full_path[4096];
   get_fftw_wisdom_file(full_path, sizeof(full_path));
+  printf("Try to export to fft_wisdom_file %s\n", full_path); // logger is gone at this point
   fftwf_export_wisdom_to_filename(full_path);
 #endif
   fftwf_cleanup();

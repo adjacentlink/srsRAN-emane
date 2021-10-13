@@ -23,6 +23,6 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 
-INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/version.h
-        DESTINATION "${INCLUDE_DIR}/srsran"
-)
+#INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/version.h
+#        DESTINATION "${INCLUDE_DIR}/srsran"
+#)

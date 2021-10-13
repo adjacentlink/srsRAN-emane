@@ -1,0 +1,63 @@
+diff --git a/srsepc/hdr/mme/s1ap_ctx_mngmt_proc.h b/srsepc/hdr/mme/s1ap_ctx_mngmt_proc.h
+index f2243b930..7ab05cf0a 100644
+--- a/srsepc/hdr/mme/s1ap_ctx_mngmt_proc.h
++++ b/srsepc/hdr/mme/s1ap_ctx_mngmt_proc.h
+@@ -45,6 +45,7 @@ public:
+   bool handle_ue_context_release_request(const asn1::s1ap::ue_context_release_request_s& ue_rel,
+                                          struct sctp_sndrcvinfo*                         enb_sri);
+   bool send_ue_context_release_command(nas* nas_ctx);
++  bool send_ue_context_release_command(uint32_t mme_ue_s1ap_id, uint32_t enb_ue_s1ap_id, struct sctp_sndrcvinfo* enb_sri);
+   bool handle_ue_context_release_complete(const asn1::s1ap::ue_context_release_complete_s& rel_comp);
+ 
+ private:
+diff --git a/srsepc/src/mme/s1ap_ctx_mngmt_proc.cc b/srsepc/src/mme/s1ap_ctx_mngmt_proc.cc
+index b36940408..1c12a94e6 100644
+--- a/srsepc/src/mme/s1ap_ctx_mngmt_proc.cc
++++ b/srsepc/src/mme/s1ap_ctx_mngmt_proc.cc
+@@ -242,6 +242,8 @@ bool s1ap_ctx_mngmt_proc::handle_ue_context_release_request(const asn1::s1ap::ue
+                                                             struct sctp_sndrcvinfo*                         enb_sri)
+ {
+   uint32_t mme_ue_s1ap_id = ue_rel.protocol_ies.mme_ue_s1ap_id.value.value;
++  uint32_t enb_ue_s1ap_id = ue_rel.protocol_ies.enb_ue_s1ap_id.value.value;
++
+   m_logger.info("Received UE Context Release Request. MME-UE S1AP Id: %d", mme_ue_s1ap_id);
+   srsran::console("Received UE Context Release Request. MME-UE S1AP Id %d\n", mme_ue_s1ap_id);
+ 
+@@ -265,6 +267,7 @@ bool s1ap_ctx_mngmt_proc::handle_ue_context_release_request(const asn1::s1ap::ue
+     for (esm_ctx_t& esm_ctx : nas_ctx->m_esm_ctx) {
+       esm_ctx.state = ERAB_DEACTIVATED;
+     }
++    return send_ue_context_release_command(mme_ue_s1ap_id, enb_ue_s1ap_id, enb_sri);
+   }
+ 
+   // Set UE context will be cleared upon reception of UE Context Release Complete
+@@ -309,6 +312,11 @@ bool s1ap_ctx_mngmt_proc::send_ue_context_release_command(nas* nas_ctx)
+     esm_ctx.state = ERAB_DEACTIVATED;
+   }
+ 
++  return send_ue_context_release_command(nas_ctx->m_ecm_ctx.mme_ue_s1ap_id, nas_ctx->m_ecm_ctx.enb_ue_s1ap_id, &nas_ctx->m_ecm_ctx.enb_sri);
++}
++
++bool s1ap_ctx_mngmt_proc::send_ue_context_release_command(uint32_t mme_ue_s1ap_id, uint32_t enb_ue_s1ap_id, struct sctp_sndrcvinfo* enb_sri)
++{
+   // Prepare reply PDU
+   s1ap_pdu_t tx_pdu;
+   tx_pdu.set_init_msg().load_info_obj(ASN1_S1AP_ID_UE_CONTEXT_RELEASE);
+@@ -316,14 +324,14 @@ bool s1ap_ctx_mngmt_proc::send_ue_context_release_command(nas* nas_ctx)
+   asn1::s1ap::ue_context_release_cmd_ies_container& ctx_rel_cmd =
+       tx_pdu.init_msg().value.ue_context_release_cmd().protocol_ies;
+   ctx_rel_cmd.ue_s1ap_ids.value.set(asn1::s1ap::ue_s1ap_ids_c::types_opts::ue_s1ap_id_pair);
+-  ctx_rel_cmd.ue_s1ap_ids.value.ue_s1ap_id_pair().mme_ue_s1ap_id = nas_ctx->m_ecm_ctx.mme_ue_s1ap_id;
+-  ctx_rel_cmd.ue_s1ap_ids.value.ue_s1ap_id_pair().enb_ue_s1ap_id = nas_ctx->m_ecm_ctx.enb_ue_s1ap_id;
++  ctx_rel_cmd.ue_s1ap_ids.value.ue_s1ap_id_pair().mme_ue_s1ap_id = mme_ue_s1ap_id;
++  ctx_rel_cmd.ue_s1ap_ids.value.ue_s1ap_id_pair().enb_ue_s1ap_id = enb_ue_s1ap_id;
+ 
+   ctx_rel_cmd.cause.value.set(asn1::s1ap::cause_c::types_opts::nas);
+   ctx_rel_cmd.cause.value.nas().value = asn1::s1ap::cause_nas_opts::options::normal_release;
+ 
+   // Send Reply to eNB
+-  if (!m_s1ap->s1ap_tx_pdu(tx_pdu, &nas_ctx->m_ecm_ctx.enb_sri)) {
++  if (!m_s1ap->s1ap_tx_pdu(tx_pdu, enb_sri)) {
+     m_logger.error("Error sending UE Context Release Command.");
+     return false;
+   }

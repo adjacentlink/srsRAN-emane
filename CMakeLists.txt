@@ -49,7 +49,7 @@ configure_file(
 
 if(NOT CMAKE_BUILD_TYPE)
    set(CMAKE_BUILD_TYPE Release)
-   message(STATUS "Build type not specified: defaulting to Release.")
+   message(STATUS "Build type not specified: defaulting to RelWithDebInfo.")
 endif(NOT CMAKE_BUILD_TYPE)
 set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "")
 
@@ -129,6 +129,14 @@ endif()
 if (STOP_ON_WARNING)
   add_definitions(-DSTOP_ON_WARNING)
 endif()
+
+# Test for Atomics
+include(CheckAtomic)
+if(NOT HAVE_CXX_ATOMICS_WITHOUT_LIB OR NOT HAVE_CXX_ATOMICS64_WITHOUT_LIB)
+    set(ATOMIC_LIBS "atomic")
+endif()
+
+option(ENABLE_PHY_ADAPTER "Enable PHY Adapter for use with emane" ON)
 
 ########################################################################
 # Find dependencies
@@ -312,6 +320,38 @@ if(Backward_FOUND)
   endif()
 endif()
 
+if(ENABLE_PHY_ADAPTER)
+  # emanelte
+  find_package(emanelte)
+  if(emanelte_FOUND)
+    include_directories(${emanelte_INCLUDE_DIRS})
+    link_directories(${emanelte_LIBRARY_DIRS})
+    message(STATUS "Found emanelte package")
+  else(emanelte_FOUND)
+    message(FATAL_ERROR "Unable to find emanelte package with CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
+  endif(emanelte_FOUND)
+
+  # ostatistic
+  find_package(ostatistic)
+  if(ostatistic_FOUND)
+    include_directories(${ostatistic_INCLUDE_DIRS})
+    link_directories(${ostatistic_LIBRARY_DIRS})
+    message(STATUS "Found ostatistic package required to build srsLTE with PHY_ADAPTER")
+  else(ostatistic_FOUND)
+    message(FATAL_ERROR "Unable to find ostatistic package required to build srsLTE with PHY_ADAPTER")
+  endif(ostatistic_FOUND)
+
+  # protobuf
+  find_package(protobuf)
+  if(protobuf_FOUND)
+    include_directories(${protobuf_INCLUDE_DIRS})
+    link_directories(${protobuf_LIBRARY_DIRS})
+    message(STATUS "Found Protobuf package required to build srsLTE with PHY_ADAPTER")
+  else(protobuf_FOUND)
+    message(FATAL_ERROR "Unable to find protobuf package required to build srsLTE with PHY_ADAPTER")
+  endif(protobuf_FOUND)
+endif(ENABLE_PHY_ADAPTER)
+
 ########################################################################
 # Install Dirs
 ########################################################################
@@ -336,7 +376,7 @@ configure_file(
         ${PROJECT_SOURCE_DIR}/cmake/modules/SRSRAN_install_configs.sh.in
         ${CMAKE_BINARY_DIR}/srsran_install_configs.sh
 )
-install(PROGRAMS ${CMAKE_BINARY_DIR}/srsran_install_configs.sh DESTINATION ${RUNTIME_DIR})
+#install(PROGRAMS ${CMAKE_BINARY_DIR}/srsran_install_configs.sh DESTINATION ${RUNTIME_DIR})
 
 # Disables the project to build when calling "make install"
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY TRUE)
@@ -522,6 +562,14 @@ if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
 endif()
+
+if(ENABLE_PHY_ADAPTER)
+  message(STATUS "ENABLE PHY_ADAPTER")
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   -DPHY_ADAPTER_ENABLE")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DPHY_ADAPTER_ENABLE")
+else(ENABLE_PHY_ADAPTER)
+  message(STATUS "DISABLE PHY_ADAPTER")
+endif(ENABLE_PHY_ADAPTER)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU")
   # Increase inlining limit to allow gcc compilation on e.g. RPi2

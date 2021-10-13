@@ -621,7 +621,7 @@ add_lte_test(prach_test_multi_freq_offset_test_n4_o800_prb50 prach_test_multi -n
 
 if(RF_FOUND)
   add_executable(prach_test_usrp prach_test_usrp.c)
-  target_link_libraries(prach_test_usrp srsran_rf srsran_phy pthread)
+  target_link_libraries(prach_test_usrp srsran_rf_emane srsran_phy pthread)
 endif(RF_FOUND)
 
 ########################################################################
