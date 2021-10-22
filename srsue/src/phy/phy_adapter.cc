@@ -90,6 +90,7 @@ namespace {
 
  // cell_id, sinr, noise floor, timestamp
  using NbrCell = std::tuple<uint32_t, float, float, time_t>;
+ // helpers
  #define NbrCell_Cellid_Get(x)     std::get<0>((x))
  #define NbrCell_Snr_Get(x)        std::get<1>((x))
  #define NbrCell_Nf_Get(x)         std::get<2>((x))
@@ -753,8 +754,8 @@ static void ue_set_crnti_i(uint16_t crnti)
 {
   if(crnti_ != crnti)
    {
-     crnti_ = crnti;
      Info("MHAL:%s from 0x%hx to 0x%hx", __func__, crnti_, crnti);
+     crnti_ = crnti;
 
      UESTATS::setCrnti(crnti);
    }
@@ -1575,19 +1576,29 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
 
            ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
+           for(const auto & data : phich_message.data())
 
-           if(rnti                == phich_message.rnti()        && 
-              grant->n_prb_lowest == phich_message.num_prb_low() &&
-              grant->n_dmrs       == phich_message.num_dmrs())
+           if(rnti                == data.rnti()        && 
+              grant->n_prb_lowest == data.num_prb_low() &&
+              grant->n_dmrs       == data.num_dmrs())
             {
-              Info("PHICH:%s found cc=%u, rnti %u, ack %d", __func__, cc_idx, rnti, phich_message.ack());
+              Info("PHICH:%s found cc=%u, rnti 0x%hx, ack %d", __func__, cc_idx, rnti, data.ack());
 
-              result->ack_value = phich_message.ack();
+              result->ack_value = data.ack();
               result->distance  = 1.0;
             }
            else
             {
-              Info("PHICH:%s not for us cc=%u, rnti %u, ack %d", __func__, cc_idx, rnti, phich_message.ack());
+              Info("PHICH:%s not for us cc=%u, rnti 0x%hx/0x%hx, n_prbl %d/%d, n_bmrs %d/%d, ack %d",
+                   __func__, 
+                   cc_idx,
+                   rnti,
+                   data.rnti(), 
+                   grant->n_prb_lowest,
+                   data.num_prb_low(),
+                   grant->n_dmrs,
+                   data.num_dmrs(),
+                   data.ack());
             }
          }
         else

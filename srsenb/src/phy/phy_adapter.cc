@@ -382,7 +382,10 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
 
   auto pdcch_message = carrier->add_pdcch();
 
-  pdcch_message->set_seqnum(pdcch_seqnum_++);
+  if(! pdcch_message->has_seqnum())
+   {
+     pdcch_message->set_seqnum(pdcch_seqnum_++);
+   }
 
   auto channelMessage = control->mutable_downlink()->add_pdcch();
 
@@ -405,7 +408,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
 
        const uint32_t rb = k0 / 12;
 
-       Debug("PDCCH DCI group sf_idx=%d, reg=%d, rnti=%d placement: "
+       Debug("PDCCH DCI group sf_idx=%d, reg=%d, rnti=0x%hx placement: "
              "(l=%u, "
              "k0=%u, "
              "k[0]=%u "
@@ -452,7 +455,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
    }
 
 #if 0
-   Info("PDCCH:%s: cc=%u, cellId %u, rnti %hu, pdcch_seqnum %u, type %s",
+   Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
         __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
 #endif
 
@@ -520,7 +523,10 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
 
    auto pdsch_message = carrier->mutable_pdsch();
 
-   pdsch_message->set_seqnum(pdsch_seqnum_++);
+   if(! pdsch_message->has_seqnum())
+    {
+      pdsch_message->set_seqnum(pdsch_seqnum_++);
+    }
 
    // pdsch data
    auto pdsch_data = pdsch_message->add_data();
@@ -533,7 +539,7 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
    ENBSTATS::putDLGrant(rnti);
 
 #if 0
-   Info("PDSCH:%s: cc=%u, cellId %u, rnti %hu, pdsch_seqnum %u",
+   Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdsch_seqnum %u",
         __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
 #endif
 
@@ -1021,7 +1027,7 @@ int enb_dl_cc_put_pmch(srsran_enb_dl_t* q,
 
   if(rnti == 0)
    {
-     Warning("PMCH:%s cc=%u, rnti %hu, set to 0xfffd", __func__, cc_idx, rnti);
+     Warning("PMCH:%s cc=%u, rnti 0x%hx, set to 0xfffd", __func__, cc_idx, rnti);
 
      rnti = 0xfffd;
    }
@@ -1074,11 +1080,17 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
 
   auto phich_message = carrier->mutable_phich();
 
-  phich_message->set_seqnum(phich_seqnum_++);
-  phich_message->set_rnti(ack->rnti);
-  phich_message->set_ack(ack->ack);
-  phich_message->set_num_prb_low(grant->n_prb_lowest);
-  phich_message->set_num_dmrs(grant->n_dmrs);
+  if(! phich_message->has_seqnum())
+   {
+     phich_message->set_seqnum(phich_seqnum_++);
+   }
+
+  auto phich_data = phich_message->add_data();
+
+  phich_data->set_rnti(ack->rnti);
+  phich_data->set_ack(ack->ack);
+  phich_data->set_num_prb_low(grant->n_prb_lowest);
+  phich_data->set_num_dmrs(grant->n_dmrs);
 
   auto channelMessage = control->mutable_downlink()->add_phich();
 
@@ -1326,7 +1338,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
    {
      if(res->detected)
       {
-        Info("PUCCH:%s res->detected set, quit", __func__);
+        Info("PUCCH:%s, cc=%u, res->detected set for rnti 0x%hx, break", __func__, cc_idx, rnti);
         break;
       } 
 
@@ -1371,7 +1383,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
 
                  if(sinrResult.bPassed_)
                   {
-                    Info("PUCCH:%s: pass, cc=%u, rnti %hu, format %d, snr %f, noise %f", 
+                    Info("PUCCH:%s: pass, cc=%u, rnti 0x%hx, format %d, snr %f, noise %f", 
                             __func__, cc_idx, rnti, cfg->format, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     memcpy(&res->uci_data, uci_data, uci_message.length());
@@ -1405,7 +1417,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                   }
                  else
                   {
-                    Warning("PUCCH:%s: fail, cc=%u, rnti %hu, sinr %f, noise %f", 
+                    Warning("PUCCH:%s: fail, cc=%u, rnti 0x%hx, sinr %f, noise %f", 
                             __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     res->detected = false;
@@ -1414,8 +1426,13 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                     ENBSTATS::getPUCCH(rnti, false);
                   }
 
-                 // done with this rnti
-                 break;
+                  // done with this rnti
+                  break;
+                }
+               else
+                {
+                  Info("PUCCH:%s: cc=%u, skip rnti 0x%hx != 0X%hx", 
+                        __func__, cc_idx, rnti, grant.rnti());
                 }
              }
           }
@@ -1426,6 +1443,11 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
               __func__, cc_idx, rnti, q->cell.id);
        }
     }
+
+  if(! res->detected)
+   {
+     Info("PUCCH:%s, cc=%u, nothing for rnti 0x%hx", __func__, cc_idx, rnti);
+   } 
 
   return SRSRAN_SUCCESS;
 }
@@ -1450,7 +1472,7 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
    {
      if(res->crc)
       {
-        Info("PUCCH:res->crc set, quit");
+        Info("PUSCH:%s, cc=%u, res->crc set for rnti 0x%hx, break", __func__, cc_idx, rnti);
         break;
       }
 
@@ -1495,7 +1517,7 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
 
                  if(sinrResult.bPassed_)
                   {
-                    Info("PUSCH:%s: pass, cc=%u, rnti %hu, sinr %f, noise %f", 
+                    Info("PUSCH:%s: pass, cc=%u, rnti 0x%hx, sinr %f, noise %f", 
                           __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     const auto & ul_grant_message = grant.ul_grant();
@@ -1521,7 +1543,7 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                   }
                 else
                   {
-                    Warning("PUSCH:%s: fail, cc=%u, rnti %hu, sinr %f, noise %f", 
+                    Warning("PUSCH:%s: fail, cc=%u, rnti 0x%hx, sinr %f, noise %f", 
                             __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     res->crc                  = false;
@@ -1542,6 +1564,11 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
         Info("PUSCH:%s cc=%u, rnti 0x%hx, cellId %u, no carriers found",
              __func__, cc_idx, rnti, q->cell.id);
       }
+   }
+
+  if(! res->crc)
+   {
+     Info("PUSCH:%s, cc=%u, nothing for rnti 0x%hx", __func__, cc_idx, rnti);
    }
 
   return result;
