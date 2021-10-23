@@ -188,7 +188,7 @@ namespace {
   
 
  // pdsch rnti/messages with signal quality
- using ENB_DL_Message_PDSCH_Entry = std::pair<EMANELTE::MHAL::ENB_DL_Message_PDSCH_Data, SignalQuality>;
+ using ENB_DL_Message_PDSCH_Entry = std::pair<EMANELTE::MHAL::ENB_DL_Message_PDSCH_SubMsg, SignalQuality>;
 
  // rnti, entry
  using ENB_DL_PDSCH_MESSAGES = std::map<uint16_t, ENB_DL_Message_PDSCH_Entry>;
@@ -313,7 +313,7 @@ typedef std::vector<UL_DCI_Result> UL_DCI_Results;
 
 
 // message, sinr
-typedef std::pair<EMANELTE::MHAL::ENB_DL_Message_PDSCH_Data, SignalQuality> PDSCH_Result;
+typedef std::pair<EMANELTE::MHAL::ENB_DL_Message_PDSCH_SubMsg, SignalQuality> PDSCH_Result;
 
 typedef std::vector<PDSCH_Result> PDSCH_Results;
 
@@ -727,14 +727,13 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
            Info("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
                  __func__, cc_idx, txCarrierId, txFrequencyHz, pdsch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
-
-           for(const auto & data : pdsch_message.data())
+           for(const auto & pdsch_SubMsg : pdsch_message.submsg())
             {
-              if(data.refid() == refid)
+              if(pdsch_SubMsg.refid() == refid)
                {
-                Info("PDSCH:%s: found refid %u", __func__, data.refid());
+                Info("PDSCH:%s: found refid %u", __func__, pdsch_SubMsg.refid());
 
-                pdsch_results.emplace_back(data, SignalQuality(sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_));
+                pdsch_results.emplace_back(pdsch_SubMsg, SignalQuality(sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_));
               }
            }
          }
@@ -1411,7 +1410,7 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
           }
          else
           {
-            Error("PDCCH:%s no pdsch data for rnti 0x%hx, refid %u",
+            Error("PDCCH:%s no pdsch subMsg for rnti 0x%hx, refid %u",
                   __func__, rnti, dci_message.refid());
           }
        }
@@ -1509,10 +1508,9 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
          if(iter != enb_dl_pdsch_messages_.end())
            {
              const auto & pdsch_result  = iter->second;
-             const auto & pdsch_message = pdsch_result.first;
-             const auto & pdsch_data    = pdsch_message.data();
+             const auto & pdsch_subMsg  = pdsch_result.first;
 
-             memcpy(data[tb].payload, pdsch_data.data(), pdsch_data.size());
+             memcpy(data[tb].payload, pdsch_subMsg.data().data(), pdsch_subMsg.data().size());
 
              data[tb].avg_iterations_block = 1;
              data[tb].crc = true;
@@ -1520,11 +1518,11 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
              ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
 
              Info("PDSCH:%s: rnti 0x%hx, refid %d, tb[%d], payload %zu bytes, sinr %f",
-                   __func__, rnti, pdsch_message.refid(), tb, pdsch_data.size(), q->chest_res.snr_db);
+                   __func__, rnti, pdsch_subMsg.refid(), tb, pdsch_subMsg.data().size(), q->chest_res.snr_db);
            }
          else
            {
-             Error("PDSCH:%s: rnti %0xhx, no pdsch data", __func__, rnti);
+             Error("PDSCH:%s: rnti %0xhx, no pdsch subMsg", __func__, rnti);
            }
        }
     }
@@ -1576,15 +1574,15 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
 
            ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
-           for(const auto & data : phich_message.data())
+           for(const auto & phich_subMsg : phich_message.submsg())
 
-           if(rnti                == data.rnti()        && 
-              grant->n_prb_lowest == data.num_prb_low() &&
-              grant->n_dmrs       == data.num_dmrs())
+           if(rnti                == phich_subMsg.rnti()        && 
+              grant->n_prb_lowest == phich_subMsg.num_prb_low() &&
+              grant->n_dmrs       == phich_subMsg.num_dmrs())
             {
-              Info("PHICH:%s found cc=%u, rnti 0x%hx, ack %d", __func__, cc_idx, rnti, data.ack());
+              Info("PHICH:%s found cc=%u, rnti 0x%hx, ack %d", __func__, cc_idx, rnti, phich_subMsg.ack());
 
-              result->ack_value = data.ack();
+              result->ack_value = phich_subMsg.ack();
               result->distance  = 1.0;
             }
            else
@@ -1593,12 +1591,12 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
                    __func__, 
                    cc_idx,
                    rnti,
-                   data.rnti(), 
+                   phich_subMsg.rnti(), 
                    grant->n_prb_lowest,
-                   data.num_prb_low(),
+                   phich_subMsg.num_prb_low(),
                    grant->n_dmrs,
-                   data.num_dmrs(),
-                   data.ack());
+                   phich_subMsg.num_dmrs(),
+                   phich_subMsg.ack());
             }
          }
         else
@@ -1633,44 +1631,50 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
 
             if(carrier.has_pmch())
              {
-               const auto & pmch = carrier.pmch();
+               const auto & pmch_message = carrier.pmch();
 
-               if(area_id == pmch.area_id())
+               for(const auto & pmch_subMsg : pmch_message.submsg())
                 {
-                  const auto txFrequencyHz = carrier.frequency_hz();
-                  const auto txCarrierId   = carrier.carrier_id();
-
-                  // ue supports 1 antenna
-                  const uint32_t rxAntennaId = 0;
-
-                  const auto sinrResult = 
-                    DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PMCH,
-                                                             txFrequencyHz,
-                                                             rxAntennaId,
-                                                             txCarrierId);
-
-                  if(sinrResult.bPassed_)
+                  if(area_id == pmch_subMsg.area_id())
                    {
-                     Info("PMCH:%s: pass, cc=%u, txCarrierId %u, sinr %f, noise %f",
-                          __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                     const auto txFrequencyHz = carrier.frequency_hz();
+                     const auto txCarrierId   = carrier.carrier_id();
 
-                     ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                     // ue supports 1 antenna
+                     const uint32_t rxAntennaId = 0;
 
-                     memcpy(data[tb].payload, pmch.data().data(), pmch.data().length());
+                     const auto sinrResult = 
+                       DL_SINRTester_Get(dlMessage_).sinrCheck2(EMANELTE::MHAL::CHAN_PMCH,
+                                                                txFrequencyHz,
+                                                                rxAntennaId,
+                                                                txCarrierId);
+
+                     if(sinrResult.bPassed_)
+                      {
+                        Info("PMCH:%s: pass, cc=%u, txCarrierId %u, sinr %f, noise %f",
+                             __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+
+                        ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
  
-                     data[tb].avg_iterations_block = 1;
+                        memcpy(data[tb].payload, pmch_subMsg.data().data(), pmch_subMsg.data().length());
+ 
+                        data[tb].avg_iterations_block = 1;
 
-                     data[tb].crc = true;
+                        data[tb].crc = true;
+                      }
+                     else
+                      {
+                        Warning("PMCH:%s: fail, cc=%u, txCarrierId %u, sinr %f, noise %f",
+                            __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                      }
+
+                     // done with this entry
+                     break;
                    }
                   else
                    {
-                     Warning("PMCH:%s: fail, cc=%u, txCarrierId %u, sinr %f, noise %f",
-                         __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                     Info("MHAL:%s: cc=%u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch_subMsg.area_id(), area_id);
                    }
-                }
-               else
-                {
-                  Info("MHAL:%s: cc=%u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch.area_id(), area_id);
                 }
              }
           }

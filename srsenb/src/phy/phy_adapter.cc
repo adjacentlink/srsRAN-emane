@@ -423,7 +423,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
   if(type == 0)
    {
      // dl dci
-     auto dl_dci_message = pdcch_message->mutable_dl_dci();
+     auto dl_dci_message = pdcch_message->mutable_dl_dci(); 
 
      dl_dci_message->set_rnti(dci_msg->rnti);
      dl_dci_message->set_refid(pdcch_ref_++);
@@ -454,7 +454,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
      ul_dci_msg->set_format(convert(dci_msg->format));
    }
 
-#if 0
+#if 1
    Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
         __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
 #endif
@@ -529,16 +529,16 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
     }
 
    // pdsch data
-   auto pdsch_data = pdsch_message->add_data();
+   auto pdsch_subMsg = pdsch_message->add_submsg();
 
-   pdsch_data->set_refid(pdsch_ref_++);
-   pdsch_data->set_tb(tb);
-   pdsch_data->set_tbs(grant.tb[tb].tbs);
-   pdsch_data->set_data(data, bits_to_bytes(grant.tb[tb].tbs));
+   pdsch_subMsg->set_refid(pdsch_ref_++);
+   pdsch_subMsg->set_tb(tb);
+   pdsch_subMsg->set_tbs(grant.tb[tb].tbs);
+   pdsch_subMsg->set_data(data, bits_to_bytes(grant.tb[tb].tbs));
    
    ENBSTATS::putDLGrant(rnti);
 
-#if 0
+#if 1
    Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdsch_seqnum %u",
         __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
 #endif
@@ -576,10 +576,12 @@ static int enb_dl_put_pmch_i(const srsran_enb_dl_t * q,
 
    auto pmch_message = carrier->mutable_pmch();
 
-   pmch_message->set_area_id(pmch_cfg->area_id);
-   pmch_message->set_tbs(grant.tb[tb].tbs);
-   pmch_message->set_rnti(rnti);
-   pmch_message->set_data(data ? data : zeros_, grant.tb[tb].tbs);
+   auto pmch_subMsg = pmch_message->add_submsg();
+
+   pmch_subMsg->set_area_id(pmch_cfg->area_id);
+   pmch_subMsg->set_tbs(grant.tb[tb].tbs);
+   pmch_subMsg->set_rnti(rnti);
+   pmch_subMsg->set_data(data ? data : zeros_, grant.tb[tb].tbs);
 
    auto channelMessage = control->mutable_downlink()->mutable_pmch();
 
@@ -1085,12 +1087,12 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
      phich_message->set_seqnum(phich_seqnum_++);
    }
 
-  auto phich_data = phich_message->add_data();
+  auto phich_subMsg = phich_message->add_submsg();
 
-  phich_data->set_rnti(ack->rnti);
-  phich_data->set_ack(ack->ack);
-  phich_data->set_num_prb_low(grant->n_prb_lowest);
-  phich_data->set_num_dmrs(grant->n_dmrs);
+  phich_subMsg->set_rnti(ack->rnti);
+  phich_subMsg->set_ack(ack->ack);
+  phich_subMsg->set_num_prb_low(grant->n_prb_lowest);
+  phich_subMsg->set_num_dmrs(grant->n_dmrs);
 
   auto channelMessage = control->mutable_downlink()->add_phich();
 
