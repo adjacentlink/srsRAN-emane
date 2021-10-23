@@ -510,6 +510,7 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
             }
          }
 
+#define DL_PHY_DEBUG
 #ifdef DL_PHY_DEBUG
          Info("MHAL:%s dlMessage %s\n", __func__, enb_dl_msg.DebugString().c_str());
 #endif
@@ -584,12 +585,12 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
      // ue supports 1 antenna
      const uint32_t rxAntennaId = 0;
 
-     for(const auto & pdcch : carrier.pdcch())
+     if(carrier.has_pdcch())
       {
-        if(pdcch.has_ul_dci())
+        const auto & pdcch_message = carrier.pdcch();
+      
+        for(const auto & ul_dci_message : pdcch_message.ul_dci())
          {
-           const auto & ul_dci_message = pdcch.ul_dci();
-
            if(ul_dci_message.rnti() == rnti)
             {
               const auto sinrResult = 
@@ -602,7 +603,7 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
               if(sinrResult.bPassed_)
                {
                  Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
-                       __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                       __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                  ul_dci_results.emplace_back(ul_dci_message, 
                                              SignalQuality{sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_});
@@ -610,10 +611,11 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
               else
                {
                  Warning("PUCCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
-                         __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                         __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
 
-              break; // rnti found, done
+              // done with this rnti
+              break;
             }
          }
       }
@@ -639,12 +641,12 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
      // ue supports 1 antenna
      const uint32_t rxAntennaId = 0;
 
-     for(const auto & pdcch : carrier.pdcch())
+     if(carrier.has_pdcch())
       {
-        if(pdcch.has_dl_dci())
-         {
-           const auto & dl_dci_message = pdcch.dl_dci();
+        const auto & pdcch_message = carrier.pdcch();
 
+        for(const auto & dl_dci_message : pdcch_message.dl_dci())
+         {
            if(dl_dci_message.rnti() == rnti)
             {
               const auto sinrResult = 
@@ -662,7 +664,7 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                       txCarrierId,
                       txFrequencyHz,
                       rnti,
-                      pdcch.seqnum(),
+                      pdcch_message.seqnum(),
                       sinrResult.sinr_dB_,
                       sinrResult.noiseFloor_dBm_);
 
@@ -676,12 +678,13 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                       txCarrierId,
                       txFrequencyHz,
                       rnti,
-                      pdcch.seqnum(),
+                      pdcch_message.seqnum(),
                       sinrResult.sinr_dB_,
                       sinrResult.noiseFloor_dBm_);
                }
 
-              break; // rnti found, done
+              // done with this rnti
+              break;
             }
          }
       }

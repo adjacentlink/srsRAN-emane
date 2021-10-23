@@ -380,7 +380,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
   auto control = getTxCarrier<EMANELTE::MHAL::TxControlCarrierMessage, 
                               EMANELTE::MHAL::TxControlMessage>(txControl_, txFrequencyHz, q->cell.id, cc_idx);
 
-  auto pdcch_message = carrier->add_pdcch();
+  auto pdcch_message = carrier->mutable_pdcch();
 
   if(! pdcch_message->has_seqnum())
    {
@@ -423,7 +423,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
   if(type == 0)
    {
      // dl dci
-     auto dl_dci_message = pdcch_message->mutable_dl_dci(); 
+     auto dl_dci_message = pdcch_message->add_dl_dci(); 
 
      dl_dci_message->set_rnti(dci_msg->rnti);
      dl_dci_message->set_refid(pdcch_ref_++);
@@ -440,12 +440,12 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
   else
    {
      // ul dci
-     auto dl_dci_message = pdcch_message->mutable_ul_dci();
+     auto ul_dci_message = pdcch_message->add_ul_dci();
 
-     dl_dci_message->set_rnti(dci_msg->rnti);
+     ul_dci_message->set_rnti(dci_msg->rnti);
 
      // dci msg
-     auto ul_dci_msg = dl_dci_message->mutable_dci_msg();
+     auto ul_dci_msg = ul_dci_message->mutable_dci_msg();
 
      ul_dci_msg->set_num_bits(dci_msg->nof_bits);
      ul_dci_msg->set_l_level(dci_msg->location.L);
@@ -455,8 +455,9 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
    }
 
 #if 1
-   Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
-        __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
+   if(rnti_is_user_i(rnti))
+     Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
+          __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
 #endif
 
   return SRSRAN_SUCCESS;
@@ -528,7 +529,7 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
       pdsch_message->set_seqnum(pdsch_seqnum_++);
     }
 
-   // pdsch data
+   // pdsch submsg
    auto pdsch_subMsg = pdsch_message->add_submsg();
 
    pdsch_subMsg->set_refid(pdsch_ref_++);
@@ -539,8 +540,9 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
    ENBSTATS::putDLGrant(rnti);
 
 #if 1
-   Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdsch_seqnum %u",
-        __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
+   if(rnti_is_user_i(rnti))
+     Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdsch_seqnum %u",
+          __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
 #endif
 
    return SRSRAN_SUCCESS;
@@ -919,6 +921,7 @@ void enb_dl_send_signal(time_t sot_sec, float frac_sec)
      txControl_.set_tx_seqnum(tx_seqnum_++);
      txControl_.set_tti_tx(tti_tx_);
 
+#define DL_PHY_DEBUG
 #ifdef DL_PHY_DEBUG
      Info("MHAL:%s dlMessage %s\n", __func__, dlMessage_.DebugString().c_str());
 #endif
@@ -982,7 +985,7 @@ int enb_dl_cc_put_pdcch_dl(srsran_enb_dl_t* q,
       // check if data is ready
       if(grant->data[tb])
        {
-         if(enb_dl_put_pdcch_dl_i(q, dci_cfg, &grant->dci, ref, cc_idx))
+         if(enb_dl_put_pdcch_dl_i(q, dci_cfg, &grant->dci, ref, cc_idx) != SRSRAN_SUCCESS)
           {
              Error("PDCCH:%s cc=%u, error ref %u, tb %u, rnti 0x%hx", 
                    __func__, cc_idx, ref, tb, grant->dci.rnti);
@@ -1006,12 +1009,12 @@ int enb_dl_cc_put_pdsch_dl(srsran_enb_dl_t* q,
       if(grant->data[tb])
        {
          if(enb_dl_put_dl_pdsch_i(q, pdsch, grant->data[tb], ref, tb, cc_idx) != SRSRAN_SUCCESS)
-           {
+          {
              Error("PDSCH:%s cc=%u, error ref %u, tb %u, rnti 0x%hx", 
                    __func__, cc_idx, ref, tb, grant->dci.rnti);
           }
-      }
-   }
+       }
+    }
 
    return SRSRAN_SUCCESS;
 }
