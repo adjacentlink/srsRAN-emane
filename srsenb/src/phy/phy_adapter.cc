@@ -408,6 +408,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
 
        const uint32_t rb = k0 / 12;
 
+#if 0
        Debug("PDCCH DCI group sf_idx=%d, reg=%d, rnti=0x%hx placement: "
              "(l=%u, "
              "k0=%u, "
@@ -415,6 +416,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
              "k[1]=%u "
              "k[2]=%u "
              "k[3]=%u) in rb=%u", tti_tx_ % 10, i, rnti, l, k0, k[0], k[1], k[2], k[3], rb);
+#endif
 
        channelMessage->add_resource_block_frequencies_slot1(EMANELTE::MHAL::ENB::get_tx_prb_frequency(rb, txFrequencyHz));
      }
