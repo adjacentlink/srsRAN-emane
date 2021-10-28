@@ -75,10 +75,10 @@ namespace {
   // track pci to carrier
   std::map<uint32_t,uint32_t> pciTable_;
 
-  uint32_t pdcch_seqnum_ = 0;
-  uint32_t pdsch_seqnum_ = 0;
-  uint32_t phich_seqnum_ = 0;
-  uint64_t tx_seqnum_    = 0;
+  uint32_t pdcch_seqnum_ = 0; // seqnum per pdcch
+  uint32_t pdsch_seqnum_ = 0; // seqnum per pdsch
+  uint32_t phich_seqnum_ = 0; // seqnum per phich
+  uint64_t tx_seqnum_    = 0; // seqnum per ota msg
 
   uint32_t tti_rx_       = 0; // curr or rx tti
   uint32_t tti_tx_       = 0; // next tx tti
@@ -98,13 +98,6 @@ namespace {
 
   // cyclic prefix normal or extended for this cell
   srsran_cp_t cell_cp_ = SRSRAN_CP_NORM;
-
-  inline bool rnti_is_user_i(uint32_t rnti)
-   {
-     return(rnti == SRSRAN_SIRNTI || 
-            rnti == SRSRAN_PRNTI  || 
-           (rnti >= SRSRAN_RARNTI_START && rnti <= SRSRAN_RARNTI_END));
-   }
 
   std::mutex dl_mutex_;
   std::mutex ul_mutex_;
@@ -457,7 +450,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
    }
 
 #if 1
-   if(rnti_is_user_i(rnti))
+   if(SRSRAN_RNTI_ISUSER(rnti))
      Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
           __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
 #endif
@@ -542,7 +535,7 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
    ENBSTATS::putDLGrant(rnti);
 
 #if 1
-   if(rnti_is_user_i(rnti))
+   if(SRSRAN_RNTI_ISUSER(rnti))
      Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdsch_seqnum %u",
           __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
 #endif
@@ -923,8 +916,8 @@ void enb_dl_send_signal(time_t sot_sec, float frac_sec)
      txControl_.set_tx_seqnum(tx_seqnum_++);
      txControl_.set_tti_tx(tti_tx_);
 
-#define DL_PHY_DEBUG
-#ifdef DL_PHY_DEBUG
+#undef  DL_PHY_DEBUG
+#ifdef  DL_PHY_DEBUG
      Info("MHAL:%s dlMessage %s\n", __func__, dlMessage_.DebugString().c_str());
 #endif
 
@@ -1175,6 +1168,10 @@ bool enb_ul_get_signal(uint32_t tti, srsran_timestamp_t * ts)
      if(ue_ul_msg.ParseFromString(rxMessage.data_))
       {
         const auto & rxControl = rxMessage.rxControl_;
+#undef  UL_PHY_DEBUG
+#ifdef  UL_PHY_DEBUG
+        Info("MHAL:%s ulMessage%s\n", __func__, ue_ul_msg.DebugString().c_str());
+#endif
 
         for(auto & carrier : ue_ul_msg.carriers())
          {
@@ -1183,6 +1180,7 @@ bool enb_ul_get_signal(uint32_t tti, srsran_timestamp_t * ts)
               // found a match, save entry
               ulMessages_.emplace_back(ue_ul_msg, rxControl, rxMessage.sinrTesters_);
 
+              // done with this pci from this carrier/ue
               break;
             }
          }
@@ -1390,8 +1388,8 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
 
                  if(sinrResult.bPassed_)
                   {
-                    Info("PUCCH:%s: pass, cc=%u, rnti 0x%hx, format %d, snr %f, noise %f", 
-                            __func__, cc_idx, rnti, cfg->format, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                    Info("PUCCH:%s: pass, cc=%u, rnti 0x%hx, pucch_seqnum %u, format %d, snr %f, noise %f", 
+                            __func__, cc_idx, rnti, pucch_message.seqnum(), cfg->format, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     memcpy(&res->uci_data, uci_data, uci_message.length());
 
@@ -1424,8 +1422,8 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                   }
                  else
                   {
-                    Warning("PUCCH:%s: fail, cc=%u, rnti 0x%hx, sinr %f, noise %f", 
-                            __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                    Warning("PUCCH:%s: fail, cc=%u, rnti 0x%hx, pucch_seqnum %u, sinr %f, noise %f", 
+                            __func__, cc_idx, rnti, pucch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     res->detected = false;
 
@@ -1524,8 +1522,8 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
 
                  if(sinrResult.bPassed_)
                   {
-                    Info("PUSCH:%s: pass, cc=%u, rnti 0x%hx, sinr %f, noise %f", 
-                          __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                    Info("PUSCH:%s: pass, cc=%u, rnti 0x%hx, pusch_seqnum %u, sinr %f, noise %f", 
+                          __func__, cc_idx, rnti, pusch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     const auto & ul_grant_message = grant.ul_grant();
                     const auto & uci_message      = grant.uci();
@@ -1550,8 +1548,8 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                   }
                 else
                   {
-                    Warning("PUSCH:%s: fail, cc=%u, rnti 0x%hx, sinr %f, noise %f", 
-                            __func__, cc_idx, rnti, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                    Warning("PUSCH:%s: fail, cc=%u, rnti 0x%hx, pusch_seqnum %u, sinr %f, noise %f", 
+                            __func__, cc_idx, rnti, pusch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                     res->crc                  = false;
                     res->uci.ack.valid        = false;

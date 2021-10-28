@@ -195,9 +195,9 @@ namespace {
 
  ENB_DL_PDSCH_MESSAGES enb_dl_pdsch_messages_;
 
- uint64_t tx_seqnum_         = 0;
- uint32_t pucch_seqnum_      = 0;
- uint32_t pusch_seqnum_      = 0;
+ uint64_t tx_seqnum_         = 0; // seqnum per ota msg
+ uint32_t pucch_seqnum_      = 0; // seqnum per pucch
+ uint32_t pusch_seqnum_      = 0; // seqnum per pusch
 
  uint16_t crnti_             = 0;
  uint32_t earfcn_            = 0;
@@ -510,8 +510,8 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
             }
          }
 
-#define DL_PHY_DEBUG
-#ifdef DL_PHY_DEBUG
+#undef  DL_PHY_DEBUG
+#ifdef  DL_PHY_DEBUG
          Info("MHAL:%s dlMessage %s\n", __func__, enb_dl_msg.DebugString().c_str());
 #endif
 
@@ -602,7 +602,7 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
               if(sinrResult.bPassed_)
                {
-                 Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
+                 Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, sinr %f, noise %f",
                        __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
                  ul_dci_results.emplace_back(ul_dci_message, 
@@ -610,7 +610,7 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                }
               else
                {
-                 Warning("PUCCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
+                 Warning("PUCCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, sinr %f, noise %f",
                          __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
 
@@ -658,7 +658,7 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
               if(sinrResult.bPassed_)
                {
-                 INFO("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
+                 INFO("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, sinr %f, noise %f",
                       __func__,
                       cc_idx,
                       txCarrierId,
@@ -672,7 +672,7 @@ static DL_DCI_Results get_dl_dci_list_i(const uint16_t rnti, const uint32_t cc_i
                }
               else
                {
-                 Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, seqnum %u, sinr %f, noise %f",
+                 Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, sinr %f, noise %f",
                       __func__,
                       cc_idx,
                       txCarrierId,
@@ -727,7 +727,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
 
         if(sinrResult.bPassed_)
          {
-           Info("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+           Info("PDSCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, pdsch_seqnum %u, sinr %f, noise %f",
                  __func__, cc_idx, txCarrierId, txFrequencyHz, pdsch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
            // now search for the matching pdsch msg by refid
@@ -746,7 +746,7 @@ static PDSCH_Results ue_dl_get_pdsch_data_list_i(const uint32_t refid,
          }
         else
          {
-           Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+           Warning("PDSCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, pdsch_seqnum %u, sinr %f, noise %f",
                    __func__, cc_idx, txCarrierId, txFrequencyHz, pdsch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
          }
       }
@@ -1568,7 +1568,7 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
 
         if(sinrResult.bPassed_)
          {
-           Info("PHICH:%s pass, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+           Info("PHICH:%s pass, cc=%u, txCarrierId %u, txFrequency %lu, phich_seqnum %u, sinr %f, noise %f",
                  __func__, cc_idx, txCarrierId, txFrequencyHz, phich_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
            ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
@@ -1586,21 +1586,21 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
             }
            else
             {
-              Info("PHICH:%s not for us cc=%u, rnti 0x%hx/0x%hx, n_prbl %d/%d, n_bmrs %d/%d, ack %d",
-                   __func__, 
-                   cc_idx,
-                   rnti,
-                   phich_subMsg.rnti(), 
-                   grant->n_prb_lowest,
-                   phich_subMsg.num_prb_low(),
-                   grant->n_dmrs,
-                   phich_subMsg.num_dmrs(),
-                   phich_subMsg.ack());
+              Debug("PHICH:%s not for us cc=%u, rnti 0x%hx/0x%hx, n_prbl %d/%d, n_bmrs %d/%d, ack %d",
+                    __func__, 
+                    cc_idx,
+                    rnti,
+                    phich_subMsg.rnti(), 
+                    grant->n_prb_lowest,
+                    phich_subMsg.num_prb_low(),
+                    grant->n_dmrs,
+                    phich_subMsg.num_dmrs(),
+                    phich_subMsg.ack());
             }
          }
         else
          {
-           Warning("PHICH:%s fail, cc=%u, txCarrierId %u, txFrequency %lu, seqnum %u, sinr %f, noise %f",
+           Warning("PHICH:%s fail, cc=%u, txCarrierId %u, txFrequency %lu, phich_seqnum %u, sinr %f, noise %f",
                  __func__, cc_idx, txCarrierId, txFrequencyHz, phich_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
          }
       }
@@ -1713,6 +1713,11 @@ void ue_ul_send_signal(const time_t sot_sec, const float frac_sec, const srsran_
      txControl_.set_message_type(EMANELTE::MHAL::UPLINK);
      txControl_.set_tx_seqnum(tx_seqnum_++);
      txControl_.set_tti_tx(tti_tx_);
+
+#undef  UL_PHY_DEBUG
+#ifdef  UL_PHY_DEBUG
+     Info("MHAL:%s ulMessage %s\n", __func__, ulMessage_.DebugString().c_str());
+#endif
 
      EMANELTE::MHAL::UE::send_msg(data, txControl_);
    }
@@ -1883,7 +1888,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
    char logbuf[256] = {0};
    srsran_uci_data_info(&cfg->ul_cfg.pucch.uci_cfg, &uci_data2, logbuf, sizeof(logbuf));
 
-   Info("PUCCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, seqnum %u, uci_info [%s]", 
+   Info("PUCCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, pucch_seqnum %u, uci_info [%s]", 
          __func__, cc_idx, txFrequencyHz, rnti, pucch_message->seqnum(), logbuf);
 #endif
 
@@ -1942,7 +1947,7 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    char logbuf[256] = {0};
    srsran_uci_data_info(&cfg->uci_cfg, &data->uci, logbuf, sizeof(logbuf));
 
-   Info("PUSCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, seqnum %u, uci_info [%s]",
+   Info("PUSCH:%s: cc=%u, txFrequency %lu, rnti 0x%hx, pusch_seqnum %u, uci_info [%s]",
         __func__, cc_idx, txFrequencyHz, rnti, pusch_message->seqnum(), logbuf);
 #endif
 
