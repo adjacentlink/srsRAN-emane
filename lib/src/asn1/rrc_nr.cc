@@ -3048,7 +3048,7 @@ SRSASN_CODE pdcch_cfg_common_s::pack(bit_ref& bref) const
   if (ext) {
     ext_groups_packer_guard group_flags;
     group_flags[0] |= first_pdcch_monitoring_occasion_of_po.is_present();
-    group_flags.pack(bref);
+    HANDLE_CODE(group_flags.pack(bref));
 
     if (group_flags[0]) {
       varlength_field_pack_guard varlen_scope(bref, false);
@@ -3100,7 +3100,7 @@ SRSASN_CODE pdcch_cfg_common_s::unpack(cbit_ref& bref)
 
   if (ext) {
     ext_groups_unpacker_guard group_flags(1);
-    group_flags.unpack(bref);
+    HANDLE_CODE(group_flags.unpack(bref));
 
     if (group_flags[0]) {
       varlength_field_unpack_guard varlen_scope(bref, false);
@@ -4491,61 +4491,6 @@ uint8_t sib_type_info_s::type_opts::to_number() const
 {
   static const uint8_t options[] = {2, 3, 4, 5, 6, 7, 8, 9};
   return map_enum_number(options, 8, value, "sib_type_info_s::type_e_");
-}
-
-// SetupRelease{ElementTypeParam} ::= CHOICE
-template <class elem_type_paramT_>
-void setup_release_c<elem_type_paramT_>::set(typename types::options e)
-{
-  type_ = e;
-}
-template <class elem_type_paramT_>
-void setup_release_c<elem_type_paramT_>::to_json(json_writer& j) const
-{
-  j.start_obj();
-  switch (type_) {
-    case types::release:
-      break;
-    case types::setup:
-      break;
-    default:
-      log_invalid_choice_id(type_, "setup_release_c");
-  }
-  j.end_obj();
-}
-template <class elem_type_paramT_>
-SRSASN_CODE setup_release_c<elem_type_paramT_>::pack(bit_ref& bref) const
-{
-  type_.pack(bref);
-  switch (type_) {
-    case types::release:
-      break;
-    case types::setup:
-      HANDLE_CODE(c.pack(bref));
-      break;
-    default:
-      log_invalid_choice_id(type_, "setup_release_c");
-      return SRSASN_ERROR_ENCODE_FAIL;
-  }
-  return SRSASN_SUCCESS;
-}
-template <class elem_type_paramT_>
-SRSASN_CODE setup_release_c<elem_type_paramT_>::unpack(cbit_ref& bref)
-{
-  types e;
-  e.unpack(bref);
-  set(e);
-  switch (type_) {
-    case types::release:
-      break;
-    case types::setup:
-      HANDLE_CODE(c.unpack(bref));
-      break;
-    default:
-      log_invalid_choice_id(type_, "setup_release_c");
-      return SRSASN_ERROR_DECODE_FAIL;
-  }
-  return SRSASN_SUCCESS;
 }
 
 // UAC-BarringPerCat ::= SEQUENCE

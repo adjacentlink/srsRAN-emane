@@ -18,10 +18,10 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
-#include "srsran/common/test_common.h"
 #include "srsran/phy/fec/block/block.h"
 #include "srsran/phy/utils/debug.h"
 #include "srsran/phy/utils/random.h"
+#include "srsran/support/srsran_test.h"
 #include <memory.h>
 #include <srsran/phy/utils/vector.h>
 #include <stdio.h>
@@ -41,7 +41,7 @@ void usage(char* prog)
   printf("Usage: %s [Rv]\n", prog);
   printf("\t-R Number of repetitions [Default %d]\n", nof_repetitions);
   printf("\t-E Number of encoded bits [Default %d]\n", E);
-  printf("\t-v increase verbose [Default %d]\n", srsran_verbose);
+  printf("\t-v increase verbose [Default %d]\n", get_srsran_verbose_level());
 }
 
 void parse_args(int argc, char** argv)
@@ -56,7 +56,7 @@ void parse_args(int argc, char** argv)
         E = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);

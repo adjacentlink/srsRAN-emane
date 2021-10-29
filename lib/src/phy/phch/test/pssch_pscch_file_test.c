@@ -113,7 +113,7 @@ void parse_args(int argc, char** argv)
         }
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);
@@ -175,7 +175,7 @@ int base_init()
     return SRSRAN_ERROR;
   }
 
-  if (srsran_chest_sl_init(&pscch_chest, SRSRAN_SIDELINK_PSCCH, cell, sl_comm_resource_pool) != SRSRAN_SUCCESS) {
+  if (srsran_chest_sl_init(&pscch_chest, SRSRAN_SIDELINK_PSCCH, cell, &sl_comm_resource_pool) != SRSRAN_SUCCESS) {
     ERROR("Error in PSCCH DMRS init");
     return SRSRAN_ERROR;
   }
@@ -185,7 +185,7 @@ int base_init()
     return SRSRAN_ERROR;
   }
 
-  if (srsran_chest_sl_init(&pssch_chest, SRSRAN_SIDELINK_PSSCH, cell, sl_comm_resource_pool) != SRSRAN_SUCCESS) {
+  if (srsran_chest_sl_init(&pssch_chest, SRSRAN_SIDELINK_PSSCH, cell, &sl_comm_resource_pool) != SRSRAN_SUCCESS) {
     ERROR("Error in chest PSSCH init");
     return SRSRAN_ERROR;
   }
@@ -296,7 +296,7 @@ int main(int argc, char** argv)
           if (srsran_pscch_decode(&pscch, equalized_sf_buffer, sci_rx, pscch_prb_start_idx) == SRSRAN_SUCCESS) {
             if (srsran_sci_format0_unpack(&sci, sci_rx) == SRSRAN_SUCCESS) {
               srsran_sci_info(&sci, sci_msg, sizeof(sci_msg));
-              fprintf(stdout, "%s", sci_msg);
+              fprintf(stdout, "%s\n", sci_msg);
 
               sci_decoded = true;
               num_decoded_sci++;
@@ -357,7 +357,7 @@ int main(int argc, char** argv)
           if (srsran_pscch_decode(&pscch, equalized_sf_buffer, sci_rx, pscch_prb_start_idx) == SRSRAN_SUCCESS) {
             if (srsran_sci_format1_unpack(&sci, sci_rx) == SRSRAN_SUCCESS) {
               srsran_sci_info(&sci, sci_msg, sizeof(sci_msg));
-              fprintf(stdout, "%s", sci_msg);
+              fprintf(stdout, "%s\n", sci_msg);
 
               num_decoded_sci++;
 

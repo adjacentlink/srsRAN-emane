@@ -81,7 +81,6 @@ public:
   virtual bool        is_connected()                                                    = 0;
   virtual void        paging_completed(bool outcome)                                    = 0;
   virtual const char* get_rb_name(uint32_t lcid)                                        = 0;
-  virtual uint32_t    get_lcid_for_eps_bearer(const uint32_t& eps_bearer_id)            = 0;
   virtual bool        has_nr_dc()                                                       = 0;
 };
 
@@ -93,6 +92,7 @@ public:
   virtual void        write_pdu_bcch_dlsch(srsran::unique_byte_buffer_t pdu)         = 0;
   virtual void        write_pdu_pcch(srsran::unique_byte_buffer_t pdu)               = 0;
   virtual void        write_pdu_mch(uint32_t lcid, srsran::unique_byte_buffer_t pdu) = 0;
+  virtual void        notify_pdcp_integrity_error(uint32_t lcid)                     = 0;
   virtual const char* get_rb_name(uint32_t lcid)                                     = 0;
 };
 
@@ -100,6 +100,7 @@ class rrc_interface_rlc
 {
 public:
   virtual void        max_retx_attempted()                                       = 0;
+  virtual void        protocol_failure()                                         = 0;
   virtual const char* get_rb_name(uint32_t lcid)                                 = 0;
   virtual void        write_pdu(uint32_t lcid, srsran::unique_byte_buffer_t pdu) = 0;
 };
@@ -107,8 +108,8 @@ public:
 class rrc_nr_interface_rrc
 {
 public:
-  virtual void get_eutra_nr_capabilities(srsran::byte_buffer_t* eutra_nr_caps)   = 0;
-  virtual void get_nr_capabilities(srsran::byte_buffer_t* nr_cap)                = 0;
+  virtual int  get_eutra_nr_capabilities(srsran::byte_buffer_t* eutra_nr_caps)   = 0;
+  virtual int  get_nr_capabilities(srsran::byte_buffer_t* nr_cap)                = 0;
   virtual void phy_set_cells_to_meas(uint32_t carrier_freq_r15)                  = 0;
   virtual void phy_meas_stop()                                                   = 0;
   virtual bool rrc_reconfiguration(bool                endc_release_and_add_r15,
@@ -118,9 +119,20 @@ public:
                                    uint32_t            sk_counter_r15,
                                    bool                nr_radio_bearer_cfg1_r15_present,
                                    asn1::dyn_octstring nr_radio_bearer_cfg1_r15) = 0;
+  virtual void rrc_release()                                                     = 0;
   virtual bool is_config_pending()                                               = 0;
 };
 
+class rrc_nr_interface_nas_5g
+{
+public:
+  virtual ~rrc_nr_interface_nas_5g()                           = default;
+  virtual int      write_sdu(srsran::unique_byte_buffer_t sdu) = 0;
+  virtual bool     is_connected()                              = 0;
+  virtual int      connection_request(srsran::nr_establishment_cause_t cause, srsran::unique_byte_buffer_t sdu) = 0;
+  virtual uint16_t get_mcc()                                                                                    = 0;
+  virtual uint16_t get_mnc()                                                                                    = 0;
+};
 } // namespace srsue
 
 #endif // SRSRAN_UE_RRC_INTERFACES_H

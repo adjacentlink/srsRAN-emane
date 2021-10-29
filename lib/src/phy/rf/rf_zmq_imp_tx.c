@@ -66,7 +66,7 @@ int rf_zmq_tx_open(rf_zmq_tx_t* q, rf_zmq_opts_t opts, void* zmq_ctx, char* sock
       }
 
       if (zmq_setsockopt(q->sock, ZMQ_SNDTIMEO, &timeout, sizeof(timeout)) == -1) {
-        fprintf(stderr, "Error: setting receive timeout on tx socket\n");
+        fprintf(stderr, "Error: setting send timeout on tx socket\n");
         goto clean_exit;
       }
 
@@ -209,6 +209,14 @@ int rf_zmq_tx_baseband(rf_zmq_tx_t* q, cf_t* buffer, uint32_t nsamples)
   return n;
 }
 
+int rf_zmq_tx_get_nsamples(rf_zmq_tx_t* q)
+{
+  pthread_mutex_lock(&q->mutex);
+  int ret = q->nsamples;
+  pthread_mutex_unlock(&q->mutex);
+  return ret;
+}
+
 int rf_zmq_tx_zeros(rf_zmq_tx_t* q, uint32_t nsamples)
 {
   pthread_mutex_lock(&q->mutex);
@@ -232,7 +240,11 @@ bool rf_zmq_tx_match_freq(rf_zmq_tx_t* q, uint32_t freq_hz)
 
 void rf_zmq_tx_close(rf_zmq_tx_t* q)
 {
+  pthread_mutex_lock(&q->mutex);
   q->running = false;
+  pthread_mutex_unlock(&q->mutex);
+
+  pthread_mutex_destroy(&q->mutex);
 
   if (q->zeros) {
     free(q->zeros);
@@ -246,4 +258,18 @@ void rf_zmq_tx_close(rf_zmq_tx_t* q)
     zmq_close(q->sock);
     q->sock = NULL;
   }
+}
+
+bool rf_zmq_tx_is_running(rf_zmq_tx_t* q)
+{
+  if (!q) {
+    return false;
+  }
+
+  bool ret = false;
+  pthread_mutex_lock(&q->mutex);
+  ret = q->running;
+  pthread_mutex_unlock(&q->mutex);
+
+  return ret;
 }

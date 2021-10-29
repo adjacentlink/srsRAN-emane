@@ -62,11 +62,13 @@ char const* const prefixes[2][9] = {
 
 void metrics_stdout::set_ue_handle(ue_metrics_interface* ue_)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   ue = ue_;
 }
 
 void metrics_stdout::toggle_print(bool b)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   do_print = b;
 }
 
@@ -75,22 +77,22 @@ void metrics_stdout::print_table(const bool display_neighbours, const bool is_nr
   if (is_nr) {
     if (display_neighbours) {
       fmt::print(
-          "---------Signal----------|-Neighbour-|-----------------DL-----------------|-----------UL-----------\n");
+          "---------Signal-----------|-Neighbour-|-----------------DL-----------------|-----------UL-----------\n");
       fmt::print(
-          "rat  pci  rsrp  pl   cfo | pci  rsrp | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
+          "rat  pci  rsrp   pl   cfo | pci  rsrp | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
     } else {
-      fmt::print("---------Signal----------|-----------------DL-----------------|-----------UL-----------\n");
-      fmt::print("rat  pci  rsrp  pl   cfo | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
+      fmt::print("---------Signal-----------|-----------------DL-----------------|-----------UL-----------\n");
+      fmt::print("rat  pci  rsrp   pl   cfo | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
     }
   } else {
     if (display_neighbours) {
       fmt::print(
-          "---------Signal----------|-Neighbour-|-----------------DL-----------------|-----------UL-----------\n");
+          "---------Signal-----------|-Neighbour-|-----------------DL-----------------|-----------UL-----------\n");
       fmt::print(
-          " cc  pci  rsrp  pl   cfo | pci  rsrp | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
+          " cc  pci  rsrp   pl   cfo | pci  rsrp | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
     } else {
-      fmt::print("---------Signal----------|-----------------DL-----------------|-----------UL-----------\n");
-      fmt::print(" cc  pci  rsrp  pl   cfo | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
+      fmt::print("---------Signal-----------|-----------------DL-----------------|-----------UL-----------\n");
+      fmt::print(" cc  pci  rsrp   pl   cfo | mcs  snr  iter  brate  bler  ta_us | mcs   buff  brate  bler\n");
     }
   }
   table_has_neighbours = display_neighbours;
@@ -118,7 +120,7 @@ void metrics_stdout::set_metrics_helper(const phy_metrics_t& phy,
   }
 
   fmt::print("  {:>4}", int(phy.ch[r].rsrp));
-  fmt::print("  {:>2}", int(phy.ch[r].pathloss));
+  fmt::print(" {:>4}", int(phy.ch[r].pathloss));
   fmt::print(" {:>5.5}", float_to_eng_string(phy.sync[r].cfo, 2));
 
   // Find strongest neighbour for this EARFCN (cells are ordered)
@@ -142,7 +144,11 @@ void metrics_stdout::set_metrics_helper(const phy_metrics_t& phy,
   fmt::print(" |");
 
   fmt::print("  {:>2}", int(phy.dl[r].mcs));
-  fmt::print("  {:>3}", int(phy.ch[r].sinr));
+  if (std::isnan(phy.ch[r].sinr) || std::isinf(phy.ch[r].sinr)) {
+    fmt::print("  {:>3}", "n/a");
+  } else {
+    fmt::print("  {:>3}", int(phy.ch[r].sinr));
+  }
   fmt::print("  {:>4.1f}", phy.dl[r].fec_iters);
 
   fmt::print(" {:>6.6}", float_to_eng_string((float)mac[r].rx_brate / (mac[r].nof_tti * 1e-3), 2));
@@ -170,6 +176,7 @@ void metrics_stdout::set_metrics_helper(const phy_metrics_t& phy,
 
 void metrics_stdout::set_metrics(const ue_metrics_t& metrics, const uint32_t period_usec)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (ue == nullptr) {
     return;
   }

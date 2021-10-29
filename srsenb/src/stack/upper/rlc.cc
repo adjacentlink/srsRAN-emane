@@ -63,7 +63,7 @@ void rlc::get_metrics(rlc_metrics_t& m, const uint32_t nof_tti)
 
 void rlc::add_user(uint16_t rnti)
 {
-  pthread_rwlock_rdlock(&rwlock);
+  pthread_rwlock_wrlock(&rwlock);
   if (users.count(rnti) == 0) {
     auto obj = make_rnti_obj<srsran::rlc>(rnti, logger.id().c_str());
     obj->init(&users[rnti],
@@ -159,6 +159,17 @@ bool rlc::suspend_bearer(uint16_t rnti, uint32_t lcid)
   return result;
 }
 
+bool rlc::is_suspended(uint16_t rnti, uint32_t lcid)
+{
+  pthread_rwlock_rdlock(&rwlock);
+  bool result = false;
+  if (users.count(rnti)) {
+    result = users[rnti].rlc->is_suspended(lcid);
+  }
+  pthread_rwlock_unlock(&rwlock);
+  return result;
+}
+
 bool rlc::resume_bearer(uint16_t rnti, uint32_t lcid)
 {
   pthread_rwlock_rdlock(&rwlock);
@@ -182,15 +193,10 @@ void rlc::reestablish(uint16_t rnti)
 
 // In the eNodeB, there is no polling for buffer state from the scheduler.
 // This function is called by UE RLC instance every time the tx/retx buffers are updated
-void rlc::update_bsr(uint32_t rnti, uint32_t lcid, uint32_t tx_queue, uint32_t retx_queue)
+void rlc::update_bsr(uint32_t rnti, uint32_t lcid, uint32_t tx_queue, uint32_t prio_tx_queue)
 {
-  logger.debug("Buffer state: rnti=0x%x, lcid=%d, tx_queue=%d", rnti, lcid, tx_queue);
-  mac->rlc_buffer_state(rnti, lcid, tx_queue, retx_queue);
-}
-
-void rlc::read_pdu_pcch(uint8_t* payload, uint32_t buffer_size)
-{
-  rrc->read_pdu_pcch(payload, buffer_size);
+  logger.debug("Buffer state: rnti=0x%x, lcid=%d, tx_queue=%d, prio_tx_queue=%d", rnti, lcid, tx_queue, prio_tx_queue);
+  mac->rlc_buffer_state(rnti, lcid, tx_queue, prio_tx_queue);
 }
 
 int rlc::read_pdu(uint16_t rnti, uint32_t lcid, uint8_t* payload, uint32_t nof_bytes)
@@ -267,6 +273,11 @@ bool rlc::sdu_queue_is_full(uint16_t rnti, uint32_t lcid)
 void rlc::user_interface::max_retx_attempted()
 {
   rrc->max_retx_attempted(rnti);
+}
+
+void rlc::user_interface::protocol_failure()
+{
+  rrc->protocol_failure(rnti);
 }
 
 void rlc::user_interface::write_pdu(uint32_t lcid, srsran::unique_byte_buffer_t sdu)

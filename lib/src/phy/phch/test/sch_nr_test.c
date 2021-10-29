@@ -27,16 +27,7 @@
 #include <getopt.h>
 #include <srsran/phy/utils/random.h>
 
-static srsran_carrier_nr_t carrier = {
-    1,                               // pci
-    0,                               // absolute_frequency_ssb
-    0,                               // absolute_frequency_point_a
-    0,                               // offset_to_carrier
-    srsran_subcarrier_spacing_15kHz, // scs
-    SRSRAN_MAX_PRB_NR,               // nof_prb
-    0,                               // start
-    1                                // max_mimo_layers
-};
+static srsran_carrier_nr_t carrier = SRSRAN_DEFAULT_CARRIER_NR;
 
 static uint32_t            n_prb     = 0;  // Set to 0 for steering
 static uint32_t            mcs       = 30; // Set to 30 for steering
@@ -80,7 +71,7 @@ int parse_args(int argc, char** argv)
         carrier.max_mimo_layers = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);
@@ -188,12 +179,7 @@ int main(int argc, char** argv)
         for (uint32_t n = 0; n < SRSRAN_MAX_PRB_NR; n++) {
           pdsch_cfg.grant.prb_idx[n] = (n < n_prb);
         }
-
-        if (srsran_ra_dl_nr_nof_dmrs_cdm_groups_without_data_format_1_0(&pdsch_cfg.dmrs, &pdsch_cfg.grant) <
-            SRSRAN_SUCCESS) {
-          ERROR("Error calculating number of DMRS CDM groups");
-          goto clean_exit;
-        }
+        pdsch_cfg.grant.nof_dmrs_cdm_groups_without_data = 1; // No need for MIMO
 
         srsran_sch_tb_t tb = {};
         tb.rv              = rv;

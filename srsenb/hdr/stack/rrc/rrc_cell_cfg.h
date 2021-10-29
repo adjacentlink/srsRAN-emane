@@ -82,10 +82,10 @@ public:
   const static uint32_t N_PUCCH_MAX_PRB = 4; // Maximum number of PRB to use for PUCCH ACK/NACK in CS mode
   const static uint32_t N_PUCCH_MAX_RES = 3 * SRSRAN_NRE * N_PUCCH_MAX_PRB;
 
-  uint32_t                          next_measgap_offset = 0;
-  pucch_idx_sched_t                 sr_sched            = {};
-  pucch_idx_sched_t                 cqi_sched           = {};
-  std::array<bool, N_PUCCH_MAX_RES> n_pucch_cs_used     = {};
+  pucch_idx_sched_t                 sr_sched           = {};
+  pucch_idx_sched_t                 cqi_sched          = {};
+  std::array<bool, N_PUCCH_MAX_RES> n_pucch_cs_used    = {};
+  std::array<uint32_t, 14>          meas_gap_alloc_map = {};
 };
 
 /** Storage of CQI/SR/PUCCH CS resources across multiple frequencies and for multiple users */
@@ -136,8 +136,9 @@ public:
                             const enb_cell_common_list& enb_common_list);
   ~ue_cell_ded_list();
 
-  ue_cell_ded* add_cell(uint32_t enb_cc_idx);
+  ue_cell_ded* add_cell(uint32_t enb_cc_idx, bool init_pucch = true);
   bool         rem_last_cell();
+  bool         init_pucch_pcell();
   bool         set_cells(const std::vector<uint32_t>& enb_cc_idxs);
 
   ue_cell_ded* get_ue_cc_idx(uint32_t ue_cc_idx) { return (ue_cc_idx < nof_cells()) ? &cell_list[ue_cc_idx] : nullptr; }

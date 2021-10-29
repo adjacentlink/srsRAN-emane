@@ -68,17 +68,9 @@ typedef struct {
   int stack_hex_limit;
 } stack_log_args_t;
 
-// Expert arguments to create GW without core NW
 typedef struct {
-  std::string      ip_addr;
-  srsue::gw_args_t gw_args;
-  uint8_t          drb_lcid;
-  uint16_t         rnti;
-} core_less_args_t;
-
-typedef struct {
-  std::string      type;
   uint32_t         sync_queue_size; // Max allowed difference between PHY and Stack clocks (in TTI)
+  uint32_t         gtpu_indirect_tunnel_timeout_msec;
   mac_args_t       mac;
   s1ap_args_t      s1ap;
   pcap_args_t      mac_pcap;
@@ -86,7 +78,6 @@ typedef struct {
   pcap_args_t      s1ap_pcap;
   stack_log_args_t log;
   embms_args_t     embms;
-  core_less_args_t coreless;
 } stack_args_t;
 
 struct stack_metrics_t;
@@ -100,8 +91,11 @@ public:
 
   virtual void stop() = 0;
 
+  virtual void toggle_padding() = 0;
   // eNB metrics interface
   virtual bool get_metrics(stack_metrics_t* metrics) = 0;
+
+  virtual void tti_clock() = 0;
 };
 
 } // namespace srsenb

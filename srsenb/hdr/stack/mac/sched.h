@@ -23,12 +23,12 @@
 #define SRSENB_SCHEDULER_H
 
 #include "sched_grid.h"
+#include "sched_interface.h"
 #include "sched_ue.h"
-#include "srsran/interfaces/sched_interface.h"
+#include "srsenb/hdr/common/common_enb.h"
 #include <atomic>
 #include <map>
 #include <mutex>
-#include <queue>
 
 namespace srsenb {
 
@@ -56,13 +56,13 @@ public:
 
   void phy_config_enabled(uint16_t rnti, bool enabled);
 
-  int bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, const ue_bearer_cfg_t& cfg) final;
+  int bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, const mac_lc_ch_cfg_t& cfg) final;
   int bearer_ue_rem(uint16_t rnti, uint32_t lc_id) final;
 
   uint32_t get_ul_buffer(uint16_t rnti) final;
   uint32_t get_dl_buffer(uint16_t rnti) final;
 
-  int dl_rlc_buffer_state(uint16_t rnti, uint32_t lc_id, uint32_t tx_queue, uint32_t retx_queue) final;
+  int dl_rlc_buffer_state(uint16_t rnti, uint32_t lc_id, uint32_t tx_queue, uint32_t prio_tx_queue) final;
   int dl_mac_buffer_state(uint16_t rnti, uint32_t ce_code, uint32_t nof_cmds = 1) final;
 
   int dl_ack_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t tb_idx, bool ack) final;
@@ -70,10 +70,11 @@ public:
   int dl_ri_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t ri_value) final;
   int dl_pmi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t pmi_value) final;
   int dl_cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t cqi_value) final;
+  int dl_sb_cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t sb_idx, uint32_t cqi_value) final;
   int ul_crc_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, bool crc) final;
   int ul_sr_info(uint32_t tti, uint16_t rnti) override;
   int ul_bsr(uint16_t rnti, uint32_t lcg_id, uint32_t bsr) final;
-  int ul_phr(uint16_t rnti, int phr) final;
+  int ul_phr(uint16_t rnti, int phr, uint32_t ul_nof_prb) final;
   int ul_snr_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, float snr, uint32_t ul_ch_code) final;
 
   int dl_sched(uint32_t tti, uint32_t enb_cc_idx, dl_sched_res_t& sched_result) final;
@@ -81,10 +82,10 @@ public:
 
   /* Custom functions
    */
-  void                                  set_dl_tti_mask(uint8_t* tti_mask, uint32_t nof_sfs) final;
-  std::array<int, SRSRAN_MAX_CARRIERS>  get_enb_ue_cc_map(uint16_t rnti) final;
-  std::array<bool, SRSRAN_MAX_CARRIERS> get_scell_activation_mask(uint16_t rnti) final;
-  int                                   ul_buffer_add(uint16_t rnti, uint32_t lcid, uint32_t bytes) final;
+  void                                 set_dl_tti_mask(uint8_t* tti_mask, uint32_t nof_sfs) final;
+  std::array<int, SRSRAN_MAX_CARRIERS> get_enb_ue_cc_map(uint16_t rnti) final;
+  std::array<int, SRSRAN_MAX_CARRIERS> get_enb_ue_activ_cc_map(uint16_t rnti) final;
+  int                                  ul_buffer_add(uint16_t rnti, uint32_t lcid, uint32_t bytes) final;
 
   class carrier_sched;
 
@@ -100,7 +101,7 @@ protected:
   sched_args_t                     sched_cfg = {};
   std::vector<sched_cell_params_t> sched_cell_params;
 
-  std::map<uint16_t, std::unique_ptr<sched_ue> > ue_db;
+  rnti_map_t<std::unique_ptr<sched_ue> > ue_db;
 
   // independent schedulers for each carrier
   std::vector<std::unique_ptr<carrier_sched> > carrier_schedulers;

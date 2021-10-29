@@ -23,8 +23,10 @@
 #include "srsran/asn1/gtpc.h"
 #include "srsran/common/bcd_helpers.h"
 #include "srsran/common/liblte_security.h"
+#include "srsran/common/network_utils.h"
 #include <cmath>
 #include <inttypes.h> // for printing uint64_t
+#include <random>
 
 #include "libemanelte/epcstatisticmanager.h"
 
@@ -64,7 +66,11 @@ int s1ap::init(const s1ap_args_t& s1ap_args)
 {
   m_s1ap_args = s1ap_args;
   srsran::s1ap_mccmnc_to_plmn(s1ap_args.mcc, s1ap_args.mnc, &m_plmn);
-  m_next_m_tmsi = rand();
+
+  std::random_device                      rd;
+  std::mt19937                            generator(rd());
+  std::uniform_int_distribution<uint32_t> distr(0, std::numeric_limits<uint32_t>::max());
+  m_next_m_tmsi = distr(generator);
 
   // Get pointer to the HSS
   m_hss = hss::get_instance();
@@ -83,8 +89,12 @@ int s1ap::init(const s1ap_args_t& s1ap_args)
 
   // Get pointer to GTP-C class
   m_mme_gtpc = mme_gtpc::get_instance();
+
   // Initialize S1-MME
   m_s1mme = enb_listen();
+  if (m_s1mme == SRSRAN_ERROR) {
+    return SRSRAN_ERROR;
+  }
 
   // Init PCAP
   m_pcap_enable = s1ap_args.pcap_enable;
@@ -92,7 +102,7 @@ int s1ap::init(const s1ap_args_t& s1ap_args)
     m_pcap.open(s1ap_args.pcap_filename.c_str());
   }
   m_logger.info("S1AP Initialized");
-  return 0;
+  return SRSRAN_SUCCESS;
 }
 
 void s1ap::stop()
@@ -149,7 +159,7 @@ int s1ap::enb_listen()
   sock_fd = socket(AF_INET, SOCK_SEQPACKET, IPPROTO_SCTP);
   if (sock_fd == -1) {
     srsran::console("Could not create SCTP socket\n");
-    return -1;
+    return SRSRAN_ERROR;
   }
 
   // Sets the data_io_event to be able to use sendrecv_info
@@ -160,20 +170,23 @@ int s1ap::enb_listen()
   if (setsockopt(sock_fd, IPPROTO_SCTP, SCTP_EVENTS, &evnts, sizeof(evnts))) {
     close(sock_fd);
     srsran::console("Subscribing to sctp_data_io_events failed\n");
-    return -1;
+    return SRSRAN_ERROR;
   }
 
   // S1-MME bind
   bzero(&s1mme_addr, sizeof(s1mme_addr));
-  s1mme_addr.sin_family = AF_INET;
-  inet_pton(AF_INET, m_s1ap_args.mme_bind_addr.c_str(), &(s1mme_addr.sin_addr));
-  s1mme_addr.sin_port = htons(S1MME_PORT);
-  err                 = bind(sock_fd, (struct sockaddr*)&s1mme_addr, sizeof(s1mme_addr));
-  if (err != 0) {
+  if (not srsran::net_utils::set_sockaddr(&s1mme_addr, m_s1ap_args.mme_bind_addr.c_str(), S1MME_PORT)) {
+    close(sock_fd);
+    m_logger.error("Invalid mme_bind_addr: %s", m_s1ap_args.mme_bind_addr.c_str());
+    srsran::console("Invalid mme_bind_addr: %s\n", m_s1ap_args.mme_bind_addr.c_str());
+    return SRSRAN_ERROR;
+  }
+
+  if (not srsran::net_utils::bind_addr(sock_fd, s1mme_addr)) {
     close(sock_fd);
     m_logger.error("Error binding SCTP socket");
     srsran::console("Error binding SCTP socket\n");
-    return -1;
+    return SRSRAN_ERROR;
   }
 
   // Listen for connections
@@ -182,7 +195,7 @@ int s1ap::enb_listen()
     close(sock_fd);
     m_logger.error("Error in SCTP socket listen");
     srsran::console("Error in SCTP socket listen\n");
-    return -1;
+    return SRSRAN_ERROR;
   }
 
   return sock_fd;
@@ -562,7 +575,7 @@ uint64_t s1ap::find_imsi_from_m_tmsi(uint32_t m_tmsi)
     return it->second;
   } else {
     m_logger.debug("Could not find IMSI from M-TMSI 0x%x", m_tmsi);
-    return 0;
+    return SRSRAN_SUCCESS;
   }
 }
 

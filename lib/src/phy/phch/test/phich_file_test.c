@@ -48,7 +48,7 @@ int numsubframe      = 0;
 FILE* fmatlab = NULL;
 
 srsran_filesource_t   fsrc;
-cf_t *                input_buffer, *fft_buffer[SRSRAN_MAX_CODEWORDS];
+cf_t *                input_buffer, *fft_buffer[SRSRAN_MAX_PORTS];
 srsran_phich_t        phich;
 srsran_regs_t         regs;
 srsran_ofdm_t         fft;
@@ -109,7 +109,7 @@ void parse_args(int argc, char** argv)
         cell.nof_ports = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       case 'l':
         cell.cp = SRSRAN_CP_EXT;

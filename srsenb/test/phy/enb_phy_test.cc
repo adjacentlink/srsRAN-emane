@@ -20,9 +20,9 @@
  */
 
 #include "srsran/common/threads.h"
-#include "srsran/phy/common/phy_common.h"
 #include "srsran/phy/utils/random.h"
 #include "srsran/srslog/srslog.h"
+#include "srsran/srsran.h"
 #include <boost/program_options.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -31,7 +31,6 @@
 #include <srsenb/hdr/phy/phy.h>
 #include <srsran/common/string_helpers.h>
 #include <srsran/common/test_common.h>
-#include <srsran/phy/phch/pusch_cfg.h>
 
 static inline bool dl_ack_value(uint32_t ue_cc_idx, uint32_t tti)
 {
@@ -83,7 +82,7 @@ private:
   std::vector<srsran_ringbuffer_t*> ringbuffers_rx;
   srsran::rf_timestamp_t            ts_rx    = {};
   double                            rx_srate = 0.0;
-  bool                              running  = true;
+  std::atomic<bool>                 running  = {true};
 
   CALLBACK(tx);
   CALLBACK(tx_end);
@@ -293,6 +292,7 @@ private:
   CALLBACK(ri_info);
   CALLBACK(pmi_info);
   CALLBACK(cqi_info);
+  CALLBACK(sb_cqi_info);
   CALLBACK(snr_info);
   CALLBACK(ta_info);
   CALLBACK(ack_info);
@@ -327,6 +327,7 @@ private:
     uint32_t cqi;
   } tti_cqi_info_t;
 
+  std::mutex                 phy_mac_mutex;
   std::queue<tti_dl_info_t>  tti_dl_info_sched_queue;
   std::queue<tti_dl_info_t>  tti_dl_info_ack_queue;
   std::queue<tti_ul_info_t>  tti_ul_info_sched_queue;
@@ -414,10 +415,16 @@ public:
     srsran_random_free(random_gen);
   }
 
-  void set_active_cell_list(std::vector<uint32_t>& active_cell_list_) { active_cell_list = active_cell_list_; }
+  void set_active_cell_list(std::vector<uint32_t>& active_cell_list_)
+  {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+    active_cell_list = active_cell_list_;
+  }
 
   int sr_detected(uint32_t tti, uint16_t rnti) override
   {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     tti_sr_info_t tti_sr_info = {};
     tti_sr_info.tti           = tti;
     tti_sr_info_queue.push(tti_sr_info);
@@ -450,6 +457,8 @@ public:
   }
   int cqi_info(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t cqi_value) override
   {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     tti_cqi_info_t tti_cqi_info = {};
     tti_cqi_info.tti            = tti;
     tti_cqi_info.cc_idx         = cc_idx;
@@ -459,6 +468,13 @@ public:
     notify_cqi_info();
 
     logger.info("Received CQI tti=%d; rnti=0x%x; cc_idx=%d; cqi=%d;", tti, rnti, cc_idx, cqi_value);
+
+    return SRSRAN_SUCCESS;
+  }
+  int sb_cqi_info(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t sb_idx, uint32_t cqi_value) override
+  {
+    notify_sb_cqi_info();
+    logger.info("Received CQI tti=%d; rnti=0x%x; cc_idx=%d; sb_idx=%d cqi=%d;", tti, rnti, cc_idx, sb_idx, cqi_value);
 
     return SRSRAN_SUCCESS;
   }
@@ -475,6 +491,8 @@ public:
   }
   int ack_info(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t tb_idx, bool ack) override
   {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     // Push grant info in queue
     tti_dl_info_t tti_dl_info = {};
     tti_dl_info.tti           = tti;
@@ -489,6 +507,8 @@ public:
   }
   int crc_info(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t nof_bytes, bool crc_res) override
   {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     // Push grant info in queue
     tti_ul_info_t tti_ul_info = {};
     tti_ul_info.tti           = tti;
@@ -501,7 +521,8 @@ public:
 
     return 0;
   }
-  int push_pdu(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t nof_bytes, bool crc_res) override
+  int push_pdu(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t nof_bytes, bool crc_res, uint32_t grant_nof_prbs)
+      override
   {
     logger.info("Received push_pdu tti=%d; rnti=0x%x; ack=%d;", tti, rnti, crc_res);
     notify_push_pdu();
@@ -510,19 +531,20 @@ public:
   }
   int get_dl_sched(uint32_t tti, dl_sched_list_t& dl_sched_res) override
   {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     // Notify test engine
     notify_get_dl_sched();
 
-    /// Make sure it writes the first cell always
-    dl_sched_res[0].cfi = cfi;
+    // Make sure it writes the CFI in all cells
+    for (dl_sched_t& dl_sched : dl_sched_res) {
+      dl_sched.cfi = cfi;
+    }
 
     // Iterate for each carrier
     uint32_t ue_cc_idx = 0;
     for (uint32_t& cc_idx : active_cell_list) {
       auto& dl_sched = dl_sched_res[cc_idx];
-
-      // Required
-      dl_sched.cfi = cfi;
 
       // Default TB scheduling
       bool sched_tb[SRSRAN_MAX_TB] = {};
@@ -623,6 +645,8 @@ public:
     // Notify test engine
     notify_get_ul_sched();
 
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     // Iterate for each carrier following the eNb/Cell order
     for (uint32_t cc_idx = 0; cc_idx < ul_sched_res.size(); cc_idx++) {
       auto  scell_idx = active_cell_list.size();
@@ -695,9 +719,11 @@ public:
     return SRSRAN_SUCCESS;
   }
   void set_sched_dl_tti_mask(uint8_t* tti_mask, uint32_t nof_sfs) override { notify_set_sched_dl_tti_mask(); }
-  void tti_clock() override { notify_tti_clock(); }
+  void tti_clock() { notify_tti_clock(); }
   int  run_tti(bool enable_assert)
   {
+    std::lock_guard<std::mutex> lock(phy_mac_mutex);
+
     // Check DL ACKs match with grants
     while (not tti_dl_info_ack_queue.empty()) {
       // Get both Info
@@ -1133,7 +1159,7 @@ typedef std::unique_ptr<dummy_ue> unique_dummy_ue_phy_t;
 
 typedef std::unique_ptr<srsenb::phy> unique_srsenb_phy_t;
 
-class phy_test_bench
+class phy_test_bench : public srsenb::enb_time_interface
 {
 public:
   struct args_t {
@@ -1148,6 +1174,7 @@ public:
     uint32_t              tm_u32              = 1;
     uint32_t              period_pcell_rotate = 0;
     srsran_tm_t           tm                  = SRSRAN_TM1;
+    bool                  extended_cp         = false;
     args_t()
     {
       cell.nof_prb   = 6;
@@ -1224,6 +1251,7 @@ public:
       q.cell         = args.cell;
       q.cell.id      = i;
       q.cell_id      = i;
+      q.cell.cp      = args.extended_cp ? SRSRAN_CP_EXT : SRSRAN_CP_NORM;
       q.dl_freq_hz   = 0.0f; ///< Frequencies are irrelevant in this test
       q.ul_freq_hz   = 0.0f;
       q.root_seq_idx = 25 + i; ///< Different PRACH root sequences
@@ -1309,7 +1337,7 @@ public:
     stack->set_active_cell_list(args.ue_cell_list);
 
     /// Initiate eNb PHY with the given RNTI
-    if (enb_phy->init(phy_args, phy_cfg, radio.get(), stack.get()) < 0) {
+    if (enb_phy->init(phy_args, phy_cfg, radio.get(), stack.get(), this) < 0) {
       return SRSRAN_ERROR;
     }
     enb_phy->set_config(args.rnti, phy_rrc_cfg);
@@ -1331,7 +1359,7 @@ public:
     enb_phy->stop();
   }
 
-  ~phy_test_bench() = default;
+  virtual ~phy_test_bench() = default;
 
   int run_tti()
   {
@@ -1354,7 +1382,7 @@ public:
         }
         break;
       case change_state_flush:
-        if (tti_counter >= 2 * FDD_HARQ_DELAY_DL_MS + FDD_HARQ_DELAY_UL_MS) {
+        if (tti_counter >= 2 * (FDD_HARQ_DELAY_DL_MS + FDD_HARQ_DELAY_UL_MS)) {
           logger.warning("******* Cell rotation: Reconfigure *******");
 
           std::array<bool, SRSRAN_MAX_CARRIERS> activation = {}; ///< Activation/Deactivation vector
@@ -1403,6 +1431,11 @@ public:
 
     return ret;
   }
+
+  void tti_clock() final
+  {
+    // nothing to do
+  }
 };
 
 typedef std::unique_ptr<phy_test_bench> unique_phy_test_bench;
@@ -1426,6 +1459,7 @@ int parse_args(int argc, char** argv, phy_test_bench::args_t& args)
       ("ack_mode",       bpo::value<std::string>(&args.ack_mode),                                        "HARQ ACK/NACK mode: normal, pucch3, cs")
       ("cell.nof_prb",   bpo::value<uint32_t>(&args.cell.nof_prb)->default_value(args.cell.nof_prb),     "eNb Cell/Carrier bandwidth")
       ("cell.nof_ports", bpo::value<uint32_t>(&args.cell.nof_ports)->default_value(args.cell.nof_ports), "eNb Cell/Carrier number of ports")
+      ("cell.cp",        bpo::value<bool>(&args.extended_cp)->default_value(false),                      "use extended CP")
       ("tm", bpo::value<uint32_t>(&args.tm_u32)->default_value(args.tm_u32),                             "Transmission mode")
       ("rotation", bpo::value<uint32_t>(&args.period_pcell_rotate),                      "Serving cells rotation period in ms, set to zero to disable")
       ;
@@ -1460,6 +1494,10 @@ int parse_args(int argc, char** argv, phy_test_bench::args_t& args)
 
 int main(int argc, char** argv)
 {
+  // First of all, initialise crash handler - Crash files from ctest executions will be stored in
+  // srsenb/test/phy/srsRAN.backtrace.crash
+  srsran_debug_handle_crash(argc, argv);
+
   phy_test_bench::args_t test_args;
 
   // Parse arguments
@@ -1478,20 +1516,23 @@ int main(int argc, char** argv)
   if (not valid_cfg) {
     // Verify that phy returns with an error if provided an invalid configuration
     TESTASSERT(err_code != SRSRAN_SUCCESS);
-    return 0;
+    return SRSRAN_SUCCESS;
   }
-  TESTASSERT(err_code == SRSRAN_SUCCESS);
 
   // Run Simulation
-  for (uint32_t i = 0; i < test_args.duration; i++) {
-    TESTASSERT(test_bench->run_tti() >= SRSRAN_SUCCESS);
+  for (uint32_t i = 0; i < test_args.duration and err_code >= SRSRAN_SUCCESS; i++) {
+    err_code = test_bench->run_tti();
   }
 
   test_bench->stop();
 
   srslog::flush();
 
-  std::cout << "Passed" << std::endl;
+  if (err_code >= SRSRAN_SUCCESS) {
+    std::cout << "Ok" << std::endl;
+  } else {
+    std::cout << "Error" << std::endl;
+  }
 
-  return SRSRAN_SUCCESS;
+  return err_code;
 }

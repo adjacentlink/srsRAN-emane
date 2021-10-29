@@ -40,10 +40,28 @@ struct rrc_cfg_sr_t {
 };
 
 struct rrc_cfg_qci_t {
-  bool                                          configured = false;
+  bool                                          configured            = false;
+  int                                           enb_dl_max_retx_thres = -1;
   asn1::rrc::lc_ch_cfg_s::ul_specific_params_s_ lc_cfg;
   asn1::rrc::pdcp_cfg_s                         pdcp_cfg;
   asn1::rrc::rlc_cfg_c                          rlc_cfg;
+};
+
+struct srb_cfg_t {
+  int                                     enb_dl_max_retx_thres = -1;
+  asn1::rrc::srb_to_add_mod_s::rlc_cfg_c_ rlc_cfg;
+};
+
+// Parameter required for NR cell measurement handling
+struct rrc_endc_cfg_t {
+  bool     act_from_b1_event;
+  uint32_t abs_frequency_ssb;
+  uint32_t nr_band;
+  using ssb_nr_cfg = asn1::rrc::mtc_ssb_nr_r15_s;
+  using ssb_rs_cfg = asn1::rrc::rs_cfg_ssb_nr_r15_s;
+  ssb_nr_cfg::periodicity_and_offset_r15_c_ ssb_period_offset;
+  ssb_nr_cfg::ssb_dur_r15_e_                ssb_duration;
+  ssb_rs_cfg::subcarrier_spacing_ssb_r15_e_ ssb_ssc;
 };
 
 struct rrc_cfg_t {
@@ -67,9 +85,13 @@ struct rrc_cfg_t {
   bool                                                                                    meas_cfg_present = false;
   srsran_cell_t                                                                           cell;
   cell_list_t                                                                             cell_list;
-  cell_list_t                                                                             cell_list_nr;
-  uint32_t                                                                                max_mac_dl_kos;
-  uint32_t                                                                                max_mac_ul_kos;
+  uint32_t  num_nr_cells = 0; /// number of configured NR cells (used to configure RF)
+  uint32_t  max_mac_dl_kos;
+  uint32_t  max_mac_ul_kos;
+  uint32_t  rlf_release_timer_ms;
+  srb_cfg_t srb1_cfg;
+  srb_cfg_t srb2_cfg;
+  rrc_endc_cfg_t endc_cfg;
 };
 
 constexpr uint32_t UE_PCELL_CC_IDX = 0;

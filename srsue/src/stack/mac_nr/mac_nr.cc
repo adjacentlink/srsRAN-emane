@@ -21,6 +21,7 @@
 
 #include "srsue/hdr/stack/mac_nr/mac_nr.h"
 #include "srsran/interfaces/ue_rlc_interfaces.h"
+#include "srsran/interfaces/ue_rrc_interfaces.h"
 #include "srsran/mac/mac_rar_pdu_nr.h"
 #include "srsue/hdr/stack/mac_nr/proc_ra_nr.h"
 
@@ -105,6 +106,12 @@ void mac_nr::stop()
 void mac_nr::reset()
 {
   logger.info("Resetting MAC-NR");
+
+  // TODO: Implement all the steps in 5.9
+  proc_bsr.reset();
+  proc_sr.reset();
+  proc_ra.reset();
+  mux.reset();
 }
 
 void mac_nr::run_tti(const uint32_t tti)
@@ -155,7 +162,7 @@ void mac_nr::update_buffer_states()
 
 mac_interface_phy_nr::sched_rnti_t mac_nr::get_ul_sched_rnti_nr(const uint32_t tti)
 {
-  return {c_rnti, srsran_rnti_type_c};
+  return {rntis.get_crnti(), srsran_rnti_type_c};
 }
 
 bool mac_nr::is_si_opportunity()
@@ -200,12 +207,12 @@ mac_interface_phy_nr::sched_rnti_t mac_nr::get_dl_sched_rnti_nr(const uint32_t t
 
 bool mac_nr::has_crnti()
 {
-  return c_rnti != SRSRAN_INVALID_RNTI;
+  return rntis.get_crnti() != SRSRAN_INVALID_RNTI;
 }
 
 uint16_t mac_nr::get_crnti()
 {
-  return c_rnti;
+  return rntis.get_crnti();
 }
 
 uint16_t mac_nr::get_temp_crnti()
@@ -216,6 +223,11 @@ uint16_t mac_nr::get_temp_crnti()
 srsran::mac_sch_subpdu_nr::lcg_bsr_t mac_nr::generate_sbsr()
 {
   return proc_bsr.generate_sbsr();
+}
+
+void mac_nr::set_padding_bytes(uint32_t nof_bytes)
+{
+  proc_bsr.set_padding_bytes(nof_bytes);
 }
 
 void mac_nr::bch_decoded_ok(uint32_t tti, srsran::unique_byte_buffer_t payload)
@@ -306,7 +318,9 @@ void mac_nr::tb_decoded(const uint32_t cc_idx, const mac_nr_grant_dl_t& grant, t
   write_pcap(cc_idx, grant, result);
 
   if (proc_ra.has_rar_rnti() && grant.rnti == proc_ra.get_rar_rnti()) {
-    proc_ra.handle_rar_pdu(result);
+    if (result.ack && result.payload != nullptr) {
+      proc_ra.handle_rar_pdu(result);
+    }
   } else {
     // Assert HARQ entity
     if (dl_harq.at(cc_idx) == nullptr) {
@@ -334,7 +348,7 @@ void mac_nr::new_grant_ul(const uint32_t cc_idx, const mac_nr_grant_ul_t& grant,
   *action = {};
 
   // if proc ra is in contention resolution and c_rnti == grant.c_rnti resolve contention resolution
-  if (proc_ra.is_contention_resolution() && grant.rnti == c_rnti) {
+  if (proc_ra.is_contention_resolution() && grant.rnti == get_crnti()) {
     proc_ra.pdcch_to_crnti();
   }
 
@@ -434,14 +448,14 @@ void mac_nr::set_config(const srsran::rach_nr_cfg_t& rach_cfg)
 
 void mac_nr::set_contention_id(uint64_t ue_identity)
 {
-  contention_id = ue_identity;
+  rntis.set_contention_id(ue_identity);
 }
 
 bool mac_nr::set_crnti(const uint16_t c_rnti_)
 {
   if (is_valid_crnti(c_rnti_)) {
     logger.info("Setting C-RNTI to 0x%X", c_rnti_);
-    c_rnti = c_rnti_;
+    rntis.set_crnti(c_rnti_);
     return true;
   } else {
     logger.warning("Failed to set C-RNTI, 0x%X is not valid.", c_rnti_);
@@ -500,6 +514,16 @@ void mac_nr::get_metrics(mac_metrics_t m[SRSRAN_MAX_CARRIERS])
 
   memcpy(m, metrics.data(), sizeof(mac_metrics_t) * SRSRAN_MAX_CARRIERS);
   metrics = {};
+}
+
+void mac_nr::rrc_ra_problem()
+{
+  rrc->ra_problem();
+}
+
+void mac_nr::rrc_ra_completed()
+{
+  rrc->ra_completed();
 }
 
 /**

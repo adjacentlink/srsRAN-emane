@@ -27,6 +27,7 @@
 #include "srsenb/hdr/phy/enb_phy_base.h"
 #include "srsran/common/trace.h"
 #include "srsran/interfaces/enb_metrics_interface.h"
+#include "srsran/interfaces/enb_time_interface.h"
 #include "srsran/interfaces/radio_interfaces.h"
 #include "srsran/radio/radio.h"
 #include "srsran/srslog/srslog.h"
@@ -34,7 +35,10 @@
 
 namespace srsenb {
 
-class phy final : public enb_phy_base, public phy_interface_stack_lte, public srsran::phy_interface_radio
+class phy final : public enb_phy_base,
+                  public phy_interface_stack_lte,
+                  public phy_interface_stack_nr,
+                  public srsran::phy_interface_radio
 {
 public:
   phy(srslog::sink& log_sink);
@@ -43,7 +47,14 @@ public:
   int  init(const phy_args_t&            args,
             const phy_cfg_t&             cfg,
             srsran::radio_interface_phy* radio_,
-            stack_interface_phy_lte*     stack_);
+            stack_interface_phy_lte*     stack_lte_,
+            stack_interface_phy_nr&      stack_nr_,
+            enb_time_interface*          enb_);
+  int  init(const phy_args_t&            args,
+            const phy_cfg_t&             cfg,
+            srsran::radio_interface_phy* radio_,
+            stack_interface_phy_lte*     stack_,
+            enb_time_interface*          enb_);
   void stop() override;
 
   std::string get_type() override { return "lte"; };
@@ -70,6 +81,8 @@ public:
 
   void srsran_phy_logger(phy_logger_level_t log_level, char* str);
 
+  int set_common_cfg(const common_cfg_t& common_cfg) override;
+
 private:
   srsran::phy_cfg_mbsfn_t mbsfn_config = {};
   uint32_t                nof_workers  = 0;
@@ -88,17 +101,24 @@ private:
   srslog::basic_logger& phy_log;
   srslog::basic_logger& phy_lib_log;
 
-  lte::worker_pool  lte_workers;
-  nr::worker_pool   nr_workers;
-  phy_common        workers_common;
-  prach_worker_pool prach;
-  txrx              tx_rx;
+  lte::worker_pool                 lte_workers;
+  std::unique_ptr<nr::worker_pool> nr_workers;
+  phy_common                       workers_common;
+  prach_worker_pool                prach;
+  txrx                             tx_rx;
 
   bool initialized = false;
 
-  srsran_prach_cfg_t prach_cfg = {};
+  srsran_prach_cfg_t prach_cfg  = {};
+  common_cfg_t       common_cfg = {};
 
   void parse_common_config(const phy_cfg_t& cfg);
+  int  init_lte(const phy_args_t&            args,
+                const phy_cfg_t&             cfg,
+                srsran::radio_interface_phy* radio_,
+                stack_interface_phy_lte*     stack_,
+                enb_time_interface*          enb_);
+  int  init_nr(const phy_args_t& args, const phy_cfg_t& cfg, stack_interface_phy_nr& stack);
 };
 
 } // namespace srsenb

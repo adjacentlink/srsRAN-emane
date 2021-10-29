@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "srsran/phy/common/phy_common.h"
+#include "srsran/phy/common/phy_common_nr.h"
 #include "srsran/phy/phch/prach.h"
 #include "srsran/phy/utils/debug.h"
 #include "srsran/phy/utils/vector.h"
@@ -127,16 +128,20 @@ bool srsran_prach_tti_opportunity(srsran_prach_t* p, uint32_t current_tti, int a
     return false;
   }
 
-  if (p->is_nr) {
-    return srsran_prach_nr_tti_opportunity_fr1_unpaired(p->config_idx, current_tti);
-  }
-
   uint32_t config_idx = p->config_idx;
-  if (!p->tdd_config.configured) {
-    return srsran_prach_tti_opportunity_config_fdd(config_idx, current_tti, allowed_subframe);
+  if (p->tdd_config.configured) {
+    if (p->is_nr) {
+      return srsran_prach_nr_tti_opportunity_fr1_unpaired(p->config_idx, current_tti);
+    } else {
+      return srsran_prach_tti_opportunity_config_tdd(
+          config_idx, p->tdd_config.sf_config, current_tti, &p->current_prach_idx);
+    }
   } else {
-    return srsran_prach_tti_opportunity_config_tdd(
-        config_idx, p->tdd_config.sf_config, current_tti, &p->current_prach_idx);
+    if (p->is_nr) {
+      return srsran_prach_nr_tti_opportunity_fr1_paired(p->config_idx, current_tti);
+    } else {
+      return srsran_prach_tti_opportunity_config_fdd(config_idx, current_tti, allowed_subframe);
+    }
   }
 }
 
@@ -158,6 +163,23 @@ bool srsran_prach_tti_opportunity_config_fdd(uint32_t config_idx, uint32_t curre
           ((current_tti % 10) == sf_config.sf[i] && (current_tti % 10) == allowed_subframe)) {
         return true;
       }
+    }
+  }
+  return false;
+}
+
+bool srsran_prach_in_window_config_fdd(uint32_t config_idx, uint32_t current_tti, int allowed_subframe)
+{
+  if (srsran_prach_tti_opportunity_config_fdd(config_idx, current_tti, allowed_subframe)) {
+    return true;
+  }
+
+  uint32_t preamble_format = srsran_prach_get_preamble_format(config_idx);
+  float    T_tot           = (prach_Tseq[preamble_format] + prach_Tcp[preamble_format]) * SRSRAN_LTE_TS;
+  uint32_t tti_dur         = (uint32_t)ceilf(T_tot * 1000);
+  for (uint32_t i = 1; i < tti_dur; ++i) {
+    if (srsran_prach_tti_opportunity_config_fdd(config_idx, current_tti - i, allowed_subframe)) {
+      return true;
     }
   }
   return false;
@@ -273,6 +295,66 @@ void srsran_prach_sf_config(uint32_t config_idx, srsran_prach_sf_config_t* sf_co
   memcpy(sf_config, &prach_sf_config[config_idx % 16], sizeof(srsran_prach_sf_config_t));
 }
 
+const prach_nr_config_t* srsran_prach_nr_get_cfg_fr1_paired(uint32_t config_idx)
+{
+  if (config_idx < PRACH_NR_CFG_FR1_PAIRED_NOF_CFG) {
+    return &prach_nr_cfg_fr1_paired[config_idx];
+  }
+
+  ERROR("Invalid configuration index %d", config_idx);
+  return NULL;
+}
+
+bool srsran_prach_nr_tti_opportunity_fr1_paired(uint32_t config_idx, uint32_t current_tti)
+{
+  uint32_t sfn    = current_tti / SRSRAN_NOF_SF_X_FRAME;
+  uint32_t sf_idx = current_tti % SRSRAN_NOF_SF_X_FRAME;
+
+  // Get configuration
+  const prach_nr_config_t* cfg = srsran_prach_nr_get_cfg_fr1_paired(config_idx);
+  if (cfg == NULL) {
+    return false;
+  }
+
+  // Protect zero division
+  if (cfg->x == 0) {
+    ERROR("Invalid Zero value");
+    return false;
+  }
+
+  // Check for System Frame Number match
+  if (sfn % cfg->x != cfg->y) {
+    return false;
+  }
+
+  // Protect subframe number vector access
+  if (cfg->nof_subframe_number > PRACH_NR_CFG_MAX_NOF_SF) {
+    ERROR("Invalid number of subframes (%d)", cfg->nof_subframe_number);
+    return false;
+  }
+
+  // Check for subframe number match
+  for (uint32_t i = 0; i < cfg->nof_subframe_number; i++) {
+    if (cfg->subframe_number[i] == sf_idx) {
+      return true;
+    }
+  }
+
+  // If reached here, no opportunity
+  return false;
+}
+
+uint32_t srsran_prach_nr_start_symbol_fr1_paired(uint32_t config_idx)
+{
+  // Get configuration
+  const prach_nr_config_t* cfg = srsran_prach_nr_get_cfg_fr1_paired(config_idx);
+  if (cfg == NULL) {
+    return 0;
+  }
+
+  return cfg->starting_symbol;
+}
+
 const prach_nr_config_t* srsran_prach_nr_get_cfg_fr1_unpaired(uint32_t config_idx)
 {
   if (config_idx < PRACH_NR_CFG_FR1_UNPAIRED_NOF_CFG) {
@@ -322,12 +404,21 @@ bool srsran_prach_nr_tti_opportunity_fr1_unpaired(uint32_t config_idx, uint32_t 
   return false;
 }
 
-uint32_t srsran_prach_nr_start_symbol_fr1_unpaired(uint32_t config_idx)
+uint32_t srsran_prach_nr_start_symbol(uint32_t config_idx, srsran_duplex_mode_t duplex_mode)
 {
-  // Get configuration
-  const prach_nr_config_t* cfg = srsran_prach_nr_get_cfg_fr1_unpaired(config_idx);
-  if (cfg == NULL) {
-    return false;
+  const prach_nr_config_t* cfg;
+  if (duplex_mode == SRSRAN_DUPLEX_MODE_TDD) {
+    // Get configuration
+    cfg = srsran_prach_nr_get_cfg_fr1_unpaired(config_idx);
+    if (cfg == NULL) {
+      return 0;
+    }
+  } else {
+    // Get configuration
+    cfg = srsran_prach_nr_get_cfg_fr1_paired(config_idx);
+    if (cfg == NULL) {
+      return 0;
+    }
   }
 
   return cfg->starting_symbol;
@@ -533,7 +624,9 @@ int srsran_prach_set_cell_(srsran_prach_t*      p,
   int ret = SRSRAN_ERROR;
   if (p != NULL && N_ifft_ul < 2049 && cfg->config_idx < 64 && cfg->root_seq_idx < MAX_ROOTS) {
     if (N_ifft_ul > p->max_N_ifft_ul) {
-      ERROR("PRACH: Error in set_cell(): N_ifft_ul must be lower or equal max_N_ifft_ul in init()");
+      ERROR("PRACH: Error in set_cell(): N_ifft_ul (%d) must be lower or equal max_N_ifft_ul (%d) in init()",
+            N_ifft_ul,
+            p->max_N_ifft_ul);
       return -1;
     }
 
@@ -661,7 +754,7 @@ int srsran_prach_gen(srsran_prach_t* p, uint32_t seq_index, uint32_t freq_offset
     uint32_t N_rb_ul = srsran_nof_prb(p->N_ifft_ul);
     uint32_t k_0     = freq_offset * N_RB_SC - N_rb_ul * N_RB_SC / 2 + p->N_ifft_ul / 2;
     uint32_t K       = DELTA_F / DELTA_F_RA;
-    uint32_t begin   = PHI + (K * k_0) + (p->is_nr ? 1 : (K / 2));
+    uint32_t begin   = PHI + (K * k_0) + (p->is_nr ? 0 : (K / 2));
 
     if (6 + freq_offset > N_rb_ul) {
       ERROR("Error no space for PRACH: frequency offset=%d, N_rb_ul=%d", freq_offset, N_rb_ul);
@@ -671,11 +764,16 @@ int srsran_prach_gen(srsran_prach_t* p, uint32_t seq_index, uint32_t freq_offset
     DEBUG(
         "N_zc: %d, N_cp: %d, N_seq: %d, N_ifft_prach=%d begin: %d", p->N_zc, p->N_cp, p->N_seq, p->N_ifft_prach, begin);
 
-    // Map dft-precoded sequence to ifft bins
-    memset(p->ifft_in, 0, begin * sizeof(cf_t));
-    memcpy(&p->ifft_in[begin], get_precoded_dft(p, seq_index), p->N_zc * sizeof(cf_t));
-    memset(&p->ifft_in[begin + p->N_zc], 0, (p->N_ifft_prach - begin - p->N_zc) * sizeof(cf_t));
+    // Fill bottom guard frequency domain with zeros
+    srsran_vec_cf_zero(p->ifft_in, begin);
 
+    // Map dft-precoded sequence to ifft bins
+    srsran_vec_cf_copy(&p->ifft_in[begin], get_precoded_dft(p, seq_index), p->N_zc);
+
+    // Fill top guard frequency domain with zeros
+    srsran_vec_cf_zero(&p->ifft_in[begin + p->N_zc], p->N_ifft_prach - begin - p->N_zc);
+
+    // Generate frequency domain signal
     srsran_dft_run(&p->ifft, p->ifft_in, p->ifft_out);
 
     // Copy CP into buffer
@@ -895,7 +993,7 @@ int srsran_prach_detect_offset(srsran_prach_t* p,
     uint32_t N_rb_ul = srsran_nof_prb(p->N_ifft_ul);
     uint32_t k_0     = freq_offset * N_RB_SC - N_rb_ul * N_RB_SC / 2 + p->N_ifft_ul / 2;
     uint32_t K       = DELTA_F / DELTA_F_RA;
-    uint32_t begin   = PHI + (K * k_0) + (K / 2);
+    uint32_t begin   = PHI + (K * k_0) + (p->is_nr ? 0 : (K / 2));
 
     memcpy(p->prach_bins, &p->signal_fft[begin], p->N_zc * sizeof(cf_t));
     int loops = (p->successive_cancellation) ? SUCCESSIVE_CANCELLATION_ITS : 1;

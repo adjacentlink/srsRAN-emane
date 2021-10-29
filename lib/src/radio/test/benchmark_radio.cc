@@ -34,6 +34,7 @@ extern "C" {
 //#undef I // Fix complex.h #define I nastiness when using C++
 #endif
 
+#include "srsran/common/tsan_options.h"
 #include "srsran/phy/utils/debug.h"
 #include "srsran/radio/radio.h"
 
@@ -154,7 +155,7 @@ void parse_args(int argc, char** argv)
         fft_plot_enable ^= true;
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       case 'h':
       default:

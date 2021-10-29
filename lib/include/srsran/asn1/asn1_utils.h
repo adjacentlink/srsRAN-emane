@@ -22,8 +22,8 @@
 #ifndef SRSASN_COMMON_UTILS_H
 #define SRSASN_COMMON_UTILS_H
 
-#include "srsran/common/srsran_assert.h"
 #include "srsran/srslog/srslog.h"
+#include "srsran/support/srsran_assert.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -151,6 +151,7 @@ public:
   int distance() const;
   int distance_bytes(uint8_t* ref_ptr) const;
   int distance_bytes() const;
+  int distance_bytes_end() const;
 
   template <class T>
   SRSASN_CODE unpack(T& val, uint32_t n_bits)
@@ -235,11 +236,13 @@ public:
       size_ = new_size;
       return;
     }
+
     T* old_data = data_;
     cap_        = new_size > new_cap ? new_size : new_cap;
     if (cap_ > 0) {
       data_ = new T[cap_];
       if (old_data != NULL) {
+        srsran_assert(cap_ > size_, "Old size larger than new capacity in dyn_array\n");
         std::copy(&old_data[0], &old_data[size_], data_);
       }
     } else {
@@ -605,7 +608,7 @@ public:
   IntType              value;
   integer() = default;
   integer(IntType value_) : value(value_) {}
-              operator IntType() { return value; }
+              operator IntType() const { return value; }
   SRSASN_CODE pack(bit_ref& bref) const { return pack_integer(bref, value, lb, ub, has_ext, is_aligned); }
   SRSASN_CODE unpack(cbit_ref& bref) { return unpack_integer(value, bref, lb, ub, has_ext, is_aligned); }
 };
@@ -925,6 +928,17 @@ public:
       return *this;
     }
     resize(nof_bits_);
+    bitstring_utils::from_number(data(), val, length());
+    return *this;
+  }
+
+  this_type& from_number(uint64_t val, uint32_t nof_bits)
+  {
+    if (nof_bits > UB) {
+      log_error("The provided bitstring value %ld does not fit the bounds [%d, %d]", val, uint32_t(lb), uint32_t(ub));
+      return *this;
+    }
+    resize(nof_bits);
     bitstring_utils::from_number(data(), val, length());
     return *this;
   }
@@ -1317,7 +1331,7 @@ private:
   bit_ref brefstart;
   //  bit_ref  bref0;
   bit_ref* bref_tracker;
-  uint8_t  buffer[2048];
+  uint8_t  buffer[4096];
   bool     align;
 };
 
@@ -1364,6 +1378,33 @@ private:
   enum separator_t { COMMA = 0, NEWLINE, NONE };
   separator_t sep;
 };
+
+template <typename T>
+inline auto to_json(json_writer& j, const T& obj) -> decltype(obj.to_json(j))
+{
+  obj.to_json(j);
+}
+
+template <typename T>
+inline void to_json(json_writer& j, const asn1::enumerated<T>& obj)
+{
+  j.write_str(obj.to_string());
+}
+
+template <typename T>
+inline void to_json(json_writer& j, const asn1::dyn_array<T>& lst)
+{
+  j.start_array();
+  for (const auto& o : lst) {
+    to_json(j, o);
+  }
+  j.end_array();
+}
+
+inline void to_json(json_writer& j, int64_t number)
+{
+  j.write_int(number);
+}
 
 /*******************
   Test pack/unpack

@@ -26,6 +26,7 @@
 #include "srsran/adt/circular_array.h"
 #include "srsran/common/gen_mch_tables.h"
 #include "srsran/common/tti_sempahore.h"
+#include "srsran/interfaces/phy_common_interface.h"
 #include "srsran/interfaces/phy_interface_types.h"
 #include "srsran/interfaces/radio_interfaces.h"
 #include "srsran/interfaces/rrc_interface_types.h"
@@ -55,7 +56,7 @@ public:
 };
 
 /* Subclass that manages variables common to all workers */
-class phy_common
+class phy_common : public srsran::phy_common_interface
 {
 public:
   /* Common variables used by all phy workers */
@@ -63,6 +64,8 @@ public:
   stack_interface_phy_lte* stack = nullptr;
 
   srsran::phy_cfg_mbsfn_t mbsfn_config = {};
+
+  std::atomic<bool> cell_is_selecting = {false};
 
   // Secondary serving cell states
   scell::state cell_state;
@@ -77,6 +80,9 @@ public:
 
   // Time Aligment Controller, internal thread safe
   ta_control ta;
+
+  // Last reported RI
+  std::atomic<uint32_t> last_ri = {0};
 
   phy_common(srslog::basic_logger& logger);
 
@@ -135,12 +141,52 @@ public:
                           srsran_pdsch_ack_resource_t resource);
   bool get_dl_pending_ack(srsran_ul_sf_cfg_t* sf, uint32_t cc_idx, srsran_pdsch_ack_cc_t* ack);
 
-  void worker_end(void* h, bool tx_enable, srsran::rf_buffer_t& buffer, srsran::rf_timestamp_t& tx_time, bool is_nr);
+  void worker_end(const worker_context_t& w_ctx, const bool& tx_enable, srsran::rf_buffer_t& buffer) override;
 
   void set_cell(const srsran_cell_t& c);
 
-  bool sr_enabled     = false;
-  int  sr_last_tx_tti = -1;
+  class sr_signal
+  {
+  public:
+    void reset()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      enabled     = false;
+      last_tx_tti = -1;
+    }
+    bool is_triggered()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return enabled;
+    }
+    void trigger()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      enabled     = true;
+      last_tx_tti = -1;
+    }
+    int get_last_tx_tti()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return last_tx_tti;
+    }
+    bool set_last_tx_tti(int last_tx_tti_)
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (enabled) {
+        enabled     = false;
+        last_tx_tti = last_tx_tti_;
+        return true;
+      }
+      return false;
+    }
+
+  private:
+    std::mutex mutex;
+    bool       enabled     = false;
+    int        last_tx_tti = -1;
+  };
+  sr_signal sr;
 
   srsran::radio_interface_phy* get_radio();
 
@@ -173,6 +219,12 @@ public:
    * @return the deduced UL EARFCN
    */
   uint32_t get_ul_earfcn(uint32_t dl_earfcn);
+
+  /**
+   * @brief Resets measurements from a given CC
+   * @param cc_idx CC index
+   */
+  void reset_measurements(uint32_t cc_idx);
 
   void update_measurements(uint32_t                     cc_idx,
                            const srsran_chest_dl_res_t& chest_res,
@@ -207,7 +259,11 @@ public:
     return rx_gain_offset;
   }
 
-  void neighbour_cells_reset(uint32_t cc_idx) { avg_rsrp_neigh[cc_idx] = NAN; }
+  void neighbour_cells_reset(uint32_t cc_idx)
+  {
+    std::unique_lock<std::mutex> lock(meas_mutex);
+    avg_rsrp_neigh[cc_idx] = NAN;
+  }
 
   void set_neighbour_cells(uint32_t cc_idx, const std::vector<phy_meas_t>& meas)
   {
@@ -217,6 +273,7 @@ public:
       total_rsrp += srsran_convert_dB_to_power(m.rsrp);
     }
     if (std::isnormal(total_rsrp)) {
+      std::unique_lock<std::mutex> lock(meas_mutex);
       if (std::isnormal(avg_rsrp_neigh[cc_idx])) {
         avg_rsrp_neigh[cc_idx] = SRSRAN_VEC_EMA(total_rsrp, avg_rsrp_neigh[cc_idx], 0.9);
       } else {
@@ -224,32 +281,26 @@ public:
       }
     }
   }
-  void reset_neighbour_cells()
-  {
-    for (uint32_t i = 0; i < SRSRAN_MAX_CARRIERS; i++) {
-      avg_rsrp_neigh[i] = NAN;
-    }
-  }
 
 private:
   std::mutex meas_mutex;
 
-  float pathloss[SRSRAN_MAX_CARRIERS]       = {};
-  float cur_pathloss                        = 0.0f;
-  float cur_pusch_power                     = 0.0f;
-  float avg_rsrp[SRSRAN_MAX_CARRIERS]       = {};
-  float avg_rsrp_dbm[SRSRAN_MAX_CARRIERS]   = {};
-  float avg_rsrq_db[SRSRAN_MAX_CARRIERS]    = {};
-  float avg_rssi_dbm[SRSRAN_MAX_CARRIERS]   = {};
-  float avg_cfo_hz[SRSRAN_MAX_CARRIERS]     = {};
-  float rx_gain_offset                      = 0.0f;
-  float avg_sinr_db[SRSRAN_MAX_CARRIERS]    = {};
-  float avg_snr_db[SRSRAN_MAX_CARRIERS]     = {};
-  float avg_noise[SRSRAN_MAX_CARRIERS]      = {};
-  float avg_rsrp_neigh[SRSRAN_MAX_CARRIERS] = {};
+  float                                  cur_pathloss    = 0.0f;
+  float                                  cur_pusch_power = 0.0f;
+  float                                  rx_gain_offset  = 0.0f;
+  std::array<float, SRSRAN_MAX_CARRIERS> pathloss        = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_rsrp        = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_rsrp_dbm    = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_rsrq_db     = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_rssi_dbm    = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_cfo_hz      = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_sinr_db     = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_snr_db      = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_noise       = {};
+  std::array<float, SRSRAN_MAX_CARRIERS> avg_rsrp_neigh  = {};
 
-  uint32_t pcell_report_period = 0;
-  uint32_t rssi_read_cnt       = 0;
+  static constexpr uint32_t pcell_report_period = 20;
+  uint32_t                  rssi_read_cnt       = 0;
 
   rsrp_insync_itf* insync_itf = nullptr;
 
@@ -257,7 +308,7 @@ private:
   std::mutex              mtch_mutex;
   std::condition_variable mtch_cvar;
 
-  bool is_pending_tx_end = false;
+  std::atomic<bool> is_pending_tx_end{false};
 
   srsran::radio_interface_phy* radio_h = nullptr;
   srslog::basic_logger&        logger;
@@ -328,8 +379,8 @@ private:
   bool is_mcch_subframe(srsran_mbsfn_cfg_t* cfg, uint32_t phy_tti);
 
   // NR carriers buffering synchronization, LTE workers are in charge of transmitting
-  srsran::rf_buffer_t nr_tx_buffer;
-  bool                nr_tx_buffer_ready = false;
+  bool                tx_enabled = false;
+  srsran::rf_buffer_t tx_buffer  = {};
 };
 } // namespace srsue
 

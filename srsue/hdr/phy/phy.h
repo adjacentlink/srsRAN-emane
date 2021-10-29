@@ -103,8 +103,6 @@ public:
   void get_metrics(const srsran::srsran_rat_t& rat, phy_metrics_t* m) final;
   void srsran_phy_logger(phy_logger_level_t log_level, char* str);
 
-  void enable_pregen_signals(bool enable) final;
-
   void radio_overflow() final;
   void radio_failure() final;
 
@@ -176,7 +174,8 @@ public:
 
   int  init(const phy_args_nr_t& args_, stack_interface_phy_nr* stack_, srsran::radio_interface_phy* radio_) final;
   bool set_config(const srsran::phy_cfg_nr_t& cfg) final;
-  int  set_ul_grant(std::array<uint8_t, SRSRAN_RAR_UL_GRANT_NBITS> packed_ul_grant,
+  int  set_ul_grant(uint32_t                                       rx_tti,
+                    std::array<uint8_t, SRSRAN_RAR_UL_GRANT_NBITS> packed_ul_grant,
                     uint16_t                                       rnti,
                     srsran_rnti_type_t                             rnti_type) final;
   void send_prach(const uint32_t prach_occasion,
@@ -195,7 +194,7 @@ private:
 
   std::mutex              config_mutex;
   std::condition_variable config_cond;
-  bool                    is_configured = false;
+  std::atomic<bool>       is_configured = {false};
 
   const static int SF_RECV_THREAD_PRIO = 0;
   const static int WORKERS_THREAD_PRIO = 2;
@@ -204,7 +203,8 @@ private:
 
   srslog::basic_logger&           logger_phy;
   srslog::basic_logger&           logger_phy_lib;
-  srsue::stack_interface_phy_lte* stack = nullptr;
+  srsue::stack_interface_phy_lte* stack    = nullptr;
+  srsue::stack_interface_phy_nr*  stack_nr = nullptr;
 
   lte::worker_pool lte_workers;
   nr::worker_pool  nr_workers;
@@ -215,8 +215,9 @@ private:
   srsran_prach_cfg_t  prach_cfg  = {};
   srsran_tdd_config_t tdd_config = {};
 
-  srsran::phy_cfg_t config = {};
-  phy_args_t        args   = {};
+  srsran::phy_cfg_t    config    = {};
+  srsran::phy_cfg_nr_t config_nr = {};
+  phy_args_t           args      = {};
 
   // Since cell_search/cell_select operations take a lot of time, we use another queue to process the other commands
   // in parallel and avoid accumulating in the queue

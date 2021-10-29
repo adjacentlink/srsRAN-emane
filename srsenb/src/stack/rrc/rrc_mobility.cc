@@ -159,7 +159,7 @@ uint16_t rrc::start_ho_ue_resource_alloc(const asn1::s1ap::ho_request_s&        
   const enb_cell_common* target_cell = cell_common_list->get_cell_id(rrc_details::eci_to_cellid(target_eci));
   if (target_cell == nullptr) {
     logger.error("The S1-handover target cell_id=0x%x does not exist", rrc_details::eci_to_cellid(target_eci));
-    cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::ho_target_not_allowed;
+    cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::cell_not_available;
     return SRSRAN_INVALID_RNTI;
   }
 
@@ -170,21 +170,33 @@ uint16_t rrc::start_ho_ue_resource_alloc(const asn1::s1ap::ho_request_s&        
   ue_cfg.supported_cc_list.resize(1);
   ue_cfg.supported_cc_list[0].active     = true;
   ue_cfg.supported_cc_list[0].enb_cc_idx = target_cell->enb_cc_idx;
-  ue_cfg.ue_bearers[0].direction         = sched_interface::ue_bearer_cfg_t::BOTH;
+  ue_cfg.ue_bearers[0].direction         = mac_lc_ch_cfg_t::BOTH;
   ue_cfg.supported_cc_list[0].dl_cfg.tm  = SRSRAN_TM1;
   uint16_t rnti                          = mac->reserve_new_crnti(ue_cfg);
   if (rnti == SRSRAN_INVALID_RNTI) {
     logger.error("Failed to allocate C-RNTI resources");
-    cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::radio_res_not_available;
+    cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::no_radio_res_available_in_target_cell;
     return SRSRAN_INVALID_RNTI;
   }
 
   // Register new user in RRC
-  add_user(rnti, ue_cfg);
+  if (add_user(rnti, ue_cfg) != SRSRAN_SUCCESS) {
+    logger.error("Failed to create user");
+    cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::no_radio_res_available_in_target_cell;
+    return SRSRAN_INVALID_RNTI;
+  }
   auto it     = users.find(rnti);
   ue*  ue_ptr = it->second.get();
+  if (not ue_ptr->init_pucch()) {
+    rem_user(rnti);
+    logger.warning("Failed to allocate PUCCH resources for rnti=0x%x", rnti);
+    cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::no_radio_res_available_in_target_cell;
+    return SRSRAN_INVALID_RNTI;
+  }
+
   // Reset activity timer (Response is not expected)
   ue_ptr->set_activity_timeout(ue::UE_INACTIVITY_TIMEOUT);
+  ue_ptr->set_activity(false);
 
   //  /* Setup e-RABs & DRBs / establish an UL/DL S1 bearer to the S-GW */
   //  if (not setup_ue_erabs(rnti, msg)) {
@@ -224,6 +236,14 @@ bool rrc::ue::rrc_mobility::fill_conn_recfg_no_ho_cmd(asn1::rrc::rrc_conn_recfg_
 //! Method called whenever the eNB receives a MeasReport from the UE. In normal situations, an HO procedure is started
 void rrc::ue::rrc_mobility::handle_ue_meas_report(const meas_report_s& msg, srsran::unique_byte_buffer_t pdu)
 {
+  asn1::json_writer json_writer;
+  msg.to_json(json_writer);
+  event_logger::get().log_measurement_report(
+      rrc_ue->ue_cell_list.get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->enb_cc_idx,
+      asn1::octstring_to_string(pdu->msg, pdu->N_bytes),
+      json_writer.to_string(),
+      rrc_ue->rnti);
+
   if (not is_in_state<idle_st>()) {
     Info("Received a MeasReport while UE is performing Handover. Ignoring...");
     return;
@@ -231,12 +251,12 @@ void rrc::ue::rrc_mobility::handle_ue_meas_report(const meas_report_s& msg, srsr
   // Check if meas_id is valid
   const meas_results_s& meas_res = msg.crit_exts.c1().meas_report_r8().meas_results;
   if (not meas_res.meas_result_neigh_cells_present) {
-    Info("Received a MeasReport, but the UE did not detect any cell.");
+    Debug("Received a MeasReport, but the UE did not detect any cell.");
     return;
   }
   if (meas_res.meas_result_neigh_cells.type().value !=
       meas_results_s::meas_result_neigh_cells_c_::types::meas_result_list_eutra) {
-    Error("MeasReports regarding non-EUTRA are not supported!");
+    Debug("Skipping non-EUTRA MeasReport.");
     return;
   }
   const meas_id_list&  measid_list  = rrc_ue->current_ue_cfg.meas_cfg.meas_id_to_add_mod_list;
@@ -276,11 +296,6 @@ void rrc::ue::rrc_mobility::handle_ue_meas_report(const meas_report_s& msg, srsr
       break;
     }
   }
-
-  event_logger::get().log_measurement_report(
-      rrc_ue->ue_cell_list.get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->enb_cc_idx,
-      asn1::octstring_to_string(pdu->msg, pdu->N_bytes),
-      rrc_ue->rnti);
 }
 
 /**
@@ -500,14 +515,26 @@ void rrc::ue::rrc_mobility::fill_mobility_reconf_common(asn1::rrc::dl_dcch_msg_s
   recfg_r8.mob_ctrl_info_present = true;
   auto& mob_info                 = recfg_r8.mob_ctrl_info;
   mob_info.target_pci            = target_cell.cell_cfg.pci;
-  mob_info.t304.value            = mob_ctrl_info_s::t304_opts::ms2000; // TODO: make it reconfigurable
+  mob_info.t304                  = target_cell.cell_cfg.t304;
   mob_info.new_ue_id.from_number(rrc_ue->rnti);
-  mob_info.rr_cfg_common.pusch_cfg_common       = target_cell.sib2.rr_cfg_common.pusch_cfg_common;
-  mob_info.rr_cfg_common.prach_cfg.root_seq_idx = target_cell.sib2.rr_cfg_common.prach_cfg.root_seq_idx;
-  mob_info.rr_cfg_common.ul_cp_len              = target_cell.sib2.rr_cfg_common.ul_cp_len;
-  mob_info.rr_cfg_common.p_max_present          = true;
-  mob_info.rr_cfg_common.p_max                  = rrc_enb->cfg.sib1.p_max;
-  mob_info.carrier_freq_present                 = false; // same frequency handover for now
+
+  mob_info.rr_cfg_common.rach_cfg_common_present    = true;
+  mob_info.rr_cfg_common.rach_cfg_common            = target_cell.sib2.rr_cfg_common.rach_cfg_common;
+  mob_info.rr_cfg_common.prach_cfg.root_seq_idx     = target_cell.sib2.rr_cfg_common.prach_cfg.root_seq_idx;
+  mob_info.rr_cfg_common.pdsch_cfg_common_present   = true;
+  mob_info.rr_cfg_common.pdsch_cfg_common           = target_cell.sib2.rr_cfg_common.pdsch_cfg_common;
+  mob_info.rr_cfg_common.pusch_cfg_common           = target_cell.sib2.rr_cfg_common.pusch_cfg_common;
+  mob_info.rr_cfg_common.pucch_cfg_common_present   = true;
+  mob_info.rr_cfg_common.pucch_cfg_common           = target_cell.sib2.rr_cfg_common.pucch_cfg_common;
+  mob_info.rr_cfg_common.srs_ul_cfg_common_present  = true;
+  mob_info.rr_cfg_common.srs_ul_cfg_common          = target_cell.sib2.rr_cfg_common.srs_ul_cfg_common;
+  mob_info.rr_cfg_common.ul_pwr_ctrl_common_present = true;
+  mob_info.rr_cfg_common.ul_pwr_ctrl_common         = target_cell.sib2.rr_cfg_common.ul_pwr_ctrl_common;
+  mob_info.rr_cfg_common.p_max_present              = true;
+  mob_info.rr_cfg_common.p_max                      = rrc_enb->cfg.sib1.p_max;
+  mob_info.rr_cfg_common.ul_cp_len                  = target_cell.sib2.rr_cfg_common.ul_cp_len;
+
+  mob_info.carrier_freq_present = false; // same frequency handover for now
   asn1::number_to_enum(mob_info.carrier_bw.dl_bw, target_cell.mib.dl_bw.to_number());
   if (target_cell.cell_cfg.dl_earfcn != src_dl_earfcn) {
     mob_info.carrier_freq_present         = true;
@@ -643,7 +670,8 @@ void rrc::ue::rrc_mobility::s1_source_ho_st::enter(rrc_mobility* f, const ho_mea
 
 /**
  * TS 36.413, Section 8.4.2 - Handover Resource Allocation
- * @brief: Send "eNBStatusTransfer" message from source eNB to MME, and setup Forwarding GTPU tunnel
+ * @brief: Called in SeNB when "Handover Command" is received
+ *         Send "eNBStatusTransfer" message from source eNB to MME, and setup Forwarding GTPU tunnel
  *         - PDCP provides the bearers' DL/UL HFN and COUNT to be put inside a transparent container
  *         - The eNB sends eNBStatusTransfer to MME
  *         - A GTPU forwarding tunnel is opened to forward buffered PDCP PDUs and incoming GTPU PDUs
@@ -680,19 +708,40 @@ void rrc::ue::rrc_mobility::s1_source_ho_st::handle_ho_cmd(wait_ho_cmd& s, const
   }
 
   /* Enter Handover Execution */
-  // TODO: Do anything with MeasCfg info within the Msg (e.g. update ue_var_meas)?
 
-  // Disable DRBs in the MAC, while Reconfiguration is taking place.
+  // Disable DRBs in the MAC and PDCP, while Reconfiguration is taking place.
+  for (const drb_to_add_mod_s& drb : rrc_ue->bearer_list.get_established_drbs()) {
+    rrc_ue->parent->pdcp->set_enabled(rrc_ue->rnti, drb_to_lcid((lte_drb)drb.drb_id), false);
+  }
   rrc_ue->mac_ctrl.set_drb_activation(false);
-  rrc_ue->mac_ctrl.update_mac(mac_controller::proc_stage_t::other);
+  rrc_ue->mac_ctrl.update_mac();
 
   // Send HO Command to UE
-  if (not rrc_ue->send_dl_dcch(&dl_dcch_msg)) {
+  std::string octet_str;
+  if (not rrc_ue->send_dl_dcch(&dl_dcch_msg, nullptr, &octet_str)) {
     asn1::s1ap::cause_c cause;
     cause.set_protocol().value = asn1::s1ap::cause_protocol_opts::unspecified;
     trigger(ho_cancel_ev{cause});
     return;
   }
+
+  // Log rrc release event.
+  asn1::json_writer json_writer;
+  dl_dcch_msg.to_json(json_writer);
+  event_logger::get().log_rrc_event(rrc_ue->ue_cell_list.get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->enb_cc_idx,
+                                    octet_str,
+                                    json_writer.to_string(),
+                                    static_cast<unsigned>(rrc_event_type::con_reconf),
+                                    static_cast<unsigned>(procedure_result_code::none),
+                                    rrc_ue->rnti);
+
+  // Log HO command.
+  event_logger::get().log_handover_command(
+      rrc_ue->ue_cell_list.get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->enb_cc_idx,
+      reconf.crit_exts.c1().rrc_conn_recfg_r8().mob_ctrl_info.target_pci,
+      reconf.crit_exts.c1().rrc_conn_recfg_r8().mob_ctrl_info.carrier_freq.dl_carrier_freq,
+      reconf.crit_exts.c1().rrc_conn_recfg_r8().mob_ctrl_info.new_ue_id.to_number(),
+      rrc_ue->rnti);
 
   /* Start S1AP eNBStatusTransfer Procedure */
   asn1::s1ap::cause_c cause = start_enb_status_transfer(*ho_cmd.s1ap_ho_cmd);
@@ -741,7 +790,7 @@ void rrc::ue::rrc_mobility::handle_ho_requested(idle_st& s, const ho_req_rx_ev& 
     trigger(ho_failure_ev{cause});
     return;
   }
-  rrc_enb->log_rrc_message("HandoverPreparation", direction_t::fromS1AP, rrc_container, hoprep, "HandoverPreparation");
+  rrc_enb->log_rrc_message(direction_t::fromS1AP, rrc_ue->rnti, -1, rrc_container, hoprep, "HandoverPreparation");
 
   /* Setup UE current state in TeNB based on HandoverPreparation message */
   const ho_prep_info_r8_ies_s& hoprep_r8 = hoprep.crit_exts.c1().ho_prep_info_r8();
@@ -788,7 +837,7 @@ void rrc::ue::rrc_mobility::handle_ho_requested(idle_st& s, const ho_req_rx_ev& 
     return;
   }
   ho_cmd_pdu->N_bytes = bref2.distance_bytes();
-  rrc_enb->log_rrc_message("RRC container", direction_t::toS1AP, ho_cmd_pdu.get(), dl_dcch_msg, "HandoverCommand");
+  rrc_enb->log_rrc_message(direction_t::toS1AP, rrc_ue->rnti, -1, *ho_cmd_pdu, dl_dcch_msg, "HandoverCommand");
 
   asn1::rrc::ho_cmd_s         ho_cmd;
   asn1::rrc::ho_cmd_r8_ies_s& ho_cmd_r8 = ho_cmd.crit_exts.set_c1().set_ho_cmd_r8();
@@ -983,6 +1032,12 @@ void rrc::ue::rrc_mobility::handle_recfg_complete(wait_recfg_comp& s, const recf
   uint64_t target_eci = (rrc_enb->cfg.enb_id << 8u) + target_cell->cell_common->cell_cfg.cell_id;
 
   rrc_enb->s1ap->send_ho_notify(rrc_ue->rnti, target_eci);
+
+  // Enable forwarding of GTPU SDUs coming from Source eNB Tunnel to PDCP
+  auto& fwd_tunnels = get_state<s1_target_ho_st>()->pending_tunnels;
+  for (uint32_t teid : fwd_tunnels) {
+    rrc_enb->gtpu->set_tunnel_status(teid, true);
+  }
 }
 
 void rrc::ue::rrc_mobility::handle_status_transfer(s1_target_ho_st& s, const status_transfer_ev& erabs)
@@ -1003,7 +1058,7 @@ void rrc::ue::rrc_mobility::handle_status_transfer(s1_target_ho_st& s, const sta
     auto        drb_it = std::find_if(
         drbs.begin(), drbs.end(), [drbid](const drb_to_add_mod_s& drb) { return (lte_drb)drb.drb_id == drbid; });
     if (drb_it == drbs.end()) {
-      logger.warning("The DRB id=%d does not exist", (int)drbid);
+      logger.warning("The DRB id=%d does not exist", drbid);
     }
 
     srsran::pdcp_lte_state_t drb_state{};
@@ -1019,11 +1074,6 @@ void rrc::ue::rrc_mobility::handle_status_transfer(s1_target_ho_st& s, const sta
                 drb_state.next_pdcp_tx_sn,
                 drb_state.next_pdcp_rx_sn);
     rrc_enb->pdcp->set_bearer_state(rrc_ue->rnti, drb_it->lc_ch_id, drb_state);
-  }
-
-  // Enable forwarding of GTPU SDUs coming from Source eNB Tunnel to PDCP
-  for (uint32_t teid : s.pending_tunnels) {
-    rrc_enb->gtpu->set_tunnel_status(teid, true);
   }
 
   // Check if there is any pending Reconfiguration Complete. If there is, self-trigger
@@ -1084,6 +1134,14 @@ void rrc::ue::rrc_mobility::intraenb_ho_st::enter(rrc_mobility* f, const ho_meas
     f->trigger(srsran::failure_ev{});
     return;
   }
+
+  // Log HO command.
+  event_logger::get().log_handover_command(
+      f->rrc_ue->get_cell_list().get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->enb_cc_idx,
+      reconf_r8.mob_ctrl_info.target_pci,
+      reconf_r8.mob_ctrl_info.carrier_freq.dl_carrier_freq,
+      reconf_r8.mob_ctrl_info.new_ue_id.to_number(),
+      f->rrc_ue->rnti);
 }
 
 void rrc::ue::rrc_mobility::handle_crnti_ce(intraenb_ho_st& s, const user_crnti_upd_ev& ev)
@@ -1093,6 +1151,13 @@ void rrc::ue::rrc_mobility::handle_crnti_ce(intraenb_ho_st& s, const user_crnti_
   s.last_temp_crnti      = ev.temp_crnti;
 
   if (is_first_crnti_ce) {
+    // Stop all running RLF timers
+    // Note: The RLF timer can be triggered during Handover because the UE did not RLC-ACK the Handover Command
+    //       Once the Handover is complete, to avoid releasing the UE, the RLF timer should stop.
+    rrc_ue->rlc_rlf_timer.stop();
+    rrc_ue->phy_dl_rlf_timer.stop();
+    rrc_ue->phy_ul_rlf_timer.stop();
+
     // Need to reset SNs of bearers.
     rrc_enb->rlc->reestablish(rrc_ue->rnti);
     rrc_enb->pdcp->reestablish(rrc_ue->rnti);

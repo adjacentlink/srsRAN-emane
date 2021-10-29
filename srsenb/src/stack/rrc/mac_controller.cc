@@ -32,28 +32,28 @@ using ue_cfg_t = sched_interface::ue_cfg_t;
 /********* Helper Methods ********/
 
 // TS 36.331 9.1.1.2 - CCCH configuration
-sched_interface::ue_bearer_cfg_t get_bearer_default_ccch_config()
+mac_lc_ch_cfg_t get_bearer_default_ccch_config()
 {
-  sched_interface::ue_bearer_cfg_t bearer = {};
-  bearer.direction                        = sched_interface::ue_bearer_cfg_t::BOTH;
-  bearer.priority                         = 1;
-  bearer.pbr                              = -1;
-  bearer.bsd                              = -1;
-  bearer.group                            = 0;
+  mac_lc_ch_cfg_t bearer = {};
+  bearer.direction       = mac_lc_ch_cfg_t::BOTH;
+  bearer.priority        = 1;
+  bearer.pbr             = -1;
+  bearer.bsd             = -1;
+  bearer.group           = 0;
   return bearer;
 }
 
 // TS 36.331 9.2.1.1 - SRB1
-sched_interface::ue_bearer_cfg_t get_bearer_default_srb1_config()
+mac_lc_ch_cfg_t get_bearer_default_srb1_config()
 {
   return get_bearer_default_ccch_config();
 }
 
 // TS 36.331 9.2.1.2 - SRB2
-sched_interface::ue_bearer_cfg_t get_bearer_default_srb2_config()
+mac_lc_ch_cfg_t get_bearer_default_srb2_config()
 {
-  sched_interface::ue_bearer_cfg_t bearer = get_bearer_default_srb1_config();
-  bearer.priority                         = 3;
+  mac_lc_ch_cfg_t bearer = get_bearer_default_srb1_config();
+  bearer.priority        = 3;
   return bearer;
 }
 
@@ -125,7 +125,7 @@ void mac_controller::handle_con_reject()
   if (not crnti_set) {
     crnti_set = true;
     // Need to schedule ConRes CE for UE to see the Reject message
-    mac->ue_set_crnti(rnti, rnti, &current_sched_ue_cfg);
+    mac->ue_set_crnti(rnti, rnti, current_sched_ue_cfg);
   }
 }
 
@@ -146,7 +146,7 @@ int mac_controller::handle_crnti_ce(uint32_t temp_crnti)
     current_sched_ue_cfg.ue_bearers[i] = next_sched_ue_cfg.ue_bearers[i];
   }
 
-  return mac->ue_set_crnti(temp_crnti, rnti, &current_sched_ue_cfg);
+  return mac->ue_set_crnti(temp_crnti, rnti, current_sched_ue_cfg);
 }
 
 int mac_controller::apply_basic_conn_cfg(const asn1::rrc::rr_cfg_ded_s& rr_cfg)
@@ -192,7 +192,7 @@ int mac_controller::apply_basic_conn_cfg(const asn1::rrc::rr_cfg_ded_s& rr_cfg)
   // In case of RRC Connection Setup/Reest message (Msg4), we need to resolve the contention by sending a ConRes CE
   mac->phy_config_enabled(rnti, false);
   crnti_set = true;
-  return mac->ue_set_crnti(rnti, rnti, &current_sched_ue_cfg);
+  return mac->ue_set_crnti(rnti, rnti, current_sched_ue_cfg);
 }
 
 void mac_controller::handle_con_setup_complete()
@@ -221,7 +221,8 @@ void mac_controller::handle_con_reconf(const asn1::rrc::rrc_conn_recfg_r8_ies_s&
   set_drb_activation(false);
 
   // Apply changes to MAC scheduler
-  update_mac(proc_stage_t::config_tx);
+  update_mac();
+  mac->phy_config_enabled(rnti, false);
 }
 
 void mac_controller::handle_con_reconf_complete()
@@ -232,7 +233,8 @@ void mac_controller::handle_con_reconf_complete()
   apply_current_bearers_cfg();
 
   // Apply SCell+Bearer changes to MAC
-  update_mac(proc_stage_t::config_complete);
+  update_mac();
+  mac->phy_config_enabled(rnti, true);
 }
 
 void mac_controller::apply_current_bearers_cfg()
@@ -242,7 +244,7 @@ void mac_controller::apply_current_bearers_cfg()
   for (const drb_to_add_mod_s& drb : drbs) {
     auto& bcfg     = current_sched_ue_cfg.ue_bearers[drb.lc_ch_id];
     bcfg           = {};
-    bcfg.direction = sched_interface::ue_bearer_cfg_t::BOTH;
+    bcfg.direction = mac_lc_ch_cfg_t::BOTH;
     bcfg.group     = 1;
     bcfg.priority  = 4;
     if (drb.lc_ch_cfg_present and drb.lc_ch_cfg.ul_specific_params_present) {
@@ -291,11 +293,12 @@ void mac_controller::handle_intraenb_ho_cmd(const asn1::rrc::rrc_conn_recfg_r8_i
   set_drb_activation(false);
 
   // Stop any SRB UL (including SRs)
-  for (uint32_t i = srb_to_lcid(lte_srb::srb1); i <= srb_to_lcid(lte_srb::srb2); ++i) {
-    next_sched_ue_cfg.ue_bearers[i].direction = sched_interface::ue_bearer_cfg_t::DL;
+  for (uint32_t i = srb_to_lcid(lte_srb::srb0); i <= srb_to_lcid(lte_srb::srb2); ++i) {
+    current_sched_ue_cfg.ue_bearers[i].direction = mac_lc_ch_cfg_t::DL;
   }
 
-  update_mac(mac_controller::config_tx);
+  update_mac();
+  mac->phy_config_enabled(rnti, false);
 }
 
 void mac_controller::handle_ho_prep(const asn1::rrc::ho_prep_info_r8_ies_s& ho_prep)
@@ -306,10 +309,16 @@ void mac_controller::handle_ho_prep(const asn1::rrc::ho_prep_info_r8_ies_s& ho_p
   }
 }
 
-void mac_controller::handle_max_retx()
+void mac_controller::set_radio_bearer_state(mac_lc_ch_cfg_t::direction_t dir)
 {
-  set_drb_activation(false);
-  update_mac(other);
+  for (uint32_t i = srb_to_lcid(lte_srb::srb0); i <= srb_to_lcid(lte_srb::srb2); ++i) {
+    current_sched_ue_cfg.ue_bearers[i].direction = dir;
+  }
+  for (auto& drb : bearer_list.get_established_drbs()) {
+    current_sched_ue_cfg.ue_bearers[drb.lc_ch_id].direction = dir;
+  }
+
+  update_mac();
 }
 
 void mac_controller::set_scell_activation(const std::bitset<SRSRAN_MAX_CARRIERS>& scell_mask)
@@ -323,18 +332,14 @@ void mac_controller::set_drb_activation(bool active)
 {
   for (const drb_to_add_mod_s& drb : bearer_list.get_established_drbs()) {
     current_sched_ue_cfg.ue_bearers[drb_to_lcid((lte_drb)drb.drb_id)].direction =
-        active ? sched_interface::ue_bearer_cfg_t::BOTH : sched_interface::ue_bearer_cfg_t::IDLE;
+        active ? mac_lc_ch_cfg_t::BOTH : mac_lc_ch_cfg_t::IDLE;
   }
 }
 
-void mac_controller::update_mac(proc_stage_t stage)
+void mac_controller::update_mac()
 {
   // Apply changes to MAC scheduler
   mac->ue_cfg(rnti, &current_sched_ue_cfg);
-  if (stage != proc_stage_t::other) {
-    // Acknowledge Dedicated Configuration
-    mac->phy_config_enabled(rnti, stage == proc_stage_t::config_complete);
-  }
 }
 
 void ue_cfg_apply_phy_cfg_ded(ue_cfg_t& ue_cfg, const asn1::rrc::phys_cfg_ded_s& phy_cfg, const rrc_cfg_t& rrc_cfg)
@@ -350,9 +355,14 @@ void ue_cfg_apply_phy_cfg_ded(ue_cfg_t& ue_cfg, const asn1::rrc::phys_cfg_ded_s&
   auto& pcell_cfg = ue_cfg.supported_cc_list[0];
   if (phy_cfg.cqi_report_cfg_present) {
     if (phy_cfg.cqi_report_cfg.cqi_report_periodic_present) {
-      auto& cqi_cfg                                   = phy_cfg.cqi_report_cfg.cqi_report_periodic.setup();
-      ue_cfg.pucch_cfg.n_pucch                        = cqi_cfg.cqi_pucch_res_idx;
-      pcell_cfg.dl_cfg.cqi_report.pmi_idx             = cqi_cfg.cqi_pmi_cfg_idx;
+      const auto& cqi_cfg                                = phy_cfg.cqi_report_cfg.cqi_report_periodic.setup();
+      ue_cfg.pucch_cfg.n_pucch                           = cqi_cfg.cqi_pucch_res_idx;
+      pcell_cfg.dl_cfg.cqi_report.pmi_idx                = cqi_cfg.cqi_pmi_cfg_idx;
+      pcell_cfg.dl_cfg.cqi_report.subband_wideband_ratio = 0;
+      if (cqi_cfg.cqi_format_ind_periodic.type().value ==
+          cqi_report_periodic_c::setup_s_::cqi_format_ind_periodic_c_::types_opts::subband_cqi) {
+        pcell_cfg.dl_cfg.cqi_report.subband_wideband_ratio = cqi_cfg.cqi_format_ind_periodic.subband_cqi().k;
+      }
       pcell_cfg.dl_cfg.cqi_report.periodic_configured = true;
     } else if (phy_cfg.cqi_report_cfg.cqi_report_mode_aperiodic_present) {
       pcell_cfg.aperiodic_cqi_period                   = rrc_cfg.cqi_cfg.period;
@@ -387,7 +397,7 @@ void ue_cfg_apply_srb_updates(ue_cfg_t& ue_cfg, const srb_to_add_mod_list_l& srb
         srslog::fetch_basic_logger("RRC").warning("Invalid SRB ID %d", (int)srb.srb_id);
         bcfg = {};
     }
-    bcfg.direction = srsenb::sched_interface::ue_bearer_cfg_t::BOTH;
+    bcfg.direction = srsenb::mac_lc_ch_cfg_t::BOTH;
     if (srb.lc_ch_cfg_present and
         srb.lc_ch_cfg.type().value == srb_to_add_mod_s::lc_ch_cfg_c_::types_opts::explicit_value and
         srb.lc_ch_cfg.explicit_value().ul_specific_params_present) {
@@ -454,9 +464,10 @@ void ue_cfg_apply_reconf_complete_updates(ue_cfg_t&                      ue_cfg,
           if (ul_cfg.cqi_report_cfg_scell_r10.cqi_report_periodic_scell_r10_present and
               ul_cfg.cqi_report_cfg_scell_r10.cqi_report_periodic_scell_r10.type().value == setup_opts::setup) {
             // periodic CQI
-            auto& periodic = ul_cfg.cqi_report_cfg_scell_r10.cqi_report_periodic_scell_r10.setup();
-            mac_scell.dl_cfg.cqi_report.periodic_configured = true;
-            mac_scell.dl_cfg.cqi_report.pmi_idx             = periodic.cqi_pmi_cfg_idx;
+            const auto& periodic = ul_cfg.cqi_report_cfg_scell_r10.cqi_report_periodic_scell_r10.setup();
+            mac_scell.dl_cfg.cqi_report.periodic_configured    = true;
+            mac_scell.dl_cfg.cqi_report.pmi_idx                = periodic.cqi_pmi_cfg_idx;
+            mac_scell.dl_cfg.cqi_report.subband_wideband_ratio = 0;
           } else if (ul_cfg.cqi_report_cfg_scell_r10.cqi_report_mode_aperiodic_r10_present) {
             // aperiodic CQI
             mac_scell.dl_cfg.cqi_report.aperiodic_configured =

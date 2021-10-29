@@ -31,15 +31,13 @@
  */
 #define DCI_NR_MIN_SIZE 12
 
-#define CEIL_LOG2(N) (((N) == 0) ? 0 : ceil(log2((double)(N))))
-
 static uint32_t dci_nr_freq_resource_size_type1(uint32_t N)
 {
   if (N == 0) {
     return 0;
   }
 
-  return (int)CEIL_LOG2(N * (N + 1) / 2.0);
+  return (int)SRSRAN_CEIL_LOG2(N * (N + 1) / 2.0);
 }
 
 static uint32_t dci_nr_freq_resource_size(srsran_resource_alloc_t alloc_type, uint32_t N_RBG, uint32_t N_BWP_RB)
@@ -66,7 +64,7 @@ static uint32_t dci_nr_bwp_id_size(uint32_t N_BWP_RRC)
     N_BWP = N_BWP_RRC + 1;
   }
 
-  return (int)CEIL_LOG2(N_BWP);
+  return (int)SRSRAN_CEIL_LOG2(N_BWP);
 }
 
 static uint32_t dci_nr_time_res_size(uint32_t nof_time_res)
@@ -75,7 +73,7 @@ static uint32_t dci_nr_time_res_size(uint32_t nof_time_res)
     // 4 bits are necessary for PUSCH default time resource assigment (TS 38.214 Table 6.1.2.1.1-2)
     nof_time_res = SRSRAN_MAX_NOF_TIME_RA;
   }
-  return (uint32_t)CEIL_LOG2(nof_time_res);
+  return (uint32_t)SRSRAN_CEIL_LOG2(nof_time_res);
 }
 
 static uint32_t dci_nr_ptrs_size(const srsran_dci_cfg_nr_t* cfg)
@@ -93,6 +91,65 @@ static uint32_t dci_nr_ptrs_size(const srsran_dci_cfg_nr_t* cfg)
   return 2;
 }
 
+static uint32_t dci_nr_dl_ports_size(const srsran_dci_cfg_nr_t* cfg)
+{
+  uint32_t ret = 4;
+
+  if (cfg->pdsch_dmrs_type == srsran_dmrs_sch_type_2) {
+    ret++;
+  }
+  if (cfg->pdsch_dmrs_max_len == srsran_dmrs_sch_len_2) {
+    ret++;
+  }
+
+  return ret;
+}
+
+static uint32_t dci_nr_ul_ports_size(const srsran_dci_cfg_nr_t* cfg)
+{
+  // 2 bits as defined by Tables 7.3.1.1.2-6, if transform precoder is enabled, dmrs-Type=1, and maxLength=1;
+  if (cfg->enable_transform_precoding == true && cfg->pusch_dmrs_type == srsran_dmrs_sch_type_1 &&
+      cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_1) {
+    return 2;
+  }
+
+  // 4 bits as defined by Tables 7.3.1.1.2-7, if transform precoder is enabled, dmrs-Type=1, and maxLength=2;
+  if (cfg->enable_transform_precoding == true && cfg->pusch_dmrs_type == srsran_dmrs_sch_type_1 &&
+      cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_2) {
+    return 4;
+  }
+
+  // 3 bits as defined by Tables 7.3.1.1.2-8/9/10/11, if transform precoder is disabled, dmrs-Type=1, and maxLength=1
+  if (cfg->enable_transform_precoding == false && cfg->pusch_dmrs_type == srsran_dmrs_sch_type_1 &&
+      cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_1) {
+    return 3;
+  }
+
+  // 4 bits as defined by Tables 7.3.1.1.2-12/13/14/15, if transform precoder is disabled, dmrs-Type=1, and
+  // maxLength=2
+  if (cfg->enable_transform_precoding == false && cfg->pusch_dmrs_type == srsran_dmrs_sch_type_1 &&
+      cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_2) {
+    return 4;
+  }
+
+  // 4 bits as defined by Tables 7.3.1.1.2-16/17/18/19, if transform precoder is disabled, dmrs-Type=2, and
+  // maxLength=1
+  if (cfg->enable_transform_precoding == false && cfg->pusch_dmrs_type == srsran_dmrs_sch_type_2 &&
+      cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_1) {
+    return 4;
+  }
+
+  // 5 bits as defined by Tables 7.3.1.1.2-20/21/22/23, if transform precoder is disabled, dmrs-Type=2, and
+  // maxLength=2
+  if (cfg->enable_transform_precoding == false && cfg->pusch_dmrs_type == srsran_dmrs_sch_type_2 &&
+      cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_2) {
+    return 5;
+  }
+
+  ERROR("Unhandled configuration");
+  return 0;
+}
+
 static uint32_t dci_nr_srs_id_size(const srsran_dci_cfg_nr_t* cfg)
 {
   uint32_t N_srs = SRSRAN_MIN(1, cfg->nof_srs);
@@ -101,9 +158,9 @@ static uint32_t dci_nr_srs_id_size(const srsran_dci_cfg_nr_t* cfg)
     for (uint32_t k = 1; k < SRSRAN_MIN(cfg->nof_ul_layers, cfg->nof_srs); k++) {
       N += cfg->nof_srs / k;
     }
-    return (uint32_t)CEIL_LOG2(N);
+    return (uint32_t)SRSRAN_CEIL_LOG2(N);
   }
-  return (uint32_t)CEIL_LOG2(N_srs);
+  return (uint32_t)SRSRAN_CEIL_LOG2(N_srs);
 }
 
 // Determines DCI format 0_0 according to TS 38.212 clause 7.3.1.1.1
@@ -167,7 +224,8 @@ static int dci_nr_format_0_0_pack(const srsran_dci_nr_t* q, const srsran_dci_ul_
   msg->ctx = dci->ctx;
 
   // Check RNTI type
-  if (rnti_type != srsran_rnti_type_c && rnti_type != srsran_rnti_type_cs && rnti_type != srsran_rnti_type_mcs_c) {
+  if (rnti_type != srsran_rnti_type_c && rnti_type != srsran_rnti_type_cs && rnti_type != srsran_rnti_type_mcs_c &&
+      rnti_type != srsran_rnti_type_tc) {
     return SRSRAN_ERROR;
   }
 
@@ -237,7 +295,8 @@ static int dci_nr_format_0_0_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   uint32_t N_UL_BWP_RB = SRSRAN_SEARCH_SPACE_IS_COMMON(ss_type) ? q->cfg.bwp_ul_initial_bw : q->cfg.bwp_ul_active_bw;
 
   // Check RNTI type
-  if (rnti_type != srsran_rnti_type_c && rnti_type != srsran_rnti_type_cs && rnti_type != srsran_rnti_type_mcs_c) {
+  if (rnti_type != srsran_rnti_type_c && rnti_type != srsran_rnti_type_cs && rnti_type != srsran_rnti_type_mcs_c &&
+      rnti_type != srsran_rnti_type_tc) {
     ERROR("Unsupported %s", srsran_rnti_type_str(rnti_type));
     return SRSRAN_ERROR;
   }
@@ -260,9 +319,7 @@ static int dci_nr_format_0_0_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
 
   // Frequency domain resource assignment
   uint32_t N = dci_nr_freq_resource_size_type1(N_UL_BWP_RB);
-  if (N < N_UL_hop) {
-    return SRSRAN_ERROR;
-  }
+
   dci->freq_domain_assigment = srsran_bit_pack(&y, N - N_UL_hop - trim);
 
   // Time domain resource assignment – 4 bits
@@ -299,7 +356,7 @@ static int dci_nr_format_0_0_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   return SRSRAN_SUCCESS;
 }
 
-static int dci_nr_format_0_0_to_str(const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
+static uint32_t dci_nr_format_0_0_to_str(const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
 {
   uint32_t len = 0;
 
@@ -402,12 +459,7 @@ static uint32_t dci_nr_format_0_1_sizeof(const srsran_dci_cfg_nr_t* cfg, srsran_
   }
 
   // Antenna ports
-  if (!cfg->enable_transform_precoding && !cfg->pusch_dmrs_double) {
-    count += 3;
-  } else {
-    ERROR("Not implemented");
-    return 0;
-  }
+  count += dci_nr_ul_ports_size(cfg);
 
   // SRS request - 2 or 3 bits
   count += cfg->enable_sul ? 3 : 2;
@@ -511,12 +563,7 @@ static int dci_nr_format_0_1_pack(const srsran_dci_nr_t* q, const srsran_dci_ul_
   }
 
   // Antenna ports
-  if (!cfg->enable_transform_precoding && !cfg->pusch_dmrs_double) {
-    srsran_bit_unpack(dci->ports, &y, 3);
-  } else {
-    ERROR("Not implemented");
-    return 0;
-  }
+  srsran_bit_unpack(dci->ports, &y, dci_nr_ul_ports_size(cfg));
 
   // SRS request - 2 or 3 bits
   srsran_bit_unpack(dci->srs_request, &y, cfg->enable_sul ? 3 : 2);
@@ -628,7 +675,7 @@ static int dci_nr_format_0_1_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   }
 
   // Antenna ports
-  if (!cfg->enable_transform_precoding && !cfg->pusch_dmrs_double) {
+  if (!cfg->enable_transform_precoding && cfg->pusch_dmrs_max_len == srsran_dmrs_sch_len_1) {
     dci->ports = srsran_bit_pack(&y, 3);
   } else {
     ERROR("Not implemented");
@@ -668,7 +715,7 @@ static int dci_nr_format_0_1_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   return SRSRAN_SUCCESS;
 }
 
-static int
+static uint32_t
 dci_nr_format_0_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
 {
   uint32_t                   len = 0;
@@ -735,11 +782,8 @@ dci_nr_format_0_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci
   }
 
   // Antenna ports
-  if (!cfg->enable_transform_precoding && !cfg->pusch_dmrs_double) {
+  if (dci_nr_ul_ports_size(cfg)) {
     len = srsran_print_check(str, str_len, len, "ports=%d ", dci->ports);
-  } else {
-    ERROR("Not implemented");
-    return 0;
   }
 
   // SRS request - 2 bits
@@ -772,6 +816,112 @@ dci_nr_format_0_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci
 
   // UL-SCH indicator – 1 bit
   len = srsran_print_check(str, str_len, len, "ulsch=%d ", dci->ulsch);
+
+  return len;
+}
+
+static uint32_t dci_nr_rar_sizeof()
+{
+  // Fields described by TS 38.213 Table 8.2-1: Random Access Response Grant Content field size
+  uint32_t count = 0;
+
+  // Frequency hopping flag - 1 bit
+  count += 1;
+
+  // PUSCH frequency resource allocation - 14 bits
+  count += 14;
+
+  // PUSCH time resource allocation - 4 bits
+  count += 4;
+
+  // MCS - 4 bits
+  count += 4;
+
+  // TPC command for PUSCH - 3 bits
+  count += 3;
+
+  // CSI request - 1 bits
+  count += 1;
+
+  return count;
+}
+
+static int dci_nr_rar_pack(const srsran_dci_ul_nr_t* dci, srsran_dci_msg_nr_t* msg)
+{
+  // Fields described by TS 38.213 Table 8.2-1: Random Access Response Grant Content field size
+  uint8_t* y = msg->payload;
+
+  // Frequency hopping flag - 1 bit
+  srsran_bit_unpack(dci->freq_hopping_flag, &y, 1);
+
+  // PUSCH frequency resource allocation - 14 bits
+  srsran_bit_unpack(dci->freq_domain_assigment, &y, 14);
+
+  // PUSCH time resource allocation - 4 bits
+  srsran_bit_unpack(dci->time_domain_assigment, &y, 4);
+
+  // MCS - 4 bits
+  srsran_bit_unpack(dci->mcs, &y, 4);
+
+  // TPC command for PUSCH - 3 bits
+  srsran_bit_unpack(dci->tpc, &y, 3);
+
+  // CSI request - 1 bits
+  srsran_bit_unpack(dci->csi_request, &y, 1);
+
+  return SRSRAN_SUCCESS;
+}
+
+static int dci_nr_rar_unpack(srsran_dci_msg_nr_t* msg, srsran_dci_ul_nr_t* dci)
+{
+  // Fields described by TS 38.213 Table 8.2-1: Random Access Response Grant Content field size
+  uint8_t* y = msg->payload;
+
+  // Copy DCI MSG fields
+  dci->ctx = msg->ctx;
+
+  // Frequency hopping flag - 1 bit
+  dci->freq_hopping_flag = srsran_bit_pack(&y, 1);
+
+  // PUSCH frequency resource allocation - 14 bits
+  dci->freq_domain_assigment = srsran_bit_pack(&y, 14);
+
+  // PUSCH time resource allocation - 4 bits
+  dci->time_domain_assigment = srsran_bit_pack(&y, 4);
+
+  // MCS -4 bits
+  dci->mcs = srsran_bit_pack(&y, 4);
+
+  // TPC command for PUSCH - 3 bits
+  dci->tpc = srsran_bit_pack(&y, 3);
+
+  // CSI request - 1 bits
+  dci->csi_request = srsran_bit_pack(&y, 1);
+
+  return SRSRAN_SUCCESS;
+}
+
+static uint32_t dci_nr_rar_to_str(const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
+{
+  uint32_t len = 0;
+
+  // Frequency hopping flag
+  len = srsran_print_check(str, str_len, len, "hop=%d ", dci->freq_hopping_flag);
+
+  // PUSCH frequency resource allocation
+  len = srsran_print_check(str, str_len, len, "f_alloc=0x%x ", dci->freq_domain_assigment);
+
+  // PUSCH time resource allocation
+  len = srsran_print_check(str, str_len, len, "t_alloc=0x%x ", dci->time_domain_assigment);
+
+  // Modulation and coding scheme
+  len = srsran_print_check(str, str_len, len, "mcs=%d ", dci->mcs);
+
+  // TPC command for scheduled PUSCH
+  len = srsran_print_check(str, str_len, len, "tpc=%d ", dci->tpc);
+
+  // CSI request
+  len = srsran_print_check(str, str_len, len, "csi=%d ", dci->csi_request);
 
   return len;
 }
@@ -1088,7 +1238,7 @@ static int dci_nr_format_1_0_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   return SRSRAN_SUCCESS;
 }
 
-static int dci_nr_format_1_0_to_str(const srsran_dci_dl_nr_t* dci, char* str, uint32_t str_len)
+static uint32_t dci_nr_format_1_0_to_str(const srsran_dci_dl_nr_t* dci, char* str, uint32_t str_len)
 {
   uint32_t           len       = 0;
   srsran_rnti_type_t rnti_type = dci->ctx.rnti_type;
@@ -1126,7 +1276,7 @@ static int dci_nr_format_1_0_to_str(const srsran_dci_dl_nr_t* dci, char* str, ui
 
   // HARQ process number – 4 bits
   if (rnti_type == srsran_rnti_type_c || rnti_type == srsran_rnti_type_tc) {
-    len = srsran_print_check(str, str_len, len, "harq_id=%d ", dci->harq_feedback);
+    len = srsran_print_check(str, str_len, len, "harq_id=%d ", dci->pid);
   }
 
   // System information indicator – 1 bit
@@ -1203,7 +1353,7 @@ static uint32_t dci_nr_format_1_1_sizeof(const srsran_dci_cfg_nr_t* cfg, srsran_
   }
 
   // ZP CSI-RS trigger - 0, 1, or 2 bits
-  count += (int)CEIL_LOG2(cfg->nof_aperiodic_zp + 1);
+  count += (int)SRSRAN_CEIL_LOG2(cfg->nof_aperiodic_zp + 1);
 
   // For transport block 1:
   // Modulation and coding scheme – 5 bits
@@ -1246,16 +1396,10 @@ static uint32_t dci_nr_format_1_1_sizeof(const srsran_dci_cfg_nr_t* cfg, srsran_
   count += 3;
 
   // PDSCH-to-HARQ_feedback timing indicator – 0, 1, 2, or 3 bits
-  count += (int)CEIL_LOG2(cfg->nof_dl_to_ul_ack);
+  count += (int)SRSRAN_CEIL_LOG2(cfg->nof_dl_to_ul_ack);
 
   // Antenna port(s) – 4, 5, or 6 bits
-  count += 4;
-  if (cfg->pdsch_dmrs_type2) {
-    count++;
-  }
-  if (cfg->pdsch_dmrs_double) {
-    count++;
-  }
+  count += dci_nr_dl_ports_size(cfg);
 
   // Transmission configuration indication – 0 or 3 bits
   if (cfg->pdsch_tci) {
@@ -1325,7 +1469,7 @@ static int dci_nr_format_1_1_pack(const srsran_dci_nr_t* q, const srsran_dci_dl_
   }
 
   // ZP CSI-RS trigger - 0, 1, or 2 bits
-  srsran_bit_unpack(dci->zp_csi_rs_id, &y, CEIL_LOG2(cfg->nof_aperiodic_zp + 1));
+  srsran_bit_unpack(dci->zp_csi_rs_id, &y, SRSRAN_CEIL_LOG2(cfg->nof_aperiodic_zp + 1));
 
   // For transport block 1:
   // Modulation and coding scheme – 5 bits
@@ -1368,16 +1512,10 @@ static int dci_nr_format_1_1_pack(const srsran_dci_nr_t* q, const srsran_dci_dl_
   srsran_bit_unpack(dci->pucch_resource, &y, 3);
 
   // PDSCH-to-HARQ_feedback timing indicator – 0, 1, 2, or 3 bits
-  srsran_bit_unpack(dci->harq_feedback, &y, (int)CEIL_LOG2(cfg->nof_dl_to_ul_ack));
+  srsran_bit_unpack(dci->harq_feedback, &y, (int)SRSRAN_CEIL_LOG2(cfg->nof_dl_to_ul_ack));
 
   // Antenna port(s) – 4, 5, or 6 bits
-  srsran_bit_unpack(dci->ports, &y, 4);
-  if (cfg->pdsch_dmrs_type2) {
-    y++;
-  }
-  if (cfg->pdsch_dmrs_double) {
-    y++;
-  }
+  srsran_bit_unpack(dci->ports, &y, dci_nr_dl_ports_size(cfg));
 
   // Transmission configuration indication – 0 or 3 bits
   if (cfg->pdsch_tci) {
@@ -1461,7 +1599,7 @@ static int dci_nr_format_1_1_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   }
 
   // ZP CSI-RS trigger - 0, 1, or 2 bits
-  dci->zp_csi_rs_id = srsran_bit_pack(&y, CEIL_LOG2(cfg->nof_aperiodic_zp + 1));
+  dci->zp_csi_rs_id = srsran_bit_pack(&y, SRSRAN_CEIL_LOG2(cfg->nof_aperiodic_zp + 1));
 
   // For transport block 1:
   // Modulation and coding scheme – 5 bits
@@ -1504,16 +1642,10 @@ static int dci_nr_format_1_1_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   dci->pucch_resource = srsran_bit_pack(&y, 3);
 
   // PDSCH-to-HARQ_feedback timing indicator – 0, 1, 2, or 3 bits
-  dci->harq_feedback = srsran_bit_pack(&y, (int)CEIL_LOG2(cfg->nof_dl_to_ul_ack));
+  dci->harq_feedback = srsran_bit_pack(&y, (int)SRSRAN_CEIL_LOG2(cfg->nof_dl_to_ul_ack));
 
   // Antenna port(s) – 4, 5, or 6 bits
-  dci->ports = srsran_bit_pack(&y, 4);
-  if (cfg->pdsch_dmrs_type2) {
-    y++;
-  }
-  if (cfg->pdsch_dmrs_double) {
-    y++;
-  }
+  dci->ports = srsran_bit_pack(&y, dci_nr_dl_ports_size(cfg));
 
   // Transmission configuration indication – 0 or 3 bits
   if (cfg->pdsch_tci) {
@@ -1543,7 +1675,7 @@ static int dci_nr_format_1_1_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_
   return SRSRAN_SUCCESS;
 }
 
-static int
+static uint32_t
 dci_nr_format_1_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci, char* str, uint32_t str_len)
 {
   uint32_t                   len = 0;
@@ -1585,7 +1717,7 @@ dci_nr_format_1_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci
   }
 
   // ZP CSI-RS trigger - 0, 1, or 2 bits
-  if (CEIL_LOG2(cfg->nof_aperiodic_zp + 1) > 0) {
+  if (SRSRAN_CEIL_LOG2(cfg->nof_aperiodic_zp + 1) > 0) {
     len = srsran_print_check(str, str_len, len, "zp_csi_rs_id=%d ", dci->zp_csi_rs_id);
   }
 
@@ -1628,7 +1760,9 @@ dci_nr_format_1_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci
   }
 
   // Antenna port(s) – 4, 5, or 6 bits
-  len = srsran_print_check(str, str_len, len, "ports=%d ", dci->ports);
+  if (dci_nr_dl_ports_size(cfg) > 0) {
+    len = srsran_print_check(str, str_len, len, "ports=%d ", dci->ports);
+  }
 
   // Transmission configuration indication – 0 or 3 bits
   if (cfg->pdsch_tci) {
@@ -1656,6 +1790,10 @@ dci_nr_format_1_1_to_str(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci
 
 int srsran_dci_nr_set_cfg(srsran_dci_nr_t* q, const srsran_dci_cfg_nr_t* cfg)
 {
+  if (q == NULL || cfg == NULL) {
+    return SRSRAN_ERROR;
+  }
+
   // Reset current setup
   SRSRAN_MEM_ZERO(q, srsran_dci_nr_t, 1);
 
@@ -1797,6 +1935,11 @@ uint32_t srsran_dci_nr_size(const srsran_dci_nr_t* q, srsran_search_space_type_t
     return q->dci_1_1_size;
   }
 
+  // RAR packed MSG3 DCI
+  if (format == srsran_dci_format_nr_rar) {
+    return dci_nr_rar_sizeof();
+  }
+
   // Not implemented
   return 0;
 }
@@ -1825,71 +1968,12 @@ bool srsran_dci_nr_valid_direction(const srsran_dci_msg_nr_t* dci)
   return (dci->ctx.format == srsran_dci_format_nr_1_0);
 }
 
-static int dci_nr_rar_pack(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci, srsran_dci_msg_nr_t* msg)
+int srsran_dci_nr_dl_pack(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci, srsran_dci_msg_nr_t* msg)
 {
-  ERROR("Not implemented");
-  return SRSRAN_ERROR;
-}
-
-static int dci_nr_rar_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_t* msg, srsran_dci_ul_nr_t* dci)
-{
-  if (msg == NULL || dci == NULL) {
+  if (q == NULL || dci == NULL || msg == NULL) {
     return SRSRAN_ERROR;
   }
 
-  uint8_t* y = msg->payload;
-
-  // Copy DCI MSG fields
-  dci->ctx = msg->ctx;
-
-  // Frequency hopping flag - 1 bit
-  dci->freq_hopping_flag = srsran_bit_pack(&y, 1);
-
-  // PUSCH frequency resource allocation - 14 bits
-  dci->freq_domain_assigment = srsran_bit_pack(&y, 14);
-
-  // PUSCH time resource allocation - 4 bits
-  dci->time_domain_assigment = srsran_bit_pack(&y, 4);
-
-  // MCS -4 bits
-  dci->mcs = srsran_bit_pack(&y, 4);
-
-  // TPC command for PUSCH - 3 bits
-  dci->tpc = srsran_bit_pack(&y, 3);
-
-  // CSI request - 1 bits
-  dci->csi_request = srsran_bit_pack(&y, 3);
-
-  return SRSRAN_SUCCESS;
-}
-
-static int dci_nr_rar_to_str(const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
-{
-  uint32_t len = 0;
-
-  // Frequency hopping flag
-  len = srsran_print_check(str, str_len, len, "hop=%d ", dci->freq_hopping_flag);
-
-  // PUSCH frequency resource allocation
-  len = srsran_print_check(str, str_len, len, "f_alloc=0x%x ", dci->freq_domain_assigment);
-
-  // PUSCH time resource allocation
-  len = srsran_print_check(str, str_len, len, "t_alloc=0x%x ", dci->time_domain_assigment);
-
-  // Modulation and coding scheme
-  len = srsran_print_check(str, str_len, len, "mcs=%d ", dci->mcs);
-
-  // TPC command for scheduled PUSCH
-  len = srsran_print_check(str, str_len, len, "tpc=%d ", dci->tpc);
-
-  // CSI request
-  len = srsran_print_check(str, str_len, len, "csi=%d ", dci->csi_request);
-
-  return len;
-}
-
-int srsran_dci_nr_dl_pack(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci, srsran_dci_msg_nr_t* msg)
-{
   // Copy DCI MSG fields
   msg->ctx = dci->ctx;
 
@@ -1908,8 +1992,13 @@ int srsran_dci_nr_dl_pack(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dc
 
 int srsran_dci_nr_dl_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_t* msg, srsran_dci_dl_nr_t* dci)
 {
+  if (q == NULL || dci == NULL || msg == NULL) {
+    return SRSRAN_ERROR;
+  }
+
   // Copy DCI MSG fields
-  dci->ctx = msg->ctx;
+  dci->ctx         = msg->ctx;
+  dci->coreset0_bw = q->cfg.coreset0_bw;
 
   // Pack DCI
   switch (msg->ctx.format) {
@@ -1925,6 +2014,14 @@ int srsran_dci_nr_dl_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_t* msg, 
 
 int srsran_dci_nr_ul_pack(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci, srsran_dci_msg_nr_t* msg)
 {
+  if (msg == NULL || dci == NULL) {
+    return SRSRAN_ERROR;
+  }
+
+  if (dci->ctx.format != srsran_dci_format_nr_rar && q == NULL) {
+    return SRSRAN_ERROR;
+  }
+
   // Copy DCI MSG fields
   msg->ctx = dci->ctx;
 
@@ -1935,7 +2032,7 @@ int srsran_dci_nr_ul_pack(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dc
     case srsran_dci_format_nr_0_1:
       return dci_nr_format_0_1_pack(q, dci, msg);
     case srsran_dci_format_nr_rar:
-      return dci_nr_rar_pack(q, dci, msg);
+      return dci_nr_rar_pack(dci, msg);
     default:
       ERROR("Unsupported DCI format %d", msg->ctx.format);
   }
@@ -1945,6 +2042,14 @@ int srsran_dci_nr_ul_pack(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dc
 
 int srsran_dci_nr_ul_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_t* msg, srsran_dci_ul_nr_t* dci)
 {
+  if (msg == NULL || dci == NULL) {
+    return SRSRAN_ERROR;
+  }
+
+  if (msg->ctx.format != srsran_dci_format_nr_rar && q == NULL) {
+    return SRSRAN_ERROR;
+  }
+
   // Copy DCI MSG fields
   dci->ctx = msg->ctx;
 
@@ -1955,19 +2060,30 @@ int srsran_dci_nr_ul_unpack(const srsran_dci_nr_t* q, srsran_dci_msg_nr_t* msg, 
     case srsran_dci_format_nr_0_1:
       return dci_nr_format_0_1_unpack(q, msg, dci);
     case srsran_dci_format_nr_rar:
-      return dci_nr_rar_unpack(q, msg, dci);
+      return dci_nr_rar_unpack(msg, dci);
     default:
       ERROR("Unsupported DCI format %d", msg->ctx.format);
   }
   return SRSRAN_ERROR;
 }
 
-int srsran_dci_ctx_to_str(const srsran_dci_ctx_t* ctx, char* str, uint32_t str_len)
+uint32_t srsran_dci_ctx_to_str(const srsran_dci_ctx_t* ctx, char* str, uint32_t str_len)
 {
+  if (ctx == NULL || str == NULL) {
+    return 0;
+  }
+
   uint32_t len = 0;
 
   // Print base
-  len = srsran_print_check(str, str_len, len, "rnti=%04x dci=%s ", ctx->rnti, srsran_dci_format_nr_string(ctx->format));
+  len = srsran_print_check(str,
+                           str_len,
+                           len,
+                           "%s-rnti=%04x dci=%s ss=%s ",
+                           srsran_rnti_type_str_short(ctx->rnti_type),
+                           ctx->rnti,
+                           srsran_dci_format_nr_string(ctx->format),
+                           srsran_ss_type_str(ctx->ss_type));
 
   if (ctx->format != srsran_dci_format_nr_rar) {
     len = srsran_print_check(str, str_len, len, "L=%d cce=%d ", ctx->location.L, ctx->location.ncce);
@@ -1976,8 +2092,12 @@ int srsran_dci_ctx_to_str(const srsran_dci_ctx_t* ctx, char* str, uint32_t str_l
   return len;
 }
 
-int srsran_dci_ul_nr_to_str(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
+uint32_t srsran_dci_ul_nr_to_str(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* dci, char* str, uint32_t str_len)
 {
+  if (q == NULL || dci == NULL || str == NULL) {
+    return 0;
+  }
+
   uint32_t len = 0;
 
   len += srsran_dci_ctx_to_str(&dci->ctx, &str[len], str_len - len);
@@ -2001,8 +2121,12 @@ int srsran_dci_ul_nr_to_str(const srsran_dci_nr_t* q, const srsran_dci_ul_nr_t* 
   return len;
 }
 
-int srsran_dci_dl_nr_to_str(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci, char* str, uint32_t str_len)
+uint32_t srsran_dci_dl_nr_to_str(const srsran_dci_nr_t* q, const srsran_dci_dl_nr_t* dci, char* str, uint32_t str_len)
 {
+  if (q == NULL || dci == NULL || str == NULL) {
+    return SRSRAN_ERROR;
+  }
+
   uint32_t len = 0;
 
   len += srsran_dci_ctx_to_str(&dci->ctx, &str[len], str_len - len);

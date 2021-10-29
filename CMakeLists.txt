@@ -67,17 +67,18 @@ option(ENABLE_SRSENB         "Build srsENB application"                 ON)
 option(ENABLE_SRSEPC         "Build srsEPC application"                 ON)
 option(DISABLE_SIMD          "Disable SIMD instructions"                OFF)
 option(AUTO_DETECT_ISA       "Autodetect supported ISA extensions"      ON)
-                            
+
 option(ENABLE_GUI            "Enable GUI (using srsGUI)"                ON)
 option(ENABLE_UHD            "Enable UHD"                               ON)
 option(ENABLE_BLADERF        "Enable BladeRF"                           ON)
 option(ENABLE_SOAPYSDR       "Enable SoapySDR"                          ON)
+option(ENABLE_SKIQ           "Enable Sidekiq SDK"                       ON)
 option(ENABLE_ZEROMQ         "Enable ZeroMQ"                            ON)
 option(ENABLE_HARDSIM        "Enable support for SIM cards"             ON)
-                            
+
 option(ENABLE_TTCN3          "Enable TTCN3 test binaries"               OFF)
 option(ENABLE_ZMQ_TEST       "Enable ZMQ based E2E tests"               OFF)
-                            
+
 option(BUILD_STATIC          "Attempt to statically link external deps" OFF)
 option(RPATH                 "Enable RPATH"                             OFF)
 option(ENABLE_ASAN           "Enable gcc/clang address sanitizer"       OFF)
@@ -85,24 +86,26 @@ option(ENABLE_GCOV           "Enable gcc/clang address sanitizer"       OFF)
 option(ENABLE_MSAN           "Enable clang memory sanitizer"            OFF)
 option(ENABLE_TSAN           "Enable clang thread sanitizer"            OFF)
 option(ENABLE_TIDY           "Enable clang tidy"                        OFF)
-                            
+
 option(USE_LTE_RATES         "Use standard LTE sampling rates"          OFF)
 option(USE_MKL               "Use MKL instead of fftw"                  OFF)
-                            
+
 option(ENABLE_TIMEPROF       "Enable time profiling"                    ON)
-                            
+
 option(FORCE_32BIT           "Add flags to force 32 bit compilation"    OFF)
 
 option(ENABLE_SRSLOG_TRACING "Enable event tracing using srslog"        OFF)
 option(ASSERTS_ENABLED       "Enable srsRAN asserts"                    ON)
 option(STOP_ON_WARNING       "Interrupt application on warning"         OFF)
 
+option(ENABLE_ALL_TEST       "Enable all unit/component test"           OFF)
+
 # Users that want to try this feature need to make sure the lto plugin is
 # loaded by bintools (ar, nm, ...). Older versions of bintools will not do
 # it automatically so it is necessary to use the gcc wrappers of the compiler
 # (gcc-ar, gcc-nm, ...).
 option(BUILD_WITH_LTO        "Enable LTO (experimental)"                OFF)
-  
+
 if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
   set(GCC_ARCH armv8-a CACHE STRING "GCC compile for specific architecture.")
   message(STATUS "Detected aarch64 processor")
@@ -223,6 +226,15 @@ if(ENABLE_UHD)
   endif(UHD_FOUND)
 endif(ENABLE_UHD)
 
+# SKIQ
+if (ENABLE_SKIQ)
+  find_package(SKIQ)
+  if(SKIQ_FOUND)
+    include_directories(${SKIQ_INCLUDE_DIRS})
+    link_directories(${SKIQ_LIBRARY_DIRS})
+  endif(SKIQ_FOUND)
+endif (ENABLE_SKIQ)
+
 # BladeRF
 if(ENABLE_BLADERF)
   find_package(bladeRF)
@@ -255,12 +267,12 @@ if(ENABLE_TIMEPROF)
     add_definitions(-DENABLE_TIMEPROF)
 endif(ENABLE_TIMEPROF)
 
-if(BLADERF_FOUND OR UHD_FOUND OR SOAPYSDR_FOUND OR ZEROMQ_FOUND)
+if(BLADERF_FOUND OR UHD_FOUND OR SOAPYSDR_FOUND OR ZEROMQ_FOUND OR SKIQ_FOUND)
   set(RF_FOUND TRUE CACHE INTERNAL "RF frontend found")
-else(BLADERF_FOUND OR UHD_FOUND OR SOAPYSDR_FOUND OR ZEROMQ_FOUND)
+else(BLADERF_FOUND OR UHD_FOUND OR SOAPYSDR_FOUND OR ZEROMQ_FOUND OR SKIQ_FOUND)
   set(RF_FOUND FALSE CACHE INTERNAL "RF frontend found")
   add_definitions(-DDISABLE_RF)
-endif(BLADERF_FOUND OR UHD_FOUND OR SOAPYSDR_FOUND OR ZEROMQ_FOUND)
+endif(BLADERF_FOUND OR UHD_FOUND OR SOAPYSDR_FOUND OR ZEROMQ_FOUND OR SKIQ_FOUND)
 
 # Boost
 if(BUILD_STATIC)
@@ -410,13 +422,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     find_package(SSE)
   endif (AUTO_DETECT_ISA)
 
+  ADD_C_COMPILER_FLAG_IF_AVAILABLE("-march=${GCC_ARCH}" HAVE_MARCH_${GCC_ARCH})
+  ADD_CXX_COMPILER_FLAG_IF_AVAILABLE("-march=${GCC_ARCH}" HAVE_MARCH_${GCC_ARCH})
+
   if (HAVE_AVX2)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${GCC_ARCH} -mfpmath=sse -mavx2 -DLV_HAVE_AVX2 -DLV_HAVE_AVX -DLV_HAVE_SSE")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpmath=sse -mavx2 -DLV_HAVE_AVX2 -DLV_HAVE_AVX -DLV_HAVE_SSE")
   else (HAVE_AVX2)
     if(HAVE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${GCC_ARCH} -mfpmath=sse -mavx -DLV_HAVE_AVX -DLV_HAVE_SSE")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpmath=sse -mavx -DLV_HAVE_AVX -DLV_HAVE_SSE")
     elseif(HAVE_SSE)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${GCC_ARCH} -mfpmath=sse -msse4.1 -DLV_HAVE_SSE")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpmath=sse -msse4.1 -DLV_HAVE_SSE")
     endif(HAVE_AVX)
   endif (HAVE_AVX2)
 
@@ -466,12 +481,12 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
     find_package(SSE)
   endif (AUTO_DETECT_ISA)
   if (HAVE_AVX2)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=${GCC_ARCH} -mfpmath=sse -mavx2 -DLV_HAVE_AVX2 -DLV_HAVE_AVX -DLV_HAVE_SSE")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfpmath=sse -mavx2 -DLV_HAVE_AVX2 -DLV_HAVE_AVX -DLV_HAVE_SSE")
   else (HAVE_AVX2)
     if(HAVE_AVX)
-      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=${GCC_ARCH} -mfpmath=sse -mavx -DLV_HAVE_AVX -DLV_HAVE_SSE")
+      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfpmath=sse -mavx -DLV_HAVE_AVX -DLV_HAVE_SSE")
     elseif(HAVE_SSE)
-      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=${GCC_ARCH} -mfpmath=sse -msse4.1 -DLV_HAVE_SSE")
+      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfpmath=sse -msse4.1 -DLV_HAVE_SSE")
     endif(HAVE_AVX)
   endif (HAVE_AVX2)
 
@@ -530,13 +545,13 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
   endif (ENABLE_ASAN)
 
   if (ENABLE_TSAN)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -DHAVE_TSAN")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
   endif (ENABLE_TSAN)
 
   if (ENABLE_MSAN AND CMAKE_C_COMPILER_ID MATCHES "Clang")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=memory -fno-omit-frame-pointer -fPIE -pie")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=memory -fno-omit-frame-pointer -fPIE -pie")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=memory -fno-omit-frame-pointer -fsanitize-memory-track-origins -fPIE")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=memory -fno-omit-frame-pointer -fsanitize-memory-track-origins -fPIE")
   endif (ENABLE_MSAN AND CMAKE_C_COMPILER_ID MATCHES "Clang")
 
   if (ENABLE_GCOV)
@@ -553,8 +568,8 @@ endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 
 # Add colored output when using the Ninja generator
 if("Ninja" STREQUAL ${CMAKE_GENERATOR})
-   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
-   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+  ADD_C_COMPILER_FLAG_IF_AVAILABLE("-fdiagnostics-color=always" HAVE_DIAGNOSTIC_COLOR_C)
+  ADD_CXX_COMPILER_FLAG_IF_AVAILABLE("-fdiagnostics-color=always" HAVE_DIAGNOSTIC_COLOR_CXX)
 endif()
 
 # Add -Werror to C/C++ flags for newer compilers
@@ -575,6 +590,11 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU")
   # Increase inlining limit to allow gcc compilation on e.g. RPi2
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --param large-function-growth=1600")
 endif(CMAKE_C_COMPILER_ID MATCHES "GNU")
+
+if (EXTRA_TERM_TIMEOUT_S)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DSRSRAN_TERM_TIMEOUT_S=${EXTRA_TERM_TIMEOUT_S}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DSRSRAN_TERM_TIMEOUT_S=${EXTRA_TERM_TIMEOUT_S}")
+endif (EXTRA_TERM_TIMEOUT_S)
 
 message(STATUS "CMAKE_C_FLAGS is ${CMAKE_C_FLAGS}")
 message(STATUS "CMAKE_CXX_FLAGS is ${CMAKE_CXX_FLAGS}")
@@ -639,6 +659,18 @@ function(add_lte_test)
 endfunction()
 
 function(add_nr_test)
+  add_test(${ARGN})
+  set(TNAME ${ARGV0})
+  if(${TNAME} STREQUAL NAME)
+    set(TNAME ${ARGV1})
+  endif()
+  set_tests_properties(${TNAME} PROPERTIES LABELS "nr;${CTEST_LABELS}")
+endfunction()
+
+function(add_nr_advanced_test)
+  if (NOT ${ENABLE_ALL_TEST})
+    return()
+  endif()
   add_test(${ARGN})
   set(TNAME ${ARGV0})
   if(${TNAME} STREQUAL NAME)

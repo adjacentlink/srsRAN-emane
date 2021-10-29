@@ -18,14 +18,11 @@
 # and at http://www.gnu.org/licenses/.
 #
 
+add_subdirectory(test)
+
 file(GLOB_RECURSE SOURCES "*.cc")
 add_library(srsue_phy STATIC ${SOURCES})
 
 if(ENABLE_GUI AND SRSGUI_FOUND)
-  target_link_libraries(srsue_phy ${SRSGUI_LIBRARIES})
+  target_link_libraries(srsue_phy ${SRSGUI_LIBRARIES} ${emanelte_LIBRARIES} ${protobuf_LIBRARIES} ${ostatistic_LIBRARIES})
 endif()
-
-set(SOURCES_NR "../phy/vnf_phy_nr.cc")
-add_library(srsue_phy_nr STATIC ${SOURCES_NR})
-
-target_link_libraries(srsue_phy ${emanelte_LIBRARIES} ${protobuf_LIBRARIES} ${ostatistic_LIBRARIES})

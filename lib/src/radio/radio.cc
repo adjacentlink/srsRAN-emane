@@ -23,35 +23,23 @@
 #include "srsran/common/standard_streams.h"
 #include "srsran/common/string_helpers.h"
 #include "srsran/config.h"
+#include "srsran/support/srsran_assert.h"
 #include <list>
 #include <string>
 #include <unistd.h>
 
 namespace srsran {
 
-radio::radio() : zeros(nullptr)
+radio::radio()
 {
-  zeros = srsran_vec_cf_malloc(SRSRAN_SF_LEN_MAX);
-  srsran_vec_cf_zero(zeros, SRSRAN_SF_LEN_MAX);
+  zeros.resize(SRSRAN_SF_LEN_MAX, 0);
   for (uint32_t i = 0; i < SRSRAN_MAX_CHANNELS; i++) {
-    dummy_buffers[i] = srsran_vec_cf_malloc(SRSRAN_SF_LEN_MAX * SRSRAN_NOF_SF_X_FRAME);
-    srsran_vec_cf_zero(dummy_buffers[i], SRSRAN_SF_LEN_MAX * SRSRAN_NOF_SF_X_FRAME);
+    dummy_buffers[i].resize(SRSRAN_SF_LEN_MAX * SRSRAN_NOF_SF_X_FRAME, 0);
   }
 }
 
 radio::~radio()
 {
-  if (zeros) {
-    free(zeros);
-    zeros = nullptr;
-  }
-
-  for (uint32_t i = 0; i < SRSRAN_MAX_CHANNELS; i++) {
-    if (dummy_buffers[i]) {
-      free(dummy_buffers[i]);
-    }
-  }
-
   for (srsran_resampler_fft_t& q : interpolators) {
     srsran_resampler_fft_free(&q);
   }
@@ -231,10 +219,6 @@ void radio::stop()
       srsran_rf_stop_rx_stream(&rf_device);
     }
   }
-  if (zeros) {
-    free(zeros);
-    zeros = NULL;
-  }
   if (is_initialized) {
     for (srsran_rf_t& rf_device : rf_devices) {
       srsran_rf_close(&rf_device);
@@ -370,7 +354,7 @@ bool radio::rx_dev(const uint32_t& device_idx, const rf_buffer_interface& buffer
 
   // Discard channels not allocated, need to point to valid buffer
   for (uint32_t i = 0; i < SRSRAN_MAX_CHANNELS; i++) {
-    radio_buffers[i] = dummy_buffers[i];
+    radio_buffers[i] = dummy_buffers[i].data();
   }
 
   if (not map_channels(rx_channel_mapping, device_idx, 0, buffer, radio_buffers)) {
@@ -424,7 +408,7 @@ bool radio::tx(rf_buffer_interface& buffer, const rf_timestamp_interface& tx_tim
   uint32_t nof_samples = buffer.get_nof_samples();
 
   // Check that number of the interpolated samples does not exceed the buffer size
-  if (ratio > 1 && nof_samples * ratio > tx_buffer[0].size()) {
+  if (ratio > 1 && (size_t)nof_samples * (size_t)ratio > tx_buffer[0].size()) {
     // This is a corner case that could happen during sample rate change transitions, as it does not have a negative
     // impact, log it as info.
     fmt::memory_buffer buff;
@@ -539,16 +523,15 @@ bool radio::tx_dev(const uint32_t& device_idx, rf_buffer_interface& buffer, cons
     nof_samples   = nof_samples - past_nsamples;   // Subtracts the number of trimmed samples
 
     // Prints discarded samples
-    logger.debug("Detected RF overlap of %.1f us. Discarding %d samples. Power=%+.1f dBfs",
+    logger.debug("Detected RF overlap of %.1f us. Discarding %d samples.",
                  srsran_timestamp_real(&ts_overlap) * 1.0e6,
-                 past_nsamples,
-                 srsran_convert_power_to_dB(srsran_vec_avg_power_cf(&buffer.get(0)[nof_samples], past_nsamples)));
+                 past_nsamples);
 
   } else if (past_nsamples < 0 and not is_start_of_burst) {
     // if the gap is bigger than TX_MAX_GAP_ZEROS, stop burst
     if (fabs(srsran_timestamp_real(&ts_overlap)) > tx_max_gap_zeros) {
       logger.info("Detected RF gap of %.1f us. Sending end-of-burst.", srsran_timestamp_real(&ts_overlap) * 1.0e6);
-      tx_end();
+      tx_end_nolock();
     } else {
       logger.debug("Detected RF gap of %.1f us. Tx'ing zeroes.", srsran_timestamp_real(&ts_overlap) * 1.0e6);
       // Otherwise, transmit zeros
@@ -559,7 +542,7 @@ bool radio::tx_dev(const uint32_t& device_idx, rf_buffer_interface& buffer, cons
 
         // Zeros transmission
         int ret = srsran_rf_send_timed2(rf_device,
-                                        zeros,
+                                        zeros.data(),
                                         nzeros,
                                         end_of_burst_time[device_idx].full_secs,
                                         end_of_burst_time[device_idx].frac_secs,
@@ -586,7 +569,7 @@ bool radio::tx_dev(const uint32_t& device_idx, rf_buffer_interface& buffer, cons
 
   // Discard channels not allocated, need to point to valid buffer
   for (uint32_t i = 0; i < SRSRAN_MAX_CHANNELS; i++) {
-    radio_buffers[i] = zeros;
+    radio_buffers[i] = zeros.data();
   }
 
   if (not map_channels(tx_channel_mapping, device_idx, sample_offset, buffer, radio_buffers)) {
@@ -602,13 +585,19 @@ bool radio::tx_dev(const uint32_t& device_idx, rf_buffer_interface& buffer, cons
 
 void radio::tx_end()
 {
+  std::unique_lock<std::mutex> lock(tx_mutex);
+  tx_end_nolock();
+}
+
+void radio::tx_end_nolock()
+{
   if (!is_initialized) {
     return;
   }
   if (!is_start_of_burst) {
     for (uint32_t i = 0; i < (uint32_t)rf_devices.size(); i++) {
       srsran_rf_send_timed2(
-          &rf_devices[i], zeros, 0, end_of_burst_time[i].full_secs, end_of_burst_time[i].frac_secs, false, true);
+          &rf_devices[i], zeros.data(), 0, end_of_burst_time[i].full_secs, end_of_burst_time[i].frac_secs, false, true);
     }
     is_start_of_burst = true;
   }
@@ -631,12 +620,17 @@ void radio::set_rx_freq(const uint32_t& carrier_idx, const double& freq)
     return;
   }
 
-  // First release mapping
-  rx_channel_mapping.release_freq(carrier_idx);
-
   // Map carrier index to physical channel
   if (rx_channel_mapping.allocate_freq(carrier_idx, freq)) {
     channel_mapping::device_mapping_t device_mapping = rx_channel_mapping.get_device_mapping(carrier_idx);
+    if (device_mapping.carrier_idx >= nof_channels_x_dev) {
+      logger.error("Invalid mapping RF channel %d to logical carrier %d on f_rx=%.1f MHz",
+                   device_mapping.carrier_idx,
+                   carrier_idx,
+                   freq / 1e6);
+      return;
+    }
+
     logger.info("Mapping RF channel %d (device=%d, channel=%d) to logical carrier %d on f_rx=%.1f MHz",
                 device_mapping.carrier_idx,
                 device_mapping.device_idx,
@@ -648,6 +642,12 @@ void radio::set_rx_freq(const uint32_t& carrier_idx, const double& freq)
         cur_rx_freqs[device_mapping.carrier_idx] = freq;
         for (uint32_t i = 0; i < nof_antennas; i++) {
           channel_mapping::device_mapping_t dm = rx_channel_mapping.get_device_mapping(carrier_idx, i);
+          if (dm.device_idx >= rf_devices.size() or dm.carrier_idx >= nof_channels_x_dev) {
+            logger.error(
+                "Invalid port mapping %d:%d to logical carrier %d on f_rx=%.1f MHz", carrier_idx, i, freq / 1e6);
+            return;
+          }
+
           srsran_rf_set_rx_freq(&rf_devices[dm.device_idx], dm.channel_idx, freq + freq_offset);
         }
       } else {
@@ -701,6 +701,13 @@ void radio::set_rx_srate(const double& srate)
       }
     }
 
+    // Assert ratio is integer
+    srsran_assert(((uint32_t)cur_rx_srate % (uint32_t)srate) == 0,
+                  "The sampling rate ratio is not integer (%.2f MHz / %.2f MHz = %.3f)",
+                  cur_rx_srate / 1e6,
+                  srate / 1e6,
+                  cur_rx_srate / srate);
+
     // Update decimators
     uint32_t ratio = (uint32_t)ceil(cur_rx_srate / srate);
     for (uint32_t ch = 0; ch < nof_channels; ch++) {
@@ -749,12 +756,17 @@ void radio::set_tx_freq(const uint32_t& carrier_idx, const double& freq)
     return;
   }
 
-  // First release mapping
-  tx_channel_mapping.release_freq(carrier_idx);
-
   // Map carrier index to physical channel
   if (tx_channel_mapping.allocate_freq(carrier_idx, freq)) {
     channel_mapping::device_mapping_t device_mapping = tx_channel_mapping.get_device_mapping(carrier_idx);
+    if (device_mapping.carrier_idx >= nof_channels_x_dev) {
+      logger.error("Invalid mapping RF channel %d to logical carrier %d on f_tx=%.1f MHz",
+                   device_mapping.carrier_idx,
+                   carrier_idx,
+                   freq / 1e6);
+      return;
+    }
+
     logger.info("Mapping RF channel %d (device=%d, channel=%d) to logical carrier %d on f_tx=%.1f MHz",
                 device_mapping.carrier_idx,
                 device_mapping.device_idx,
@@ -766,6 +778,11 @@ void radio::set_tx_freq(const uint32_t& carrier_idx, const double& freq)
         cur_tx_freqs[device_mapping.carrier_idx] = freq;
         for (uint32_t i = 0; i < nof_antennas; i++) {
           device_mapping = tx_channel_mapping.get_device_mapping(carrier_idx, i);
+          if (device_mapping.device_idx >= rf_devices.size() or device_mapping.carrier_idx >= nof_channels_x_dev) {
+            logger.error(
+                "Invalid port mapping %d:%d to logical carrier %d on f_rx=%.1f MHz", carrier_idx, i, freq / 1e6);
+            return;
+          }
 
           srsran_rf_set_tx_freq(&rf_devices[device_mapping.device_idx], device_mapping.channel_idx, freq + freq_offset);
         }
@@ -937,6 +954,13 @@ void radio::set_tx_srate(const double& srate)
       }
     }
 
+    // Assert ratio is integer
+    srsran_assert(((uint32_t)cur_tx_srate % (uint32_t)srate) == 0,
+                  "The sampling rate ratio is not integer (%.2f MHz / %.2f MHz = %.3f)",
+                  cur_rx_srate / 1e6,
+                  srate / 1e6,
+                  cur_rx_srate / srate);
+
     // Update interpolators
     uint32_t ratio = (uint32_t)ceil(cur_tx_srate / srate);
     for (uint32_t ch = 0; ch < nof_channels; ch++) {
@@ -967,6 +991,7 @@ srsran_rf_info_t* radio::get_info()
 
 bool radio::get_metrics(rf_metrics_t* metrics)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   *metrics   = rf_metrics;
   rf_metrics = {};
   return true;
@@ -978,20 +1003,27 @@ void radio::handle_rf_msg(srsran_rf_error_t error)
     return;
   }
   if (error.type == srsran_rf_error_t::SRSRAN_RF_ERROR_OVERFLOW) {
-    rf_metrics.rf_o++;
-    rf_metrics.rf_error = true;
+    {
+      std::lock_guard<std::mutex> lock(metrics_mutex);
+      rf_metrics.rf_o++;
+      rf_metrics.rf_error = true;
+    }
     logger.info("Overflow");
 
     // inform PHY about overflow
-    phy->radio_overflow();
+    if (phy != nullptr) {
+      phy->radio_overflow();
+    }
   } else if (error.type == srsran_rf_error_t::SRSRAN_RF_ERROR_UNDERFLOW) {
+    logger.info("Underflow");
+    std::lock_guard<std::mutex> lock(metrics_mutex);
     rf_metrics.rf_u++;
     rf_metrics.rf_error = true;
-    logger.info("Underflow");
   } else if (error.type == srsran_rf_error_t::SRSRAN_RF_ERROR_LATE) {
+    logger.info("Late (detected in %s)", error.opt ? "rx call" : "asynchronous thread");
+    std::lock_guard<std::mutex> lock(metrics_mutex);
     rf_metrics.rf_l++;
     rf_metrics.rf_error = true;
-    logger.info("Late (detected in %s)", error.opt ? "rx call" : "asynchronous thread");
   } else if (error.type == srsran_rf_error_t::SRSRAN_RF_ERROR_RX) {
     logger.error("Fatal radio error occured.");
     phy->radio_failure();

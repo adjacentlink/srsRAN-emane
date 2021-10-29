@@ -19,8 +19,8 @@
  *
  */
 
-#include "srsran/common/test_common.h"
 #include "srsran/srsran.h"
+#include "srsran/support/srsran_test.h"
 #include <complex.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -185,7 +185,7 @@ void parse_args(int argc, char** argv)
         cell.id = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);

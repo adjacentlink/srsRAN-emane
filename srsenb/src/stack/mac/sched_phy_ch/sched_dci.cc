@@ -20,8 +20,8 @@
  */
 
 #include "srsenb/hdr/stack/mac/sched_phy_ch/sched_dci.h"
-#include "srsenb/hdr/stack/mac/sched_common.h"
 #include "srsenb/hdr/stack/mac/sched_helpers.h"
+#include "srsenb/hdr/stack/mac/sched_lte_common.h"
 #include "srsran/common/string_helpers.h"
 
 #include <cmath>
@@ -87,15 +87,25 @@ tbs_info compute_mcs_and_tbs(uint32_t nof_prb,
                              bool     ulqam64_enabled,
                              bool     use_tbs_index_alt)
 {
+  float max_coderate = srsran_cqi_to_coderate(std::min(cqi + 1U, 15U), use_tbs_index_alt);
+  return compute_mcs_and_tbs(nof_prb, nof_re, max_coderate, max_mcs, is_ul, ulqam64_enabled, use_tbs_index_alt);
+}
+
+tbs_info compute_mcs_and_tbs(uint32_t nof_prb,
+                             uint32_t nof_re,
+                             float    max_coderate,
+                             uint32_t max_mcs,
+                             bool     is_ul,
+                             bool     ulqam64_enabled,
+                             bool     use_tbs_index_alt)
+{
   assert((not is_ul or not use_tbs_index_alt) && "UL cannot use Alt CQI Table");
   assert((is_ul or not ulqam64_enabled) && "DL cannot use UL-QAM64 enable flag");
 
-  float    max_coderate = srsran_cqi_to_coderate(std::min(cqi + 1U, 15U), use_tbs_index_alt);
-  uint32_t max_Qm       = (is_ul) ? (ulqam64_enabled ? 6 : 4) : (use_tbs_index_alt ? 8 : 6);
-  max_coderate          = std::min(max_coderate, 0.932F * max_Qm);
+  uint32_t max_Qm = (is_ul) ? (ulqam64_enabled ? 6 : 4) : (use_tbs_index_alt ? 8 : 6);
+  max_coderate    = std::min(max_coderate, 0.930F * max_Qm);
 
-  int   mcs               = 0;
-  float prev_max_coderate = 0;
+  int mcs = 0;
   do {
     // update max TBS based on max coderate
     int max_tbs = coderate_to_tbs(max_coderate, nof_re);
@@ -122,7 +132,7 @@ tbs_info compute_mcs_and_tbs(uint32_t nof_prb,
     // update max coderate based on mcs
     srsran_mod_t mod = (is_ul) ? srsran_ra_ul_mod_from_mcs(mcs) : srsran_ra_dl_mod_from_mcs(mcs, use_tbs_index_alt);
     uint32_t     Qm  = srsran_mod_bits_x_symbol(mod);
-    max_coderate     = std::min(0.932F * Qm, max_coderate);
+    max_coderate     = std::min(0.930F * Qm, max_coderate);
 
     if (coderate <= max_coderate) {
       // solution was found
@@ -134,7 +144,7 @@ tbs_info compute_mcs_and_tbs(uint32_t nof_prb,
 
     // start with smaller max mcs in next iteration
     max_mcs = mcs - 1;
-  } while (mcs > 0 and max_coderate != prev_max_coderate);
+  } while (mcs > 0);
 
   return tbs_info{};
 }
@@ -150,7 +160,7 @@ tbs_info compute_min_mcs_and_tbs_from_required_bytes(uint32_t nof_prb,
 {
   // get max MCS/TBS that meets max coderate requirements
   tbs_info tb_max = compute_mcs_and_tbs(nof_prb, nof_re, cqi, max_mcs, is_ul, ulqam64_enabled, use_tbs_index_alt);
-  if (tb_max.tbs_bytes + 8 <= (int)req_bytes or tb_max.mcs == 0 or req_bytes <= 0) {
+  if (tb_max.tbs_bytes + 8 <= (int)req_bytes or tb_max.mcs == 0) {
     // if mcs cannot be lowered or a decrease in TBS index won't meet req_bytes requirement
     return tb_max;
   }
@@ -188,8 +198,8 @@ int generate_ra_bc_dci_format1a_common(srsran_dci_dl_t&           dci,
                                        const sched_cell_params_t& cell_params,
                                        uint32_t                   current_cfi)
 {
-  static const uint32_t Qm = 2, bc_rar_cqi = 4;
-  static const float    max_ctrl_coderate = std::min(srsran_cqi_to_coderate(bc_rar_cqi + 1, false), 0.932F * Qm);
+  static const uint32_t Qm                = 2;
+  static const float    max_ctrl_coderate = std::min(cell_params.sched_cfg->max_sib_coderate, 0.932F * Qm);
 
   // Calculate I_tbs for this TBS
   int tbs = static_cast<int>(req_bytes) * 8;
@@ -333,17 +343,18 @@ void log_broadcast_allocation(const sched_interface::dl_sched_bc_t& bc,
   fmt::format_to(str_buffer, "{}", rbg_range);
 
   if (bc.type == sched_interface::dl_sched_bc_t::bc_type::BCCH) {
-    get_mac_logger().debug("SCHED: SIB%d, cc=%d, rbgs=(%d,%d), dci=(%d,%d), rv=%d, len=%d, period=%d, mcs=%d",
-                           bc.index + 1,
-                           cell_params.enb_cc_idx,
-                           rbg_range.start(),
-                           rbg_range.stop(),
-                           bc.dci.location.L,
-                           bc.dci.location.ncce,
-                           bc.dci.tb[0].rv,
-                           cell_params.cfg.sibs[bc.index].len,
-                           cell_params.cfg.sibs[bc.index].period_rf,
-                           bc.dci.tb[0].mcs_idx);
+    get_mac_logger().debug(
+        "SCHED: SI message, cc=%d, idx=%d, rbgs=(%d,%d), dci=(%d,%d), rv=%d, len=%d, period=%d, mcs=%d",
+        bc.index,
+        cell_params.enb_cc_idx,
+        rbg_range.start(),
+        rbg_range.stop(),
+        bc.dci.location.L,
+        bc.dci.location.ncce,
+        bc.dci.tb[0].rv,
+        cell_params.cfg.sibs[bc.index].len,
+        cell_params.cfg.sibs[bc.index].period_rf,
+        bc.dci.tb[0].mcs_idx);
   } else {
     get_mac_logger().info("SCHED: PCH, cc=%d, rbgs=%s, dci=(%d,%d), tbs=%d, mcs=%d",
                           cell_params.enb_cc_idx,

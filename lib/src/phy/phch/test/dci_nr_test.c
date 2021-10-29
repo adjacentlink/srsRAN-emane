@@ -19,10 +19,10 @@
  *
  */
 
-#include "srsran/common/test_common.h"
 #include "srsran/phy/phch/dci_nr.h"
 #include "srsran/phy/utils/debug.h"
 #include "srsran/phy/utils/random.h"
+#include "srsran/support/srsran_test.h"
 #include <getopt.h>
 
 static uint32_t        nof_repetitions = 1024;
@@ -64,11 +64,11 @@ static int test_52prb_base()
   cfg.enable_transform_precoding     = false;
   cfg.dynamic_dual_harq_ack_codebook = false;
   cfg.pusch_tx_config_non_codebook   = false;
-  cfg.pusch_dmrs_type2               = false;
-  cfg.pusch_dmrs_double              = false;
   cfg.pusch_ptrs                     = false;
   cfg.pusch_dynamic_betas            = false;
   cfg.pusch_alloc_type               = srsran_resource_alloc_type1;
+  cfg.pusch_dmrs_type                = srsran_dmrs_sch_type_1;
+  cfg.pusch_dmrs_max_len             = srsran_dmrs_sch_len_1;
 
   // DCI 1_1 parameters
   cfg.nof_dl_bwp             = 0;
@@ -81,12 +81,12 @@ static int test_52prb_base()
   cfg.pdsch_rm_pattern2      = false;
   cfg.pdsch_2cw              = false;
   cfg.multiple_scell         = false;
-  cfg.pdsch_dmrs_type2       = false;
-  cfg.pdsch_dmrs_double      = false;
   cfg.pdsch_tci              = false;
   cfg.pdsch_cbg_flush        = false;
   cfg.pdsch_dynamic_bundling = false;
   cfg.pdsch_alloc_type       = srsran_resource_alloc_type1;
+  cfg.pdsch_dmrs_type        = srsran_dmrs_sch_type_1;
+  cfg.pdsch_dmrs_max_len     = srsran_dmrs_sch_len_1;
 
   // Configure DCI
   srsran_dci_nr_t dci = {};
@@ -99,6 +99,7 @@ static int test_52prb_base()
   TESTASSERT(srsran_dci_nr_size(&dci, srsran_search_space_type_ue, srsran_dci_format_nr_1_0) == 39);
   TESTASSERT(srsran_dci_nr_size(&dci, srsran_search_space_type_ue, srsran_dci_format_nr_0_1) == 36);
   TESTASSERT(srsran_dci_nr_size(&dci, srsran_search_space_type_ue, srsran_dci_format_nr_1_1) == 41);
+  TESTASSERT(srsran_dci_nr_size(&dci, srsran_search_space_type_rar, srsran_dci_format_nr_rar) == 27);
 
   srsran_dci_ctx_t ctx = {};
   ctx.rnti             = 0x1234;
@@ -202,6 +203,55 @@ static int test_52prb_base()
     TESTASSERT(memcmp(&dci_tx, &dci_rx, sizeof(srsran_dci_ul_nr_t)) == 0);
   }
 
+  // Test UL DCI RAR Packing/Unpacking and info
+  ctx.ss_type = srsran_search_space_type_rar;
+  ctx.format  = srsran_dci_format_nr_rar;
+  for (uint32_t i = 0; i < nof_repetitions; i++) {
+    srsran_dci_ul_nr_t dci_tx    = {};
+    dci_tx.ctx                   = ctx;
+    dci_tx.freq_domain_assigment = srsran_random_uniform_int_dist(random_gen, 0, (int)(1U << 14U) - 1); // 14 bit
+    dci_tx.time_domain_assigment = srsran_random_uniform_int_dist(random_gen, 0, (int)(1U << 4U) - 1);  // 4 bit
+    dci_tx.freq_hopping_flag     = srsran_random_uniform_int_dist(random_gen, 0, (int)(1U << 1U) - 1);  // 1 bit
+    dci_tx.mcs                   = srsran_random_uniform_int_dist(random_gen, 0, (int)(1U << 4U) - 1);  // 4 bit
+    dci_tx.rv                    = 0;                                                                   // unavailable
+    dci_tx.ndi                   = 0;                                                                   // unavailable
+    dci_tx.pid                   = 0;                                                                   // unavailable
+    dci_tx.tpc                   = srsran_random_uniform_int_dist(random_gen, 0, (int)(1U << 3U) - 1);  // 3 bit
+    dci_tx.frequency_offset      = 0;                                                                   // unavailable
+    dci_tx.csi_request           = srsran_random_uniform_int_dist(random_gen, 0, (int)(1U << 1U) - 1);  // 1 bit
+    dci_tx.sul                   = 0;                                                                   // unavailable
+    dci_tx.cc_id                 = 0;                                                                   // unavailable
+    dci_tx.bwp_id                = 0;                                                                   // unavailable
+    dci_tx.dai1                  = 0;                                                                   // unavailable
+    dci_tx.dai2                  = 0;                                                                   // unavailable
+    dci_tx.srs_id                = 0;                                                                   // unavailable
+    dci_tx.ports                 = 0;                                                                   // unavailabale
+    dci_tx.srs_request           = 0;                                                                   // unavailabale
+    dci_tx.cbg_info              = 0;                                                                   // unavailable
+    dci_tx.ptrs_id               = 0;                                                                   // unavailable
+    dci_tx.beta_id               = 0;                                                                   // unavailable
+    dci_tx.dmrs_id               = 0;                                                                   // unavailabale
+    dci_tx.ulsch                 = 0;                                                                   // unavailabale
+
+    // Pack
+    srsran_dci_msg_nr_t dci_msg = {};
+    TESTASSERT(srsran_dci_nr_ul_pack(&dci, &dci_tx, &dci_msg) == SRSRAN_SUCCESS);
+
+    // Unpack
+    srsran_dci_ul_nr_t dci_rx = {};
+    TESTASSERT(srsran_dci_nr_ul_unpack(&dci, &dci_msg, &dci_rx) == SRSRAN_SUCCESS);
+
+    // To string
+    char str[512];
+    TESTASSERT(srsran_dci_ul_nr_to_str(&dci, &dci_tx, str, (uint32_t)sizeof(str)) != 0);
+    INFO("Tx: %s", str);
+    TESTASSERT(srsran_dci_ul_nr_to_str(&dci, &dci_rx, str, (uint32_t)sizeof(str)) != 0);
+    INFO("Rx: %s", str);
+
+    // Assert
+    TESTASSERT(memcmp(&dci_tx, &dci_rx, sizeof(srsran_dci_ul_nr_t)) == 0);
+  }
+
   // Test UL DCI 1_0 Packing/Unpacking and info
   ctx.format = srsran_dci_format_nr_1_0;
   for (uint32_t i = 0; i < nof_repetitions; i++) {
@@ -255,7 +305,7 @@ static int test_52prb_base()
     TESTASSERT(memcmp(&dci_tx, &dci_rx, sizeof(srsran_dci_dl_nr_t)) == 0);
   }
 
-  // Test UL DCI 1_0 Packing/Unpacking and info
+  // Test UL DCI 1_1 Packing/Unpacking and info
   ctx.format = srsran_dci_format_nr_1_1;
   for (uint32_t i = 0; i < nof_repetitions; i++) {
     srsran_dci_dl_nr_t dci_tx    = {};
@@ -324,7 +374,7 @@ static void parse_args(int argc, char** argv)
   while ((opt = getopt(argc, argv, "vR")) != -1) {
     switch (opt) {
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       case 'R':
         nof_repetitions = (uint32_t)strtol(argv[optind], NULL, 10);

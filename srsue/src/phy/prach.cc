@@ -45,15 +45,7 @@ using namespace srsue;
 
 void prach::init(uint32_t max_prb)
 {
-  for (auto& i : buffer) {
-    for (auto& j : i) {
-      j = srsran_vec_cf_malloc(SRSRAN_PRACH_MAX_LEN);
-      if (!j) {
-        perror("malloc");
-        return;
-      }
-    }
-  }
+  std::lock_guard<std::mutex> lock(mutex);
 
   if (srsran_cfo_init(&cfo_h, SRSRAN_PRACH_MAX_LEN)) {
     ERROR("PRACH: Error initiating CFO");
@@ -62,7 +54,7 @@ void prach::init(uint32_t max_prb)
 
   srsran_cfo_set_tol(&cfo_h, 0);
 
-  signal_buffer = srsran_vec_cf_malloc(MAX_LEN_SF * 30720U);
+  signal_buffer = srsran_vec_cf_malloc(SRSRAN_MAX(MAX_LEN_SF * 30720U, SRSRAN_PRACH_MAX_LEN));
   if (!signal_buffer) {
     perror("malloc");
     return;
@@ -78,14 +70,9 @@ void prach::init(uint32_t max_prb)
 
 void prach::stop()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (!mem_initiated) {
     return;
-  }
-
-  for (auto& i : buffer) {
-    for (auto& j : i) {
-      free(j);
-    }
   }
 
   free(signal_buffer);
@@ -96,6 +83,8 @@ void prach::stop()
 
 bool prach::set_cell(srsran_cell_t cell_, srsran_prach_cfg_t prach_cfg)
 {
+  std::lock_guard<std::mutex> lock(mutex);
+
   if (!mem_initiated) {
     ERROR("PRACH: Error must call init() first");
     return false;
@@ -130,8 +119,6 @@ bool prach::set_cell(srsran_cell_t cell_, srsran_prach_cfg_t prach_cfg)
 #ifdef PHY_ADAPTER_ENABLE
   phy_adapter::ue_set_prach_freq_offset(prach_cfg.freq_offset, cell.id);
 #endif
-
-  buffer_bitmask.reset();
   len             = prach_obj.N_seq + prach_obj.N_cp;
   transmitted_tti = -1;
   cell_initiated  = true;
@@ -143,27 +130,22 @@ bool prach::set_cell(srsran_cell_t cell_, srsran_prach_cfg_t prach_cfg)
 
 bool prach::generate_buffer(uint32_t f_idx)
 {
-  if (is_buffer_generated(f_idx, preamble_idx)) {
-    return true;
-  }
-
   uint32_t freq_offset = cfg.freq_offset;
   if (cell.frame_type == SRSRAN_TDD) {
     freq_offset = srsran_prach_f_ra_tdd(
         cfg.config_idx, cfg.tdd_config.sf_config, (f_idx / 6) * 10, f_idx % 6, cfg.freq_offset, cell.nof_prb);
   }
-  if (srsran_prach_gen(&prach_obj, preamble_idx, freq_offset, buffer[f_idx][preamble_idx])) {
+  if (srsran_prach_gen(&prach_obj, preamble_idx, freq_offset, signal_buffer)) {
     Error("Generating PRACH preamble %d", preamble_idx);
     return false;
   }
-
-  set_buffer_as_generated(f_idx, preamble_idx);
 
   return true;
 }
 
 bool prach::prepare_to_send(uint32_t preamble_idx_, int allowed_subframe_, float target_power_dbm_)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (preamble_idx_ >= max_preambles) {
     Error("PRACH: Invalid preamble %d", preamble_idx_);
     return false;
@@ -179,13 +161,18 @@ bool prach::prepare_to_send(uint32_t preamble_idx_, int allowed_subframe_, float
 
 bool prach::is_pending() const
 {
-  return cell_initiated && preamble_idx >= 0 && unsigned(preamble_idx) < max_preambles;
+  std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
+  if (lock.owns_lock()) {
+    return cell_initiated && preamble_idx >= 0 && unsigned(preamble_idx) < max_preambles;
+  }
+  return false;
 }
 
 bool prach::is_ready_to_send(uint32_t current_tti_, uint32_t current_pci)
 {
   // Make sure the curernt PCI is the one we configured the PRACH for
   if (is_pending() && current_pci == cell.id) {
+    std::lock_guard<std::mutex> lock(mutex);
     // consider the number of subframes the transmission must be anticipated
     uint32_t tti_tx = TTI_TX(current_tti_);
     if (srsran_prach_tti_opportunity(&prach_obj, tti_tx, allowed_subframe)) {
@@ -199,6 +186,7 @@ bool prach::is_ready_to_send(uint32_t current_tti_, uint32_t current_pci)
 
 phy_interface_mac_lte::prach_info_t prach::get_info() const
 {
+  std::lock_guard<std::mutex>         lock(mutex);
   phy_interface_mac_lte::prach_info_t info = {};
 
   info.preamble_format = prach_obj.config_idx / 16;
@@ -217,6 +205,7 @@ phy_interface_mac_lte::prach_info_t prach::get_info() const
 
 cf_t* prach::generate(float cfo, uint32_t* nof_sf, float* target_power)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (!cell_initiated || preamble_idx < 0 || !nof_sf || unsigned(preamble_idx) >= max_preambles ||
       !srsran_cell_isvalid(&cell) || len >= MAX_LEN_SF * 30720 || len == 0) {
     Error("PRACH: Invalid parameters: cell_initiated=%d, preamble_idx=%d, cell.nof_prb=%d, len=%d",
@@ -244,17 +233,12 @@ cf_t* prach::generate(float cfo, uint32_t* nof_sf, float* target_power)
     return nullptr;
   }
 
-  if (!is_buffer_generated(f_idx, preamble_idx)) {
-    Error("PRACH Buffer not generated: f_idx=%d preamble_idx=%d", f_idx, preamble_idx);
-    return nullptr;
-  }
-
 #ifndef PHY_ADAPTER_ENABLE // ALINK_XXX_MEMORY
   // Correct CFO before transmission
-  srsran_cfo_correct(&cfo_h, buffer[f_idx][preamble_idx], signal_buffer, cfo / srsran_symbol_sz(cell.nof_prb));
+  srsran_cfo_correct(&cfo_h, signal_buffer, signal_buffer, cfo / srsran_symbol_sz(cell.nof_prb));
 #endif
   // pad guard symbols with zeros
-  uint32_t nsf = (len - 1) / SRSRAN_SF_LEN_PRB(cell.nof_prb) + 1;
+  uint32_t nsf = SRSRAN_CEIL(len, SRSRAN_SF_LEN_PRB(cell.nof_prb));
 #ifndef PHY_ADAPTER_ENABLE
   srsran_vec_cf_zero(&signal_buffer[len], (nsf * SRSRAN_SF_LEN_PRB(cell.nof_prb) - len));
 #else

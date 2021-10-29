@@ -19,8 +19,8 @@
  *
  */
 
+#include "srsenb/hdr/stack/mac/sched_interface.h"
 #include "srsran/interfaces/rrc_interface_types.h"
-#include "srsran/interfaces/sched_interface.h"
 
 #ifndef SRSRAN_ENB_MAC_INTERFACES_H
 #define SRSRAN_ENB_MAC_INTERFACES_H
@@ -30,9 +30,10 @@ namespace srsenb {
 struct mac_args_t {
   uint32_t                      nof_prb; ///< Needed to dimension MAC softbuffers for all cells
   sched_interface::sched_args_t sched;
-  int                           nr_tb_size = -1;
+  int                           lcid_padding;
   uint32_t                      nof_prealloc_ues; ///< Number of UE resources to pre-allocate at eNB startup
   uint32_t                      max_nof_kos;
+  int                           rlf_min_ul_snr_estim;
 };
 
 /* Interface PHY -> MAC */
@@ -131,6 +132,18 @@ public:
    */
   virtual int cqi_info(uint32_t tti, uint16_t rnti, uint32_t cc_idx, uint32_t cqi_value) = 0;
 
+  /**
+   * PHY callback for giving MAC the Channel Quality information of a given RNTI, TTI, eNb cell/carrier for a specific
+   * subband
+   * @param tti the given TTI
+   * @param rnti the UE identifier in the eNb
+   * @param cc_idx The eNb Cell/Carrier where the measurement corresponds
+   * @param sb_idx Index of the Sub-band
+   * @param cqi_value the corresponding Channel Quality Information
+   * @return SRSRAN_SUCCESS if no error occurs, SRSRAN_ERROR* if an error occurs
+   */
+  virtual int sb_cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t sb_idx, uint32_t cqi_value) = 0;
+
   typedef enum { PUSCH = 0, PUCCH, SRS } ul_channel_t;
 
   /**
@@ -191,9 +204,15 @@ public:
    * @param enb_cc_idx the eNb Cell/Carrier identifier
    * @param nof_bytes the number of grants carrierd by the PUSCH message
    * @param crc_res the CRC check, set to true if the message was decoded succesfully
+   * @param ul_nof_prbs Number of PRBs allocated to grant
    * @return SRSRAN_SUCCESS if no error occurs, SRSRAN_ERROR* if an error occurs
    */
-  virtual int push_pdu(uint32_t tti_rx, uint16_t rnti, uint32_t enb_cc_idx, uint32_t nof_bytes, bool crc_res) = 0;
+  virtual int push_pdu(uint32_t tti_rx,
+                       uint16_t rnti,
+                       uint32_t enb_cc_idx,
+                       uint32_t nof_bytes,
+                       bool     crc_res,
+                       uint32_t ul_nof_prbs) = 0;
 
   virtual int  get_dl_sched(uint32_t tti, dl_sched_list_t& dl_sched_res)                = 0;
   virtual int  get_mch_sched(uint32_t tti, bool is_mcch, dl_sched_list_t& dl_sched_res) = 0;
@@ -211,12 +230,11 @@ class mac_interface_rrc
 {
 public:
   /* Provides cell configuration including SIB periodicity, etc. */
-  virtual int  cell_cfg(const std::vector<sched_interface::cell_cfg_t>& cell_cfg) = 0;
-  virtual void reset()                                                            = 0;
+  virtual int cell_cfg(const std::vector<sched_interface::cell_cfg_t>& cell_cfg) = 0;
 
   /* Manages UE configuration context */
-  virtual int ue_cfg(uint16_t rnti, sched_interface::ue_cfg_t* cfg) = 0;
-  virtual int ue_rem(uint16_t rnti)                                 = 0;
+  virtual int ue_cfg(uint16_t rnti, const sched_interface::ue_cfg_t* cfg) = 0;
+  virtual int ue_rem(uint16_t rnti)                                       = 0;
 
   /**
    * Called after Msg3 reception to set the UE C-RNTI, resolve contention, and alter the UE's configuration in the
@@ -226,17 +244,17 @@ public:
    * @param crnti chosen C-RNTI for the UE
    * @param cfg new UE scheduler configuration
    */
-  virtual int ue_set_crnti(uint16_t temp_crnti, uint16_t crnti, sched_interface::ue_cfg_t* cfg) = 0;
+  virtual int ue_set_crnti(uint16_t temp_crnti, uint16_t crnti, const sched_interface::ue_cfg_t& cfg) = 0;
 
   /* Manages UE bearers and associated configuration */
-  virtual int  bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, sched_interface::ue_bearer_cfg_t* cfg) = 0;
-  virtual int  bearer_ue_rem(uint16_t rnti, uint32_t lc_id)                                        = 0;
-  virtual void phy_config_enabled(uint16_t rnti, bool enabled)                                     = 0;
+  virtual int  bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, mac_lc_ch_cfg_t* cfg) = 0;
+  virtual int  bearer_ue_rem(uint16_t rnti, uint32_t lc_id)                       = 0;
+  virtual void phy_config_enabled(uint16_t rnti, bool enabled)                    = 0;
   virtual void write_mcch(const srsran::sib2_mbms_t* sib2_,
                           const srsran::sib13_t*     sib13_,
                           const srsran::mcch_msg_t*  mcch_,
                           const uint8_t*             mcch_payload,
-                          const uint8_t              mcch_payload_length)                                       = 0;
+                          const uint8_t              mcch_payload_length)                      = 0;
 
   /**
    * Allocate a C-RNTI for a new user, without adding it to the phy layer and scheduler yet
@@ -247,10 +265,7 @@ public:
 
 // Combined interface for PHY to access stack (MAC and RRC)
 class stack_interface_phy_lte : public mac_interface_phy_lte
-{
-public:
-  virtual void tti_clock() = 0;
-};
+{};
 
 } // namespace srsenb
 

@@ -27,6 +27,7 @@
 #include "srsenb/hdr/phy/lte/worker_pool.h"
 #include "srsenb/hdr/phy/nr/worker_pool.h"
 #include "srsran/config.h"
+#include "srsran/interfaces/enb_time_interface.h"
 #include "srsran/phy/channel/channel.h"
 #include "srsran/radio/radio.h"
 #include <atomic>
@@ -37,19 +38,19 @@ class txrx final : public srsran::thread
 {
 public:
   txrx(srslog::basic_logger& logger);
-  bool init(stack_interface_phy_lte*     stack_,
+  bool init(enb_time_interface*          enb_,
             srsran::radio_interface_phy* radio_handler,
             lte::worker_pool*            lte_workers_,
-            nr::worker_pool*             nr_workers_,
             phy_common*                  worker_com,
             prach_worker_pool*           prach_,
             uint32_t                     prio);
+  bool set_nr_workers(nr::worker_pool* nr_workers_);
   void stop();
 
 private:
   void run_thread() override;
 
-  stack_interface_phy_lte*     stack   = nullptr;
+  enb_time_interface*          enb     = nullptr;
   srsran::radio_interface_phy* radio_h = nullptr;
   srslog::basic_logger&        logger;
   lte::worker_pool*            lte_workers = nullptr;
@@ -61,8 +62,6 @@ private:
   // Main system TTI counter
   uint32_t tti = 0;
 
-  uint32_t          tx_worker_cnt = 0;
-  uint32_t          nof_workers   = 0;
   std::atomic<bool> running;
 };
 

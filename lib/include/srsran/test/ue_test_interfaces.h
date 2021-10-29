@@ -36,6 +36,9 @@ public:
   stack_test_dummy() {}
 
   srsran::tti_point get_current_tti() override { return srsran::tti_point{tti % 10240}; }
+  void              add_eps_bearer(uint8_t eps_bearer_id, srsran::srsran_rat_t rat, uint32_t lcid) final{};
+  void              remove_eps_bearer(uint8_t eps_bearer_id) final{};
+  void              reset_eps_bearers() final{};
 
   // Testing utility functions
   void run_tti()
@@ -59,7 +62,7 @@ class rlc_dummy_interface : public rlc_interface_mac
 public:
   bool     has_data_locked(const uint32_t lcid) override { return false; }
   uint32_t get_buffer_state(const uint32_t lcid) override { return 0; }
-  int      read_pdu(uint32_t lcid, uint8_t* payload, uint32_t nof_bytes) override { return 0; }
+  uint32_t read_pdu(uint32_t lcid, uint8_t* payload, uint32_t nof_bytes) override { return 0; }
   void     write_pdu(uint32_t lcid, uint8_t* payload, uint32_t nof_bytes) override {}
   void     write_pdu_bcch_bch(srsran::unique_byte_buffer_t payload) override {}
   void     write_pdu_bcch_dlsch(uint8_t* payload, uint32_t nof_bytes) override {}
@@ -85,8 +88,6 @@ class phy_dummy_interface : public phy_interface_rrc_lte
   bool cell_search() override { return true; }
   bool cell_select(phy_cell_t cell) override { return true; }
   bool cell_is_camping() override { return false; }
-
-  void enable_pregen_signals(bool enable) override {}
 };
 
 } // namespace srsue

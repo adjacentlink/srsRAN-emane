@@ -21,6 +21,7 @@
 
 #include "srsue/hdr/stack/ue_stack_nr.h"
 #include "srsran/srsran.h"
+#include "srsue/hdr/stack/rrc/rrc_nr.h"
 
 using namespace srsran;
 
@@ -119,8 +120,13 @@ void ue_stack_nr::stop_impl()
 bool ue_stack_nr::switch_on()
 {
   // statically setup TUN (will be done through RRC later)
-  char* err_str = nullptr;
-  if (gw->setup_if_addr(5, 4, LIBLTE_MME_PDN_TYPE_IPV4, htonl(inet_addr("192.168.1.3")), nullptr, err_str)) {
+  char*          err_str = nullptr;
+  struct in_addr in_addr;
+  if (inet_pton(AF_INET, "192.168.1.3", &in_addr.s_addr) != 1) {
+    perror("inet_pton");
+    return false;
+  }
+  if (gw->setup_if_addr(5, LIBLTE_MME_PDN_TYPE_IPV4, htonl(in_addr.s_addr), nullptr, err_str)) {
     printf("Error configuring TUN interface\n");
   }
   return true;
@@ -163,9 +169,9 @@ void ue_stack_nr::run_thread()
 void ue_stack_nr::write_sdu(uint32_t lcid, srsran::unique_byte_buffer_t sdu)
 {
   if (pdcp != nullptr) {
-    std::pair<bool, move_task_t> ret = gw_task_queue.try_push(std::bind(
+    auto ret = gw_task_queue.try_push(std::bind(
         [this, lcid](srsran::unique_byte_buffer_t& sdu) { pdcp->write_sdu(lcid, std::move(sdu)); }, std::move(sdu)));
-    if (not ret.first) {
+    if (ret.is_error()) {
       pdcp_logger.warning("GW SDU with lcid=%d was discarded.", lcid);
     }
   }
@@ -198,6 +204,11 @@ void ue_stack_nr::run_tti_impl(uint32_t tti)
   mac->run_tti(tti);
   rrc->run_tti(tti);
   task_sched.tic();
+}
+
+void ue_stack_nr::set_phy_config_complete(bool status)
+{
+  sync_task_queue.push([this, status]() { rrc->set_phy_config_complete(status); });
 }
 
 } // namespace srsue

@@ -26,6 +26,10 @@ version is 21.04, the first release based on srsRAN 21.04
 
 ---
 ## Build Instructions
+The srsRAN suite includes:
+  * srsUE - a full-stack SDR 4G/5G-NSA UE application (5G-SA coming soon)
+  * srsENB - a full-stack SDR 4G/5G-NSA eNodeB application (5G-SA coming soon)
+  * srsEPC - a light-weight 4G core network implementation with MME, HSS and S/P-GW
 
 1. Install the latest [pre-built EMANE bundle](https://github.com/adjacentlink/emane/wiki/Install). EMANE version 1.2.3 or later is **required**.
 
@@ -35,7 +39,6 @@ version is 21.04, the first release based on srsRAN 21.04
    * [Centos 7](#centos-7)
    * [Fedora 33](#fedora-33)
    * [Ubuntu 18.04 and 20.04](#ubuntu-1804-and-2004)
-
 
 ### Centos 7
 

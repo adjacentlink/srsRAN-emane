@@ -33,7 +33,7 @@
 #include "srsran/interfaces/epc_interfaces.h"
 #include "srsran/srslog/srslog.h"
 #include <cstddef>
-#include <fstream>
+
 #include <map>
 
 #define LTE_FDD_ENB_IND_HE_N_BITS 5
@@ -43,15 +43,15 @@
 
 namespace srsepc {
 
-typedef struct {
+struct hss_args_t {
   std::string db_file;
   uint16_t    mcc;
   uint16_t    mnc;
-} hss_args_t;
+};
 
 enum hss_auth_algo { HSS_ALGO_XOR, HSS_ALGO_MILENAGE };
 
-typedef struct {
+struct hss_ue_ctx_t {
   // Members
   std::string        name;
   uint64_t           imsi;
@@ -70,7 +70,7 @@ typedef struct {
   void set_sqn(const uint8_t* sqn_);
   void set_last_rand(const uint8_t* rand_);
   void get_last_rand(uint8_t* rand_);
-} hss_ue_ctx_t;
+};
 
 class hss : public hss_interface_nas
 {
@@ -103,7 +103,6 @@ private:
   void resync_sqn_milenage(hss_ue_ctx_t* ue_ctx, uint8_t* auts);
   void resync_sqn_xor(hss_ue_ctx_t* ue_ctx, uint8_t* auts);
 
-  std::vector<std::string> split_string(const std::string& str, char delimiter);
   void                     get_uint_vec_from_hex_str(const std::string& key_str, uint8_t* key, uint len);
 
   void increment_ue_sqn(hss_ue_ctx_t* ue_ctx);

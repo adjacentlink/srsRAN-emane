@@ -20,16 +20,21 @@
  */
 
 #include "srsenb/hdr/stack/rrc/rrc.h"
+#include "srsenb/hdr/stack/mac/sched_interface.h"
 #include "srsenb/hdr/stack/rrc/rrc_cell_cfg.h"
+#include "srsenb/hdr/stack/rrc/rrc_endc.h"
 #include "srsenb/hdr/stack/rrc/rrc_mobility.h"
+#include "srsenb/hdr/stack/rrc/rrc_paging.h"
+#include "srsenb/hdr/stack/s1ap/s1ap.h"
 #include "srsran/asn1/asn1_utils.h"
 #include "srsran/asn1/rrc_utils.h"
 #include "srsran/common/bcd_helpers.h"
+#include "srsran/common/enb_events.h"
 #include "srsran/common/standard_streams.h"
+#include "srsran/common/string_helpers.h"
 #include "srsran/interfaces/enb_mac_interfaces.h"
 #include "srsran/interfaces/enb_pdcp_interfaces.h"
 #include "srsran/interfaces/enb_rlc_interfaces.h"
-#include "srsran/interfaces/sched_interface.h"
 
 using srsran::byte_buffer_t;
 
@@ -37,8 +42,8 @@ using namespace asn1::rrc;
 
 namespace srsenb {
 
-rrc::rrc(srsran::task_sched_handle task_sched_) :
-  logger(srslog::fetch_basic_logger("RRC")), task_sched(task_sched_), rx_pdu_queue(64)
+rrc::rrc(srsran::task_sched_handle task_sched_, enb_bearer_manager& manager_) :
+  logger(srslog::fetch_basic_logger("RRC")), bearer_manager(manager_), task_sched(task_sched_), rx_pdu_queue(128)
 {}
 
 rrc::~rrc() {}
@@ -51,12 +56,25 @@ int32_t rrc::init(const rrc_cfg_t&       cfg_,
                   s1ap_interface_rrc*    s1ap_,
                   gtpu_interface_rrc*    gtpu_)
 {
-  phy  = phy_;
-  mac  = mac_;
-  rlc  = rlc_;
-  pdcp = pdcp_;
-  gtpu = gtpu_;
-  s1ap = s1ap_;
+  return init(cfg_, phy_, mac_, rlc_, pdcp_, s1ap_, gtpu_, nullptr);
+}
+
+int32_t rrc::init(const rrc_cfg_t&       cfg_,
+                  phy_interface_rrc_lte* phy_,
+                  mac_interface_rrc*     mac_,
+                  rlc_interface_rrc*     rlc_,
+                  pdcp_interface_rrc*    pdcp_,
+                  s1ap_interface_rrc*    s1ap_,
+                  gtpu_interface_rrc*    gtpu_,
+                  rrc_nr_interface_rrc*  rrc_nr_)
+{
+  phy    = phy_;
+  mac    = mac_;
+  rlc    = rlc_;
+  pdcp   = pdcp_;
+  gtpu   = gtpu_;
+  s1ap   = s1ap_;
+  rrc_nr = rrc_nr_;
 
   cfg = cfg_;
 
@@ -69,6 +87,14 @@ int32_t rrc::init(const rrc_cfg_t&       cfg_,
 
   // Loads the PRACH root sequence
   cfg.sibs[1].sib2().rr_cfg_common.prach_cfg.root_seq_idx = cfg.cell_list[0].root_seq_idx;
+
+  if (cfg.num_nr_cells > 0) {
+    cfg.sibs[1].sib2().ext = true;
+    cfg.sibs[1].sib2().plmn_info_list_r15.set_present();
+    cfg.sibs[1].sib2().plmn_info_list_r15.get()->resize(1);
+    auto& plmn                       = cfg.sibs[1].sib2().plmn_info_list_r15.get()->back();
+    plmn.upper_layer_ind_r15_present = true;
+  }
 
   if (generate_sibs() != SRSRAN_SUCCESS) {
     logger.error("Couldn't generate SIBs.");
@@ -90,8 +116,19 @@ int32_t rrc::init(const rrc_cfg_t&       cfg_,
   logger.info("Inactivity timeout: %d ms", cfg.inactivity_timeout_ms);
   logger.info("Max consecutive MAC KOs: %d", cfg.max_mac_dl_kos);
 
+  pending_paging.reset(new paging_manager(cfg.sibs[1].sib2().rr_cfg_common.pcch_cfg.default_paging_cycle.to_number(),
+                                          cfg.sibs[1].sib2().rr_cfg_common.pcch_cfg.nb.to_number()));
+
   running = true;
 
+  if (logger.debug.enabled()) {
+    asn1::json_writer js{};
+    cfg.srb1_cfg.rlc_cfg.to_json(js);
+    logger.debug("SRB1 configuration: %s", js.to_string().c_str());
+    js = {};
+    cfg.srb2_cfg.rlc_cfg.to_json(js);
+    logger.debug("SRB2 configuration: %s", js.to_string().c_str());
+  }
   return SRSRAN_SUCCESS;
 }
 
@@ -141,7 +178,7 @@ void rrc::set_radiolink_dl_state(uint16_t rnti, bool crc_res)
   rrc_pdu p = {rnti, LCID_RADLINK_DL, crc_res, nullptr};
 
   if (not rx_pdu_queue.try_push(std::move(p))) {
-    logger.error("Failed to push UE activity command to RRC queue");
+    logger.error("Failed to push radio link DL state");
   }
 }
 
@@ -151,7 +188,7 @@ void rrc::set_radiolink_ul_state(uint16_t rnti, bool crc_res)
   rrc_pdu p = {rnti, LCID_RADLINK_UL, crc_res, nullptr};
 
   if (not rx_pdu_queue.try_push(std::move(p))) {
-    logger.error("Failed to push UE activity command to RRC queue");
+    logger.error("Failed to push radio link UL state");
   }
 }
 
@@ -179,9 +216,17 @@ uint32_t rrc::get_nof_users()
 
 void rrc::max_retx_attempted(uint16_t rnti)
 {
-  rrc_pdu p = {rnti, LCID_RTX_USER, false, nullptr};
+  rrc_pdu p = {rnti, LCID_RLC_RTX, false, nullptr};
   if (not rx_pdu_queue.try_push(std::move(p))) {
     logger.error("Failed to push max Retx event to RRC queue");
+  }
+}
+
+void rrc::protocol_failure(uint16_t rnti)
+{
+  rrc_pdu p = {rnti, LCID_PROT_FAIL, false, nullptr};
+  if (not rx_pdu_queue.try_push(std::move(p))) {
+    logger.error("Failed to push protocol failure to RRC queue");
   }
 }
 
@@ -209,12 +254,12 @@ int rrc::add_user(uint16_t rnti, const sched_interface::ue_cfg_t& sched_ue_cfg)
   if (rnti == SRSRAN_MRNTI) {
     for (auto& mbms_item : mcch.msg.c1().mbsfn_area_cfg_r9().pmch_info_list_r9[0].mbms_session_info_list_r9) {
       uint32_t lcid = mbms_item.lc_ch_id_r9;
-
+      uint32_t addr_in;
       // adding UE object to MAC for MRNTI without scheduling configuration (broadcast not part of regular scheduling)
-      mac->ue_cfg(SRSRAN_MRNTI, NULL);
       rlc->add_bearer_mrb(SRSRAN_MRNTI, lcid);
+      bearer_manager.add_eps_bearer(SRSRAN_MRNTI, 1, srsran::srsran_rat_t::lte, lcid);
       pdcp->add_bearer(SRSRAN_MRNTI, lcid, srsran::make_drb_pdcp_config_t(1, false));
-      gtpu->add_bearer(SRSRAN_MRNTI, lcid, 1, 1);
+      gtpu->add_bearer(SRSRAN_MRNTI, lcid, 1, 1, addr_in);
     }
   }
   return SRSRAN_SUCCESS;
@@ -226,12 +271,16 @@ int rrc::add_user(uint16_t rnti, const sched_interface::ue_cfg_t& sched_ue_cfg)
 void rrc::upd_user(uint16_t new_rnti, uint16_t old_rnti)
 {
   // Remove new_rnti
-  rem_user_thread(new_rnti);
+  auto new_ue_it = users.find(new_rnti);
+  if (new_ue_it != users.end()) {
+    new_ue_it->second->deactivate_bearers();
+    rem_user_thread(new_rnti);
+  }
 
   // Send Reconfiguration to old_rnti if is RRC_CONNECT or RRC Release if already released here
   auto old_it = users.find(old_rnti);
   if (old_it == users.end()) {
-    send_rrc_connection_reject(old_rnti);
+    logger.info("rnti=0x%x received MAC CRNTI CE: 0x%x, but old context is unavailable", new_rnti, old_rnti);
     return;
   }
   ue* ue_ptr = old_it->second.get();
@@ -245,6 +294,10 @@ void rrc::upd_user(uint16_t new_rnti, uint16_t old_rnti)
       old_it->second->send_connection_reconf();
     }
   }
+
+  // Log event.
+  event_logger::get().log_connection_resume(
+      ue_ptr->get_cell_list().get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->enb_cc_idx, old_rnti, new_rnti);
 }
 
 // Note: this method is not part of UE methods, because the UE context may not exist anymore when reject is sent
@@ -266,9 +319,8 @@ void rrc::send_rrc_connection_reject(uint16_t rnti)
   }
   pdu->N_bytes = bref.distance_bytes();
 
-  char buf[32] = {};
-  sprintf(buf, "SRB0 - rnti=0x%x", rnti);
-  log_rrc_message(buf, Tx, pdu.get(), dl_ccch_msg, dl_ccch_msg.msg.c1().type().to_string());
+  log_rrc_message(Tx, rnti, srb_to_lcid(lte_srb::srb0), *pdu, dl_ccch_msg, dl_ccch_msg.msg.c1().type().to_string());
+
   rlc->write_sdu(rnti, srb_to_lcid(lte_srb::srb0), std::move(pdu));
 }
 
@@ -281,6 +333,12 @@ void rrc::write_pdu(uint16_t rnti, uint32_t lcid, srsran::unique_byte_buffer_t p
   if (not rx_pdu_queue.try_push(std::move(p))) {
     logger.error("Failed to push Release command to RRC queue");
   }
+}
+
+void rrc::notify_pdcp_integrity_error(uint16_t rnti, uint32_t lcid)
+{
+  logger.warning("Received integrity protection failure indication, rnti=0x%x, lcid=%u", rnti, lcid);
+  s1ap->user_release(rnti, asn1::s1ap::cause_radio_network_opts::unspecified);
 }
 
 /*******************************************************************************
@@ -457,132 +515,39 @@ int rrc::modify_erab(uint16_t                                   rnti,
 
 void rrc::add_paging_id(uint32_t ueid, const asn1::s1ap::ue_paging_id_c& ue_paging_id)
 {
-  std::lock_guard<std::mutex> lock(paging_mutex);
-  if (pending_paging.count(ueid) > 0) {
-    logger.warning("Received Paging for UEID=%d but not yet transmitted", ueid);
-    return;
-  }
-
-  paging_record_s paging_elem;
   if (ue_paging_id.type().value == asn1::s1ap::ue_paging_id_c::types_opts::imsi) {
-    paging_elem.ue_id.set_imsi();
-    paging_elem.ue_id.imsi().resize(ue_paging_id.imsi().size());
-    memcpy(paging_elem.ue_id.imsi().data(), ue_paging_id.imsi().data(), ue_paging_id.imsi().size());
-    srsran::console("Warning IMSI paging not tested\n");
+    pending_paging->add_imsi_paging(ueid, ue_paging_id.imsi());
   } else {
-    paging_elem.ue_id.set_s_tmsi();
-    paging_elem.ue_id.s_tmsi().mmec.from_number(ue_paging_id.s_tmsi().mmec[0]);
-    uint32_t m_tmsi     = 0;
-    uint32_t nof_octets = ue_paging_id.s_tmsi().m_tmsi.size();
-    for (uint32_t i = 0; i < nof_octets; i++) {
-      m_tmsi |= ue_paging_id.s_tmsi().m_tmsi[i] << (8u * (nof_octets - i - 1u));
-    }
-    paging_elem.ue_id.s_tmsi().m_tmsi.from_number(m_tmsi);
+    pending_paging->add_tmsi_paging(ueid, ue_paging_id.s_tmsi().mmec[0], ue_paging_id.s_tmsi().m_tmsi);
   }
-  paging_elem.cn_domain = paging_record_s::cn_domain_e_::ps;
-
-  pending_paging.insert(std::make_pair(ueid, paging_elem));
 }
 
-// Described in Section 7 of 36.304
 bool rrc::is_paging_opportunity(uint32_t tti, uint32_t* payload_len)
 {
-  constexpr static int sf_pattern[4][4] = {{9, 4, -1, 0}, {-1, 9, -1, 4}, {-1, -1, -1, 5}, {-1, -1, -1, 9}};
-
-  if (tti == paging_tti) {
-    *payload_len = byte_buf_paging.N_bytes;
-    logger.debug("Sending paging to extra carriers. Payload len=%d, TTI=%d", *payload_len, tti);
-    return true;
-  } else {
-    paging_tti = INVALID_TTI;
-  }
-
-  if (pending_paging.empty()) {
-    return false;
-  }
-
-  asn1::rrc::pcch_msg_s pcch_msg;
-  pcch_msg.msg.set_c1();
-  paging_s* paging_rec = &pcch_msg.msg.c1().paging();
-
-  // Default paging cycle, should get DRX from user
-  uint32_t T  = cfg.sibs[1].sib2().rr_cfg_common.pcch_cfg.default_paging_cycle.to_number();
-  uint32_t Nb = T * cfg.sibs[1].sib2().rr_cfg_common.pcch_cfg.nb.to_number();
-
-  uint32_t N   = T < Nb ? T : Nb;
-  uint32_t Ns  = Nb / T > 1 ? Nb / T : 1;
-  uint32_t sfn = tti / 10;
-
-  std::vector<uint32_t> ue_to_remove;
-
-  {
-    std::lock_guard<std::mutex> lock(paging_mutex);
-
-    int n = 0;
-    for (auto& item : pending_paging) {
-      if (n >= ASN1_RRC_MAX_PAGE_REC) {
-        break;
-      }
-      const asn1::rrc::paging_record_s& u    = item.second;
-      uint32_t                          ueid = ((uint32_t)item.first) % 1024;
-      uint32_t                          i_s  = (ueid / N) % Ns;
-
-      if ((sfn % T) != (T / N) * (ueid % N)) {
-        continue;
-      }
-
-      int sf_idx = sf_pattern[i_s % 4][(Ns - 1) % 4];
-      if (sf_idx < 0) {
-        logger.error("SF pattern is N/A for Ns=%d, i_s=%d, imsi_decimal=%d", Ns, i_s, ueid);
-        continue;
-      }
-
-      if ((uint32_t)sf_idx == (tti % 10)) {
-        paging_rec->paging_record_list_present = true;
-        paging_rec->paging_record_list.push_back(u);
-        ue_to_remove.push_back(ueid);
-        n++;
-        logger.info("Assembled paging for ue_id=%d, tti=%d", ueid, tti);
-      }
-    }
-
-    for (unsigned int i : ue_to_remove) {
-      pending_paging.erase(i);
-    }
-  }
-
-  if (paging_rec->paging_record_list.size() > 0) {
-    byte_buf_paging.clear();
-    asn1::bit_ref bref(byte_buf_paging.msg, byte_buf_paging.get_tailroom());
-    if (pcch_msg.pack(bref) == asn1::SRSASN_ERROR_ENCODE_FAIL) {
-      logger.error("Failed to pack PCCH");
-      return false;
-    }
-    byte_buf_paging.N_bytes = (uint32_t)bref.distance_bytes();
-    uint32_t N_bits         = (uint32_t)bref.distance();
-
-    if (payload_len) {
-      *payload_len = byte_buf_paging.N_bytes;
-    }
-    logger.info("Assembling PCCH payload with %d UE identities, payload_len=%d bytes, nbits=%d",
-                paging_rec->paging_record_list.size(),
-                byte_buf_paging.N_bytes,
-                N_bits);
-    log_rrc_message("PCCH-Message", Tx, &byte_buf_paging, pcch_msg, pcch_msg.msg.c1().type().to_string());
-
-    paging_tti = tti; // Store paging tti for other carriers
-    return true;
-  }
-
-  return false;
+  *payload_len = pending_paging->pending_pcch_bytes(tti_point(tti));
+  return *payload_len > 0;
 }
 
-void rrc::read_pdu_pcch(uint8_t* payload, uint32_t buffer_size)
+void rrc::read_pdu_pcch(uint32_t tti_tx_dl, uint8_t* payload, uint32_t buffer_size)
 {
-  std::lock_guard<std::mutex> lock(paging_mutex);
-  if (byte_buf_paging.N_bytes <= buffer_size) {
-    memcpy(payload, byte_buf_paging.msg, byte_buf_paging.N_bytes);
-  }
+  auto read_func = [this, payload, buffer_size](srsran::const_byte_span pdu, const pcch_msg_s& msg, bool first_tx) {
+    // copy PCCH pdu to buffer
+    if (pdu.size() > buffer_size) {
+      logger.warning("byte buffer with size=%zd is too small to fit pcch msg with size=%zd", buffer_size, pdu.size());
+      return false;
+    }
+    std::copy(pdu.begin(), pdu.end(), payload);
+
+    if (first_tx) {
+      logger.info("Assembling PCCH payload with %d UE identities, payload_len=%d bytes",
+                  msg.msg.c1().paging().paging_record_list.size(),
+                  pdu.size());
+      log_broadcast_rrc_message(SRSRAN_PRNTI, pdu, msg, msg.msg.c1().type().to_string());
+    }
+    return true;
+  };
+
+  pending_paging->read_pdu_pcch(tti_point(tti_tx_dl), read_func);
 }
 
 /*******************************************************************************
@@ -608,60 +573,112 @@ void rrc::set_erab_status(uint16_t rnti, const asn1::s1ap::bearers_subject_to_st
 }
 
 /*******************************************************************************
+  EN-DC/NSA helper functions
+*******************************************************************************/
+
+void rrc::sgnb_addition_ack(uint16_t eutra_rnti, sgnb_addition_ack_params_t params)
+{
+  logger.info("Received SgNB addition acknowledgement for rnti=0x%x", eutra_rnti);
+  auto ue_it = users.find(eutra_rnti);
+  if (ue_it == users.end()) {
+    logger.warning("rnti=0x%x does not exist", eutra_rnti);
+    return;
+  }
+  ue_it->second->endc_handler->trigger(ue::rrc_endc::sgnb_add_req_ack_ev{params});
+
+  // trigger RRC Reconfiguration to send NR config to UE
+  ue_it->second->send_connection_reconf();
+}
+
+void rrc::sgnb_addition_reject(uint16_t eutra_rnti)
+{
+  logger.error("Received SgNB addition reject for rnti=%d", eutra_rnti);
+  auto ue_it = users.find(eutra_rnti);
+  if (ue_it == users.end()) {
+    logger.warning("rnti=0x%x does not exist", eutra_rnti);
+    return;
+  }
+  ue_it->second->endc_handler->trigger(ue::rrc_endc::sgnb_add_req_reject_ev{});
+}
+
+void rrc::sgnb_addition_complete(uint16_t eutra_rnti, uint16_t nr_rnti)
+{
+  logger.info("User rnti=0x%x successfully enabled EN-DC", eutra_rnti);
+  auto ue_it = users.find(eutra_rnti);
+  if (ue_it == users.end()) {
+    logger.warning("rnti=0x%x does not exist", eutra_rnti);
+    return;
+  }
+  ue_it->second->endc_handler->trigger(ue::rrc_endc::sgnb_add_complete_ev{nr_rnti});
+}
+
+void rrc::sgnb_inactivity_timeout(uint16_t eutra_rnti)
+{
+  logger.info("Received NR inactivity timeout for rnti=0x%x - releasing UE", eutra_rnti);
+  auto ue_it = users.find(eutra_rnti);
+  if (ue_it == users.end()) {
+    logger.warning("rnti=0x%x does not exist", eutra_rnti);
+    return;
+  }
+  s1ap->user_release(eutra_rnti, asn1::s1ap::cause_radio_network_opts::user_inactivity);
+}
+
+void rrc::sgnb_release_ack(uint16_t eutra_rnti)
+{
+  auto ue_it = users.find(eutra_rnti);
+  if (ue_it != users.end()) {
+    logger.info("Received SgNB release acknowledgement for rnti=0x%x", eutra_rnti);
+    ue_it->second->endc_handler->trigger(ue::rrc_endc::sgnb_rel_req_ack_ev{});
+  } else {
+    // The EUTRA does not need to wait for Release Ack in case it wants to destroy the EUTRA UE
+    logger.info("Received SgNB release acknowledgement for already released rnti=0x%x", eutra_rnti);
+  }
+}
+
+/*******************************************************************************
   Private functions
   All private functions are not mutexed and must be called from a mutexed environment
   from either a public function or the internal thread
 *******************************************************************************/
 
-void rrc::parse_ul_ccch(uint16_t rnti, srsran::unique_byte_buffer_t pdu)
+void rrc::parse_ul_ccch(ue& ue, srsran::unique_byte_buffer_t pdu)
 {
-  if (pdu) {
-    ul_ccch_msg_s  ul_ccch_msg;
-    asn1::cbit_ref bref(pdu->msg, pdu->N_bytes);
-    if (ul_ccch_msg.unpack(bref) != asn1::SRSASN_SUCCESS or
-        ul_ccch_msg.msg.type().value != ul_ccch_msg_type_c::types_opts::c1) {
-      logger.error("Failed to unpack UL-CCCH message");
-      return;
-    }
+  srsran_assert(pdu != nullptr, "parse_ul_ccch called for empty message");
 
-    log_rrc_message("SRB0", Rx, pdu.get(), ul_ccch_msg, ul_ccch_msg.msg.c1().type().to_string());
+  ul_ccch_msg_s  ul_ccch_msg;
+  asn1::cbit_ref bref(pdu->msg, pdu->N_bytes);
+  if (ul_ccch_msg.unpack(bref) != asn1::SRSASN_SUCCESS or
+      ul_ccch_msg.msg.type().value != ul_ccch_msg_type_c::types_opts::c1) {
+    log_rx_pdu_fail(ue.rnti, srb_to_lcid(lte_srb::srb0), *pdu, "Failed to unpack UL-CCCH message");
+    return;
+  }
 
-    auto user_it = users.find(rnti);
-    switch (ul_ccch_msg.msg.c1().type().value) {
-      case ul_ccch_msg_type_c::c1_c_::types::rrc_conn_request:
-        if (user_it != users.end()) {
-          user_it->second->save_ul_message(std::move(pdu));
-          user_it->second->handle_rrc_con_req(&ul_ccch_msg.msg.c1().rrc_conn_request());
-        } else {
-          logger.error("Received ConnectionSetup for rnti=0x%x without context", rnti);
-        }
-        break;
-      case ul_ccch_msg_type_c::c1_c_::types::rrc_conn_reest_request:
-        if (user_it != users.end()) {
-          user_it->second->save_ul_message(std::move(pdu));
-          user_it->second->handle_rrc_con_reest_req(&ul_ccch_msg.msg.c1().rrc_conn_reest_request());
-        } else {
-          logger.error("Received ConnectionReestablishment for rnti=0x%x without context.", rnti);
-        }
-        break;
-      default:
-        logger.error("UL CCCH message not recognised");
-        break;
-    }
+  // Log Rx message
+  log_rrc_message(
+      Rx, ue.rnti, srsran::srb_to_lcid(lte_srb::srb0), *pdu, ul_ccch_msg, ul_ccch_msg.msg.c1().type().to_string());
+
+  switch (ul_ccch_msg.msg.c1().type().value) {
+    case ul_ccch_msg_type_c::c1_c_::types::rrc_conn_request:
+      ue.save_ul_message(std::move(pdu));
+      ue.handle_rrc_con_req(&ul_ccch_msg.msg.c1().rrc_conn_request());
+      break;
+    case ul_ccch_msg_type_c::c1_c_::types::rrc_conn_reest_request:
+      ue.save_ul_message(std::move(pdu));
+      ue.handle_rrc_con_reest_req(&ul_ccch_msg.msg.c1().rrc_conn_reest_request());
+      break;
+    default:
+      logger.error("Processing UL-CCCH for rnti=0x%x - Unsupported message type %s",
+                   ul_ccch_msg.msg.c1().type().to_string());
+      break;
   }
 }
 
 ///< User mutex must be hold by caller
-void rrc::parse_ul_dcch(uint16_t rnti, uint32_t lcid, srsran::unique_byte_buffer_t pdu)
+void rrc::parse_ul_dcch(ue& ue, uint32_t lcid, srsran::unique_byte_buffer_t pdu)
 {
-  if (pdu) {
-    auto user_it = users.find(rnti);
-    if (user_it != users.end()) {
-      user_it->second->parse_ul_dcch(lcid, std::move(pdu));
-    } else {
-      logger.error("Processing %s: Unknown rnti=0x%x", get_rb_name(lcid), rnti);
-    }
-  }
+  srsran_assert(pdu != nullptr, "parse_ul_dcch called for empty message");
+
+  ue.parse_ul_dcch(lcid, std::move(pdu));
 }
 
 ///< User mutex must be hold by caller
@@ -689,19 +706,18 @@ void rrc::rem_user(uint16_t rnti)
 {
   auto user_it = users.find(rnti);
   if (user_it != users.end()) {
-    srsran::console("Disconnecting rnti=0x%x.\n", rnti);
-    logger.info("Disconnecting rnti=0x%x.", rnti);
-
-    /* First remove MAC and GTPU to stop processing DL/UL traffic for this user
-     */
+    // First remove MAC and GTPU to stop processing DL/UL traffic for this user
     mac->ue_rem(rnti); // MAC handles PHY
     gtpu->rem_user(rnti);
 
     // Now remove RLC and PDCP
+    bearer_manager.rem_user(rnti);
     rlc->rem_user(rnti);
     pdcp->rem_user(rnti);
 
     users.erase(rnti);
+
+    srsran::console("Disconnecting rnti=0x%x.\n", rnti);
     logger.info("Removed user rnti=0x%x", rnti);
   } else {
     logger.error("Removing user rnti=0x%x (does not exist)", rnti);
@@ -736,20 +752,21 @@ void rrc::config_mac()
     item.prach_freq_offset    = cfg.sibs[1].sib2().rr_cfg_common.prach_cfg.prach_cfg_info.prach_freq_offset;
     item.maxharq_msg3tx       = cfg.sibs[1].sib2().rr_cfg_common.rach_cfg_common.max_harq_msg3_tx;
     item.enable_64qam         = cfg.sibs[1].sib2().rr_cfg_common.pusch_cfg_common.pusch_cfg_basic.enable64_qam;
-    item.initial_dl_cqi       = cfg.cell_list[ccidx].initial_dl_cqi;
     item.target_pucch_ul_sinr = cfg.cell_list[ccidx].target_pucch_sinr_db;
     item.target_pusch_ul_sinr = cfg.cell_list[ccidx].target_pusch_sinr_db;
     item.enable_phr_handling  = cfg.cell_list[ccidx].enable_phr_handling;
+    item.min_phr_thres        = cfg.cell_list[ccidx].min_phr_thres;
     item.delta_pucch_shift    = cfg.sibs[1].sib2().rr_cfg_common.pucch_cfg_common.delta_pucch_shift.to_number();
     item.ncs_an               = cfg.sibs[1].sib2().rr_cfg_common.pucch_cfg_common.ncs_an;
     item.n1pucch_an           = cfg.sibs[1].sib2().rr_cfg_common.pucch_cfg_common.n1_pucch_an;
     item.nrb_cqi              = cfg.sibs[1].sib2().rr_cfg_common.pucch_cfg_common.nrb_cqi;
 
-    item.nrb_pucch = SRSRAN_MAX(cfg.sr_cfg.nof_prb, cfg.cqi_cfg.nof_prb);
+    item.nrb_pucch = SRSRAN_MAX(cfg.sr_cfg.nof_prb, item.nrb_cqi);
     logger.info("Allocating %d PRBs for PUCCH", item.nrb_pucch);
 
     // Copy base cell configuration
-    item.cell = cfg.cell;
+    item.cell    = cfg.cell;
+    item.cell.id = cfg.cell_list[ccidx].pci;
 
     // copy secondary cell list info
     sched_cfg[ccidx].scell_list.reserve(cfg.cell_list[ccidx].scell_list.size());
@@ -833,7 +850,7 @@ uint32_t rrc::generate_sibs()
         return SRSRAN_ERROR;
       }
       asn1::bit_ref bref(sib_buffer->msg, sib_buffer->get_tailroom());
-      if (msg[msg_index].pack(bref) == asn1::SRSASN_ERROR_ENCODE_FAIL) {
+      if (msg[msg_index].pack(bref) != asn1::SRSASN_SUCCESS) {
         logger.error("Failed to pack SIB message %d", msg_index);
         return SRSRAN_ERROR;
       }
@@ -841,9 +858,13 @@ uint32_t rrc::generate_sibs()
       cell_ctxt->sib_buffer.push_back(std::move(sib_buffer));
 
       // Log SIBs in JSON format
-      std::string log_msg("CC" + std::to_string(cc_idx) + " SIB payload");
-      log_rrc_message(
-          log_msg, Tx, cell_ctxt->sib_buffer.back().get(), msg[msg_index], msg[msg_index].msg.c1().type().to_string());
+      fmt::memory_buffer membuf;
+      const char*        msg_str = msg[msg_index].msg.c1().type().to_string();
+      if (msg[msg_index].msg.c1().type().value != asn1::rrc::bcch_dl_sch_msg_type_c::c1_c_::types_opts::sib_type1) {
+        msg_str = msg[msg_index].msg.c1().sys_info().crit_exts.type().to_string();
+      }
+      fmt::format_to(membuf, "{}, cc={}, idx={}", msg_str, cc_idx, msg_index);
+      log_broadcast_rrc_message(SRSRAN_SIRNTI, *cell_ctxt->sib_buffer.back(), msg[msg_index], srsran::to_c_str(membuf));
     }
 
     if (cfg.sibs[6].type() == asn1::rrc::sys_info_r8_ies_s::sib_type_and_info_item_c_::types::sib7) {
@@ -933,8 +954,12 @@ void rrc::configure_mbsfn_sibs()
   pmch_item->data_mcs         = mbms_mcs;
   pmch_item->mch_sched_period = srsran::pmch_info_t::mch_sched_period_t::rf64;
   pmch_item->sf_alloc_end     = 64 * 6;
-  phy->configure_mbsfn(&sibs2, &sibs13, mcch_t);
-  mac->write_mcch(&sibs2, &sibs13, &mcch_t, mcch_payload_buffer, current_mcch_length);
+
+  // Configure PHY when PHY is done being initialized
+  task_sched.defer_task([this, sibs2, sibs13, mcch_t]() mutable {
+    phy->configure_mbsfn(&sibs2, &sibs13, mcch_t);
+    mac->write_mcch(&sibs2, &sibs13, &mcch_t, mcch_payload_buffer, current_mcch_length);
+  });
 }
 
 int rrc::pack_mcch()
@@ -987,7 +1012,10 @@ int rrc::pack_mcch()
 
   const int     rlc_header_len = 1;
   asn1::bit_ref bref(&mcch_payload_buffer[rlc_header_len], sizeof(mcch_payload_buffer) - rlc_header_len);
-  mcch.pack(bref);
+  if (mcch.pack(bref) != asn1::SRSASN_SUCCESS) {
+    logger.error("Failed to pack MCCH message");
+  }
+
   current_mcch_length = bref.distance_bytes(&mcch_payload_buffer[1]);
   current_mcch_length = current_mcch_length + rlc_header_len;
   return current_mcch_length;
@@ -1002,26 +1030,26 @@ void rrc::tti_clock()
   // pop cmds from queue
   rrc_pdu p;
   while (rx_pdu_queue.try_pop(p)) {
-    // print Rx PDU
-    if (p.pdu != nullptr) {
-      logger.info(p.pdu->msg, p.pdu->N_bytes, "Rx %s PDU", get_rb_name(p.lcid));
-    }
-
     // check if user exists
     auto user_it = users.find(p.rnti);
     if (user_it == users.end()) {
-      logger.warning("Discarding PDU for removed rnti=0x%x", p.rnti);
+      if (p.pdu != nullptr) {
+        log_rx_pdu_fail(p.rnti, p.lcid, *p.pdu, "unknown rnti");
+      } else {
+        logger.warning("Ignoring rnti=0x%x command. Cause: unknown rnti", p.rnti);
+      }
       continue;
     }
+    ue& ue = *user_it->second;
 
     // handle queue cmd
     switch (p.lcid) {
       case srb_to_lcid(lte_srb::srb0):
-        parse_ul_ccch(p.rnti, std::move(p.pdu));
+        parse_ul_ccch(ue, std::move(p.pdu));
         break;
       case srb_to_lcid(lte_srb::srb1):
       case srb_to_lcid(lte_srb::srb2):
-        parse_ul_dcch(p.rnti, p.lcid, std::move(p.pdu));
+        parse_ul_dcch(ue, p.lcid, std::move(p.pdu));
         break;
       case LCID_REM_USER:
         rem_user(p.rnti);
@@ -1038,8 +1066,11 @@ void rrc::tti_clock()
       case LCID_RADLINK_UL:
         user_it->second->set_radiolink_ul_state(p.arg);
         break;
-      case LCID_RTX_USER:
-        user_it->second->max_retx_reached();
+      case LCID_RLC_RTX:
+        user_it->second->max_rlc_retx_reached();
+        break;
+      case LCID_PROT_FAIL:
+        user_it->second->protocol_failure();
         break;
       case LCID_EXIT:
         logger.info("Exiting thread");
@@ -1049,6 +1080,34 @@ void rrc::tti_clock()
         break;
     }
   }
+}
+
+void rrc::log_rx_pdu_fail(uint16_t rnti, uint32_t lcid, srsran::const_byte_span pdu, const char* cause_str)
+{
+  logger.error(
+      pdu.data(), pdu.size(), "Rx %s PDU, rnti=0x%x - Discarding. Cause: %s", get_rb_name(lcid), rnti, cause_str);
+}
+
+void rrc::log_rxtx_pdu_impl(direction_t             dir,
+                            uint16_t                rnti,
+                            uint32_t                lcid,
+                            srsran::const_byte_span pdu,
+                            const char*             msg_type)
+{
+  static const char* dir_str[] = {"Rx", "Tx", "Tx S1AP", "Rx S1AP"};
+  fmt::memory_buffer membuf;
+  fmt::format_to(membuf, "{} ", dir_str[dir]);
+  if (rnti != SRSRAN_PRNTI and rnti != SRSRAN_SIRNTI) {
+    if (dir == Tx or dir == Rx) {
+      fmt::format_to(membuf, "{} ", srsran::get_srb_name(srsran::lte_lcid_to_srb(lcid)));
+    }
+    fmt::format_to(membuf, "PDU, rnti=0x{:x} ", rnti);
+  } else {
+    fmt::format_to(membuf, "Broadcast PDU ");
+  }
+  fmt::format_to(membuf, "- {} ({} B)", msg_type, pdu.size());
+
+  logger.info(pdu.data(), pdu.size(), "%s", srsran::to_c_str(membuf));
 }
 
 } // namespace srsenb

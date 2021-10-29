@@ -35,24 +35,21 @@ class pdcp : public srsue::pdcp_interface_rlc, public srsue::pdcp_interface_rrc
 public:
   pdcp(srsran::task_sched_handle task_sched_, const char* logname);
   virtual ~pdcp();
-  void init(srsue::rlc_interface_pdcp* rlc_,
-            srsue::rrc_interface_pdcp* rrc_,
-            srsue::rrc_interface_pdcp* rrc_nr_,
-            srsue::gw_interface_pdcp*  gw_);
   void init(srsue::rlc_interface_pdcp* rlc_, srsue::rrc_interface_pdcp* rrc_, srsue::gw_interface_pdcp* gw_);
   void stop();
 
-  // GW interface
+  // Stack interface
   bool is_lcid_enabled(uint32_t lcid);
 
   // RRC interface
   void reestablish() override;
   void reestablish(uint32_t lcid) override;
   void reset() override;
+  void set_enabled(uint32_t lcid, bool enabled) override;
   void write_sdu(uint32_t lcid, unique_byte_buffer_t sdu, int sn = -1) override;
   void write_sdu_mch(uint32_t lcid, unique_byte_buffer_t sdu);
-  void add_bearer(uint32_t lcid, pdcp_config_t cnfg) override;
-  void add_bearer_mrb(uint32_t lcid, pdcp_config_t cnfg);
+  int  add_bearer(uint32_t lcid, const pdcp_config_t& cnfg) override;
+  void add_bearer_mrb(uint32_t lcid, const pdcp_config_t& cnfg);
   void del_bearer(uint32_t lcid) override;
   void change_lcid(uint32_t old_lcid, uint32_t new_lcid) override;
   void config_security(uint32_t lcid, const as_security_config_t& sec_cfg) override;
@@ -84,7 +81,6 @@ public:
 private:
   srsue::rlc_interface_pdcp* rlc    = nullptr;
   srsue::rrc_interface_pdcp* rrc    = nullptr;
-  srsue::rrc_interface_pdcp* rrc_nr = nullptr;
   srsue::gw_interface_pdcp*  gw     = nullptr;
   srsran::task_sched_handle  task_sched;
   srslog::basic_logger&      logger;
@@ -104,4 +100,5 @@ private:
 };
 
 } // namespace srsran
+
 #endif // SRSRAN_PDCP_H

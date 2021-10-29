@@ -29,7 +29,7 @@
 
 #include "phy_common.h"
 #include "prach.h"
-#include "scell/intra_measure.h"
+#include "scell/intra_measure_lte.h"
 #include "scell/scell_sync.h"
 #include "search.h"
 #include "sfn_sync.h"
@@ -51,7 +51,7 @@ class sync : public srsran::thread,
              public rsrp_insync_itf,
              public search_callback,
              public scell::sync_callback,
-             public scell::intra_measure::meas_itf
+             public scell::intra_measure_base::meas_itf
 {
 public:
   sync(srslog::basic_logger& phy_logger, srslog::basic_logger& phy_lib_logger) :
@@ -81,6 +81,13 @@ public:
   bool                                     cell_select_init(phy_cell_t cell);
   bool                                     cell_select_start(phy_cell_t cell);
   bool                                     cell_is_camping();
+
+  /**
+   * @brief Interface for monitoring UE's synchronization transition to IDLE. In addition to IDLE transitioning, this
+   * method waits for workers to finish processing and ends the current RF transmission burst.
+   * @return true if SYNC transitioned to IDLE, false otherwise
+   */
+  bool wait_idle();
 
   // RRC interface for controlling the neighbour cell measurement
   void set_cells_to_meas(uint32_t earfcn, const std::set<uint32_t>& pci);
@@ -198,16 +205,17 @@ private:
   bool set_frequency();
   bool set_cell(float cfo);
 
-  bool running     = false;
-  bool is_overflow = false;
+  std::atomic<bool> running     = {false};
+  bool              is_overflow = false;
 
   srsran::rf_timestamp_t last_rx_time;
   bool                   forced_rx_time_init = true; // Rx time sync after first receive from radio
 
   // Objects for internal use
-  search                                              search_p;
-  sfn_sync                                            sfn_p;
-  std::vector<std::unique_ptr<scell::intra_measure> > intra_freq_meas;
+  search                                                  search_p;
+  sfn_sync                                                sfn_p;
+  std::vector<std::unique_ptr<scell::intra_measure_lte> > intra_freq_meas;
+  std::mutex                                              intra_freq_cfg_mutex;
 
   // Pointers to other classes
   stack_interface_phy_lte*     stack = nullptr;
@@ -238,11 +246,14 @@ private:
   srsran::rf_buffer_t   dummy_buffer;
 
   // Sync metrics
-  sync_metrics_t metrics = {};
+  std::atomic<float> sfo     = {}; // SFO estimate updated after each sync-cycle
+  std::atomic<float> cfo     = {}; // CFO estimate updated after each sync-cycle
+  std::atomic<float> ref_cfo = {}; // provided adjustment value applied before sync
+  sync_metrics_t     metrics = {};
 
   // in-sync / out-of-sync counters
-  uint32_t out_of_sync_cnt = 0;
-  uint32_t in_sync_cnt     = 0;
+  std::atomic<uint32_t> out_of_sync_cnt = {0};
+  std::atomic<uint32_t> in_sync_cnt     = {0};
 
   std::mutex rrc_mutex;
   enum {
@@ -257,12 +268,94 @@ private:
 
   search::ret_code cell_search_ret = search::CELL_NOT_FOUND;
 
-  // Sampling rate mode (find is 1.96 MHz, camp is the full cell BW)
-  enum { SRATE_NONE = 0, SRATE_FIND, SRATE_CAMP } srate_mode = SRATE_NONE;
-  float current_srate                                        = 0;
+  // Sampling rate mode (find is 1.92 MHz, camp is the full cell BW)
+  class srate_safe
+  {
+  public:
+    void reset()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      srate_mode    = SRATE_NONE;
+      current_srate = 0;
+    }
+    float get_srate()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return current_srate;
+    }
+    bool is_normal()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return std::isnormal(current_srate) and current_srate > 0.0f;
+    }
+    void set_camp(float new_srate)
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      current_srate = new_srate;
+      srate_mode    = SRATE_CAMP;
+    }
+    bool set_find()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (srate_mode != SRATE_FIND) {
+        srate_mode    = SRATE_FIND;
+        current_srate = 1.92e6;
+        return true;
+      }
+      return false;
+    }
+
+  private:
+    enum { SRATE_NONE = 0, SRATE_FIND, SRATE_CAMP } srate_mode = SRATE_NONE;
+    float      current_srate                                   = 0;
+    std::mutex mutex;
+  };
+  // Protect sampling rate changes since accessed by multiple threads
+  srate_safe srate;
 
   // This is the primary cell
-  srsran_cell_t                               cell                   = {};
+  class cell_safe
+  {
+  public:
+    void set_pci(uint32_t id)
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      cell.id = id;
+    }
+    void reset()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      cell = {};
+    }
+    bool is_valid()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return srsran_cell_isvalid(&cell);
+    }
+    void set(srsran_cell_t& x)
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      cell = x;
+    }
+    srsran_cell_t get()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return cell;
+    }
+    bool equals(srsran_cell_t& x)
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      return memcmp(&cell, &x, sizeof(srsran_cell_t)) == 0;
+    }
+
+  private:
+    srsran_cell_t cell = {};
+    std::mutex    mutex;
+  };
+
+  // Protect access to cell configuration since it's accessed by multiple threads
+  cell_safe cell;
+
   bool                                        force_camping_sfn_sync = false;
   uint32_t                                    tti                    = 0;
   srsran_timestamp_t                          stack_tti_ts_new       = {};
@@ -277,10 +370,10 @@ private:
   float dl_freq = -1;
   float ul_freq = -1;
 
-  const static int MIN_TTI_JUMP = 1;    // Time gap reported to stack after receiving subframe
-  const static int MAX_TTI_JUMP = 1000; // Maximum time gap tolerance in RF stream metadata
-
-  const uint8_t SYNC_CC_IDX = 0; ///< From the sync POV, the CC idx is always the first
+  const static int MIN_TTI_JUMP       = 1;    ///< Time gap reported to stack after receiving subframe
+  const static int MAX_TTI_JUMP       = 1000; ///< Maximum time gap tolerance in RF stream metadata
+  const uint8_t    SYNC_CC_IDX        = 0;    ///< From the sync POV, the CC idx is always the first
+  const uint32_t   TIMEOUT_TO_IDLE_MS = 2000; ///< Timeout in milliseconds for transitioning to IDLE
 };
 
 } // namespace srsue

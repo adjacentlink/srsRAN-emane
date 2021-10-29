@@ -77,7 +77,7 @@ void pdcp::rem_user(uint16_t rnti)
   }
 }
 
-void pdcp::add_bearer(uint16_t rnti, uint32_t lcid, srsran::pdcp_config_t cfg)
+void pdcp::add_bearer(uint16_t rnti, uint32_t lcid, const srsran::pdcp_config_t& cfg)
 {
   if (users.count(rnti)) {
     if (rnti != SRSRAN_MRNTI) {
@@ -95,6 +95,13 @@ void pdcp::del_bearer(uint16_t rnti, uint32_t lcid)
   }
 }
 
+void pdcp::set_enabled(uint16_t rnti, uint32_t lcid, bool enabled)
+{
+  if (users.count(rnti)) {
+    users[rnti].pdcp->set_enabled(lcid, enabled);
+  }
+}
+
 void pdcp::reset(uint16_t rnti)
 {
   if (users.count(rnti)) {
@@ -102,7 +109,7 @@ void pdcp::reset(uint16_t rnti)
   }
 }
 
-void pdcp::config_security(uint16_t rnti, uint32_t lcid, srsran::as_security_config_t sec_cfg)
+void pdcp::config_security(uint16_t rnti, uint32_t lcid, const srsran::as_security_config_t& sec_cfg)
 {
   if (users.count(rnti)) {
     users[rnti].pdcp->config_security(lcid, sec_cfg);
@@ -219,6 +226,11 @@ bool pdcp::user_interface_rlc::rb_is_um(uint32_t lcid)
   return rlc->rb_is_um(rnti, lcid);
 }
 
+bool pdcp::user_interface_rlc::is_suspended(uint32_t lcid)
+{
+  return rlc->is_suspended(rnti, lcid);
+}
+
 bool pdcp::user_interface_rlc::sdu_queue_is_full(uint32_t lcid)
 {
   return rlc->sdu_queue_is_full(rnti, lcid);
@@ -227,6 +239,11 @@ bool pdcp::user_interface_rlc::sdu_queue_is_full(uint32_t lcid)
 void pdcp::user_interface_rrc::write_pdu(uint32_t lcid, srsran::unique_byte_buffer_t pdu)
 {
   rrc->write_pdu(rnti, lcid, std::move(pdu));
+}
+
+void pdcp::user_interface_rrc::notify_pdcp_integrity_error(uint32_t lcid)
+{
+  rrc->notify_pdcp_integrity_error(rnti, lcid);
 }
 
 void pdcp::user_interface_rrc::write_pdu_bcch_bch(srsran::unique_byte_buffer_t pdu)

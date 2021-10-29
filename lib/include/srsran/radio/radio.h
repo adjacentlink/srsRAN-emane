@@ -99,10 +99,11 @@ private:
   std::vector<srsran_rf_info_t>                           rf_info     = {};
   std::vector<int32_t>                                    rx_offset_n = {};
   rf_metrics_t                                            rf_metrics  = {};
-  srslog::basic_logger&                                   logger      = srslog::fetch_basic_logger("RF", false);
-  phy_interface_radio*                                    phy         = nullptr;
-  cf_t*                                                   zeros       = nullptr;
-  std::array<cf_t*, SRSRAN_MAX_CHANNELS>                  dummy_buffers;
+  std::mutex                                              metrics_mutex;
+  srslog::basic_logger&                                   logger = srslog::fetch_basic_logger("RF", false);
+  phy_interface_radio*                                    phy    = nullptr;
+  std::vector<cf_t>                                       zeros;
+  std::array<std::vector<cf_t>, SRSRAN_MAX_CHANNELS>      dummy_buffers;
   std::mutex                                              tx_mutex;
   std::mutex                                              rx_mutex;
   std::array<std::vector<cf_t>, SRSRAN_MAX_CHANNELS>      tx_buffer;
@@ -111,23 +112,23 @@ private:
   std::array<srsran_resampler_fft_t, SRSRAN_MAX_CHANNELS> decimators    = {};
   bool decimator_busy = false; ///< Indicates the decimator is changing the rate
 
-  rf_timestamp_t end_of_burst_time  = {};
-  bool           is_start_of_burst  = false;
-  uint32_t       tx_adv_nsamples    = 0;
-  double         tx_adv_sec         = 0.0; // Transmission time advance to compensate for antenna->timestamp delay
-  bool           tx_adv_auto        = false;
-  bool           tx_adv_negative    = false;
-  bool           is_initialized     = false;
-  bool           radio_is_streaming = false;
-  bool           continuous_tx      = false;
-  double         freq_offset        = 0.0;
-  double         cur_tx_srate       = 0.0;
-  double         cur_rx_srate       = 0.0;
-  double         fix_srate_hz       = 0.0;
-  uint32_t       nof_antennas       = 0;
-  uint32_t       nof_channels       = 0;
-  uint32_t       nof_channels_x_dev = 0;
-  uint32_t       nof_carriers       = 0;
+  rf_timestamp_t    end_of_burst_time = {};
+  std::atomic<bool> is_start_of_burst{false};
+  uint32_t          tx_adv_nsamples    = 0;
+  double            tx_adv_sec         = 0.0; // Transmission time advance to compensate for antenna->timestamp delay
+  bool              tx_adv_auto        = false;
+  bool              tx_adv_negative    = false;
+  bool              is_initialized     = false;
+  bool              radio_is_streaming = false;
+  bool              continuous_tx      = false;
+  double            freq_offset        = 0.0;
+  double            cur_tx_srate       = 0.0;
+  double            cur_rx_srate       = 0.0;
+  double            fix_srate_hz       = 0.0;
+  uint32_t          nof_antennas       = 0;
+  uint32_t          nof_channels       = 0;
+  uint32_t          nof_channels_x_dev = 0;
+  uint32_t          nof_carriers       = 0;
 
   std::vector<double> cur_tx_freqs = {};
   std::vector<double> cur_rx_freqs = {};
@@ -180,6 +181,9 @@ private:
    * @return it returns true if the transmission was successful, otherwise it returns false
    */
   bool tx_dev(const uint32_t& device_idx, rf_buffer_interface& buffer, const srsran_timestamp_t& tx_time_);
+
+  // private unprotected tx_end implementation
+  void tx_end_nolock();
 
   /**
    * Helper method for receiving over a single RF device. This function maps automatically the logical receive buffers
