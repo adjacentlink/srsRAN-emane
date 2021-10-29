@@ -290,7 +290,6 @@ getRxCarriers(const UL_Message & ulMessage, const uint32_t cc_idx, const uint32_
           cell_id,
           rxFrequencyHz,
           ue_ul_msg.DebugString());
-
 #endif
 
   return carrierResults;

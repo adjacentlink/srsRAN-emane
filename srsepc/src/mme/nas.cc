@@ -1716,7 +1716,7 @@ bool nas::short_integrity_check(srsran::byte_buffer_t* pdu)
   }
 
 #ifdef PHY_ADAPTER_ENABLE
-#warning "using patched est count"
+#pragma message "using patched nas est count"
   const uint8_t ul_count = (pdu->msg[1] & 0x1f);
 
   const uint8_t curr_count = (m_sec_ctx.ul_nas_count & 0x1f);
@@ -1733,8 +1733,8 @@ bool nas::short_integrity_check(srsran::byte_buffer_t* pdu)
      estimated_count = m_sec_ctx.ul_nas_count + (32 - (curr_count - ul_count));
    }
 
-  uint32_t estimated_count = (m_sec_ctx.ul_nas_count & 0xffffffe0) | (pdu->msg[1] & 0x1f);
 #else
+  uint32_t estimated_count = (m_sec_ctx.ul_nas_count & 0xffffffe0) | (pdu->msg[1] & 0x1f);
   m_logger.info("Local: count=%d, Estimated: count=%d, ul_count=%hhu, curr_count=%hhu", 
                 m_sec_ctx.ul_nas_count, estimated_count, ul_count, curr_count);
 #endif
