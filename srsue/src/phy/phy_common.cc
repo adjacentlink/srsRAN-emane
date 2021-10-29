@@ -681,9 +681,9 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
 {
   bool insync = true;
   {
-#ifndef PHY_ADAPTER_ENABLE
     std::unique_lock<std::mutex> lock(meas_mutex);
 
+#ifndef PHY_ADAPTER_ENABLE
     float snr_ema_coeff = args->snr_ema_coeff;
 
     // In TDD, ignore special subframes without PDSCH
@@ -783,14 +783,15 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
      const float nf  = phy_adapter::ue_dl_get_nf (cc_idx);
 
      // get rxpower, noise, rsrp and rsrq
-     avg_noise   [cc_idx] =  0;
+     // 0.0 is not a valid value, must pass std::isnormal
+     avg_noise   [cc_idx] =  0.1f;
      avg_rsrp_dbm[cc_idx] =  phy_adapter::ue_snr_to_rsrp(snr);
      avg_rsrq_db [cc_idx] =  phy_adapter::ue_snr_to_rsrq(snr);
      avg_rssi_dbm[cc_idx] =  phy_adapter::ue_snr_to_rssi(snr,nf);
-     pathloss    [cc_idx] =  0;
+     pathloss    [cc_idx] =  0.1f;
      avg_sinr_db [cc_idx] =  snr;
      avg_snr_db  [cc_idx] =  snr;
-     avg_cfo_hz[cc_idx]   =  0;
+     avg_cfo_hz  [cc_idx] =  0.1f;
 #endif
     // Store metrics
     ch_metrics_t ch = {};
@@ -802,8 +803,10 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
     ch.sinr         = avg_sinr_db[cc_idx];
     ch.sync_err     = chest_res.sync_error;
 
-    logger.debug("cc_idx %d, noise %3.3f, rsrp %3.3f, rsrq %3.3f, rssi %3.3f, pathloss %3.3f, sinr % 3.3f, sync_err %f",
+#if 0
+    logger.info("cc_idx %d, tti %u, noise %3.3f, rsrp %3.3f, rsrq %3.3f, rssi %3.3f, pathloss %3.3f, sinr % 3.3f, sync_err %f",
                 cc_idx,
+                sf_cfg_dl.tti,
                 ch.n,
                 ch.rsrp,
                 ch.rsrq,
@@ -811,6 +814,7 @@ void phy_common::update_measurements(uint32_t                     cc_idx,
                 ch.pathloss,
                 ch.sinr,
                 ch.sync_err);
+#endif
 
     set_ch_metrics(cc_idx, ch);
 
