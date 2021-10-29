@@ -602,20 +602,19 @@ static UL_DCI_Results get_ul_dci_list_i(const uint16_t rnti, const uint32_t cc_i
 
               if(sinrResult.bPassed_)
                {
-                 Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, sinr %f, noise %f",
-                       __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
-
                  ul_dci_results.emplace_back(ul_dci_message, 
                                              SignalQuality{sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_});
+
+                 Info("PUCCH:%s: pass, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, cnt %zu, sinr %f, noise %f",
+                       __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), 
+                       ul_dci_results.size(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
               else
                {
                  Warning("PUCCH:%s: fail, cc=%u, txCarrierId %u, txFrequency %lu, rnti 0x%hx, pdcch_seqnum %u, sinr %f, noise %f",
-                         __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                         __func__, cc_idx, txCarrierId, txFrequencyHz, rnti, pdcch_message.seqnum(),
+                        sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                }
-
-              // done with this rnti/dci
-              break;
             }
          }
       }
@@ -1364,7 +1363,7 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
   // expecting 1 dci per rnti
   if(dl_dci_results.size() == 1)
     {
-      const auto & dci_message = dl_dci_results[0];
+      const auto & dci_message = dl_dci_results[nof_msg];
 
       // get the pdsch pointed to be the dci
       const auto pdsch_results = ue_dl_get_pdsch_data_list_i(dci_message.refid(), rnti, cc_idx, q->cell.id);
@@ -1383,10 +1382,14 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
                                          ENB_DL_Message_PDSCH_Entry{pdsch_result.first, 
                                                                     pdsch_result.second});
 
+          ue_dl_update_chest_i(&q->chest_res,
+                               pdsch_result.second.sinr_dB_,
+                               pdsch_result.second.noiseFloor_dBm_);
+
           const auto & dl_dci_message      = dci_message.dci_msg();
           const auto & dl_dci_message_data = dl_dci_message.data();
 
-          auto & dci_entry = dci_msg[nof_msg++];
+          auto & dci_entry = dci_msg[nof_msg];
 
           dci_entry.nof_bits      = dl_dci_message.num_bits();
           dci_entry.rnti          = rnti;
@@ -1396,18 +1399,14 @@ int ue_dl_cc_find_dl_dci(srsran_ue_dl_t*     q,
 
           memcpy(dci_entry.payload, dl_dci_message_data.data(), dl_dci_message_data.size());
 
-          ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
+          // Unpack DCI messages see lib/src/phy/phch/dci.c
+          if (srsran_dci_msg_unpack_pdsch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_entry, &dci_dl[nof_msg++])) {
+            Error("PDCCH:%s Unpacking DL DCI", __func__);
+            return SRSRAN_ERROR;
+          }
 
           Info("PDCCH:%s cc=%u, dl_dci refid %u, rnti 0x%hx, dci_len %zu, nof_msg %d", 
                 __func__, cc_idx, dci_message.refid(), rnti, dl_dci_message_data.size(), nof_msg);
-
-          // Unpack DCI messages see lib/src/phy/phch/dci.c
-          for (int i = 0; i < nof_msg; ++i) {
-            if (srsran_dci_msg_unpack_pdsch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_msg[i], &dci_dl[i])) {
-               Error("PDCCH:%s Unpacking DL DCI", __func__);
-               return SRSRAN_ERROR;
-            }
-          }
        }
       else
        {
@@ -1447,15 +1446,15 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
      // expecting 1 ul dci per rnti
      if(ul_dci_results.size() == 1)
       {
-        const auto & dci_message         = ul_dci_results[0].first;
+        const auto & dci_message         = ul_dci_results[nof_msg].first;
         const auto & ul_dci_message      = dci_message.dci_msg();
         const auto & ul_dci_message_data = ul_dci_message.data();
  
         ue_dl_update_chest_i(&q->chest_res,
-                             ul_dci_results[0].second.sinr_dB_,
-                             ul_dci_results[0].second.noiseFloor_dBm_);
+                             ul_dci_results[nof_msg].second.sinr_dB_,
+                             ul_dci_results[nof_msg].second.noiseFloor_dBm_);
 
-        auto & dci_entry = dci_msg[nof_msg++];
+        auto & dci_entry = dci_msg[nof_msg];
 
         dci_entry.nof_bits      = ul_dci_message.num_bits();
         dci_entry.rnti          = rnti;
@@ -1465,15 +1464,13 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
 
         memcpy(dci_entry.payload, ul_dci_message_data.data(), ul_dci_message_data.size());
 
-        Info("PUCCH:%s found ul_dci rnti 0x%hx, nof_msg %d", __func__, rnti, nof_msg);
-
         // Unpack DCI messages
-        for (int i = 0; i < nof_msg; ++i) {
-          if (srsran_dci_msg_unpack_pusch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_msg[i], &dci_ul[i])) {
-            Error("PUCCH:%s Unpacking UL DCI", __func__);
-            return SRSRAN_ERROR;
-          }
+        if(srsran_dci_msg_unpack_pusch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_entry, &dci_ul[nof_msg++])) {
+          Error("PUCCH:%s Unpacking UL DCI", __func__);
+          return SRSRAN_ERROR;
         }
+
+        Info("PUCCH:%s found ul_dci rnti 0x%hx, nof_msg %d", __func__, rnti, nof_msg);
       }
      else
       {
@@ -1514,7 +1511,9 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
              data[tb].avg_iterations_block = 1;
              data[tb].crc = true;
 
-             ue_dl_update_chest_i(&q->chest_res, pdsch_result.second.sinr_dB_, pdsch_result.second.noiseFloor_dBm_);
+             ue_dl_update_chest_i(&q->chest_res,
+                                  pdsch_result.second.sinr_dB_,
+                                  pdsch_result.second.noiseFloor_dBm_);
 
              Info("PDSCH:%s: rnti 0x%hx, refid %d, tb[%d], payload %zu bytes, sinr %f",
                    __func__, rnti, pdsch_subMsg.refid(), tb, pdsch_subMsg.data().size(), q->chest_res.snr_db);
@@ -1571,7 +1570,9 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
            Info("PHICH:%s pass, cc=%u, txCarrierId %u, txFrequency %lu, phich_seqnum %u, sinr %f, noise %f",
                  __func__, cc_idx, txCarrierId, txFrequencyHz, phich_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
-           ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+           ue_dl_update_chest_i(&q->chest_res,
+                                sinrResult.sinr_dB_,
+                                sinrResult.noiseFloor_dBm_);
 
            for(const auto & phich_subMsg : phich_message.submsg())
 
@@ -1653,7 +1654,9 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                         Info("PMCH:%s: pass, cc=%u, txCarrierId %u, sinr %f, noise %f",
                              __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
 
-                        ue_dl_update_chest_i(&q->chest_res, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                        ue_dl_update_chest_i(&q->chest_res,
+                                             sinrResult.sinr_dB_,
+                                             sinrResult.noiseFloor_dBm_);
  
                         memcpy(data[tb].payload, pmch_subMsg.data().data(), pmch_subMsg.data().length());
  
