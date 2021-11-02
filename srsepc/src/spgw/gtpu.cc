@@ -280,7 +280,8 @@ void spgw::gtpu::handle_s1u_pdu(srsran::byte_buffer_t* msg)
   m_logger.debug("TEID 0x%x. Bytes=%d", header.teid, msg->N_bytes);
   int n = write(m_sgi, msg->msg, msg->N_bytes);
   if (n < 0) {
-    m_logger.error("Could not write to TUN interface.");
+    m_logger.error("Could not write to TUN interface. Bytes= %d/%d, error %s",
+                   n, msg->N_bytes, strerror(errno));
   } else {
     m_logger.debug("Forwarded packet to TUN interface. Bytes= %d/%d", n, msg->N_bytes);
 #ifdef PHY_ADAPTER_ENABLE

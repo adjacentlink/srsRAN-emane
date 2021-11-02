@@ -1715,29 +1715,7 @@ bool nas::short_integrity_check(srsran::byte_buffer_t* pdu)
     return false;
   }
 
-#ifdef PHY_ADAPTER_ENABLE
-#pragma message "using patched nas est count"
-  const uint8_t ul_count = (pdu->msg[1] & 0x1f);
-
-  const uint8_t curr_count = (m_sec_ctx.ul_nas_count & 0x1f);
-
-  uint32_t estimated_count = 0;
-
-  if(ul_count >= curr_count)
-   {
-     estimated_count = ((m_sec_ctx.ul_nas_count & 0xffffffe0) + ul_count);
-   }
-  else
-   {
-     // roll over
-     estimated_count = m_sec_ctx.ul_nas_count + (32 - (curr_count - ul_count));
-   }
-
-#else
   uint32_t estimated_count = (m_sec_ctx.ul_nas_count & 0xffffffe0) | (pdu->msg[1] & 0x1f);
-  m_logger.info("Local: count=%d, Estimated: count=%d, ul_count=%hhu, curr_count=%hhu", 
-                m_sec_ctx.ul_nas_count, estimated_count, ul_count, curr_count);
-#endif
 
   switch (m_sec_ctx.integ_algo) {
     case srsran::INTEGRITY_ALGORITHM_ID_EIA0:
