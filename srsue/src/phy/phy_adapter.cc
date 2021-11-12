@@ -1520,7 +1520,7 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
            }
          else
            {
-             Error("PDSCH:%s: rnti %0xhx, no pdsch subMsg", __func__, rnti);
+             Error("PDSCH:%s: rnti 0x%hx, no pdsch subMsg", __func__, rnti);
            }
        }
     }
