@@ -342,7 +342,7 @@ void phy_common::set_ul_pending_grant(srsran_dl_sf_cfg_t* sf, uint32_t cc_idx, s
     pending_grant.pid    = pid;
     pending_grant.dci    = *dci;
     pending_grant.enable = true;
-    Debug("Set ul pending grant for sf->tti=%d current_tti=%d, pid=%d", tti_pusch_gr(sf), sf->tti, pid);
+    Info("Set ul pending grant for sf->tti=%d current_tti=%d, pid=%d", tti_pusch_gr(sf), sf->tti, pid);
   } else {
     Info("set_ul_pending_grant: sf->tti=%d, cc=%d already in use", sf->tti, cc_idx);
   }
@@ -454,6 +454,7 @@ void phy_common::set_dl_pending_grant(uint32_t               tti,
     pending_dl_grant[tti % FDD_HARQ_DELAY_UL_MS][cc_idx].dl_dci       = *dl_dci;
     pending_dl_grant[tti % FDD_HARQ_DELAY_UL_MS][cc_idx].grant_cc_idx = grant_cc_idx;
     pending_dl_grant[tti % FDD_HARQ_DELAY_UL_MS][cc_idx].enable       = true;
+    Info("set_dl_pending_grant: cc=%d tti %u, grant_cc_idx %u", cc_idx, tti, grant_cc_idx);
   } else {
     Info("set_dl_pending_grant: cc=%d already exists", cc_idx);
   }

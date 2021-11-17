@@ -72,6 +72,9 @@ bool phy_common::init(const phy_cell_cfg_list_t&    cell_list_,
 
   // Set UE PHY data-base stack and configuration
   ue_db.init(stack, params, cell_list_lte);
+
+  sleep(2); // ALINK added to help with mbsfn config race condition with rrc mbsfn config
+
   if (mcch_configured) {
     build_mch_table();
     build_mcch_table();
@@ -211,6 +214,7 @@ void phy_common::build_mch_table()
   for (uint32_t j = 0; j < 40; j++) {
     ss << (int)mch_table[j] << "|";
   }
+  fprintf(stderr, "XXX MCH  %s\n",ss.str().c_str());
 
   stack->set_sched_dl_tti_mask(mch_table, nof_sfs);
 }
@@ -226,6 +230,7 @@ void phy_common::build_mcch_table()
   for (uint32_t j = 0; j < 10; j++) {
     ss << (int)mcch_table[j] << "|";
   }
+  fprintf(stderr, "XXX MCCH %s\n",ss.str().c_str());
 }
 
 bool phy_common::is_mcch_subframe(srsran_mbsfn_cfg_t* cfg, uint32_t phy_tti)
