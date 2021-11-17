@@ -509,7 +509,7 @@ static DL_Messages ue_dl_get_signals_i(srsran_timestamp_t * ts)
             }
          }
 
-#define  DL_PHY_DEBUG
+#undef  DL_PHY_DEBUG
 #ifdef  DL_PHY_DEBUG
          Info("MHAL:%s dlMessage %s\n", __func__, enb_dl_msg.DebugString().c_str());
 #endif
