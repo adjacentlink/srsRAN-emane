@@ -262,7 +262,7 @@ namespace {
     channelMessage->set_tx_power_scale_db(txPowerScaledB);
   }
 
-  inline int bits_to_bytes(int bits) { return bits/8; }
+  inline uint32_t tbs_to_bytes(const uint32_t tbs) { return tbs/8; }
 
 }
 
@@ -1660,8 +1660,16 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
 
                      if(sinrResult.bPassed_)
                       {
-                        Info("PMCH:%s: pass, cc=%u, txCarrierId %u, sinr %f, noise %f",
-                             __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                        Info("PMCH:%s: pass, cc=%u, tb %u, tbs %u, nbytes %d, seqnum %u, txCarrierId %u, sinr %f, noise %f",
+                             __func__, 
+                             cc_idx, 
+                             tb,
+                             cfg->pdsch_cfg.grant.tb[tb].tbs,
+                             pmch_subMsg.data().length(),
+                             pmch_message.seqnum(),
+                             txCarrierId,
+                             sinrResult.sinr_dB_,
+                             sinrResult.noiseFloor_dBm_);
 
                         ue_dl_update_chest_i(&q->chest_res,
                                              sinrResult.sinr_dB_,
@@ -1675,8 +1683,8 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                       }
                      else
                       {
-                        Warning("PMCH:%s: fail, cc=%u, txCarrierId %u, sinr %f, noise %f",
-                            __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                        Warning("PMCH:%s: fail, cc=%u, seqnum %u, txCarrierId %u, sinr %f, noise %f",
+                            __func__, cc_idx, pmch_message.seqnum(), txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                       }
 
                      // done with this entry
@@ -1958,7 +1966,7 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    grant_message->set_uci(&data->uci, sizeof(srsran_uci_value_t));
 
    // payload
-   grant_message->set_payload(data->ptr, bits_to_bytes(grant->tb.tbs));
+   grant_message->set_payload(data->ptr, tbs_to_bytes(grant->tb.tbs));
 
 #if 1
    char logbuf[256] = {0};
