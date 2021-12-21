@@ -299,7 +299,7 @@ epc_args="$build_path/../srsepc/epc.conf.example \
           --log.filename=./${nof_prb}prb_epc.log"
 enb_args="$build_path/../srsenb/enb.conf.example \
           --enb_files.sib_config=$build_path/../srsenb/sib.conf.example \
-          --enb_files.drb_config=$build_path/../srsenb/drb.conf.example \
+          --enb_files.rb_config=$build_path/../srsenb/rb.conf.example \
           --rf.device_name=zmq \
           --log.all_level=info \
           --enb.n_prb=$nof_prb \
@@ -312,8 +312,8 @@ ue_args="$build_path/../srsue/ue.conf.example \
          --gw.netns=$ue_netns \
          --log.all_level=info \
          --log.filename=./${nof_prb}prb_ue.log \
-         --pcap.enable=true \
-         --pcap.filename=./${nof_prb}prb_ue.pcap"
+         --pcap.enable=mac \
+         --pcap.mac_filename=./${nof_prb}prb_ue.pcap"
 
 if ([ "$num_cc" == "2" ])
 then

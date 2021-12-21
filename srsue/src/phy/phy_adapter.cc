@@ -174,7 +174,6 @@ namespace {
         }
      }
 
-
    private:
     std::deque<std::pair<float, float>> entries_;
     const size_t maxEntries_;
@@ -263,7 +262,7 @@ namespace {
     channelMessage->set_tx_power_scale_db(txPowerScaledB);
   }
 
-  inline int bits_to_bytes(int bits) { return bits/8; }
+  inline uint32_t tbs_to_bytes(const uint32_t tbs) { return tbs/8; }
 
 }
 
@@ -1481,6 +1480,10 @@ int ue_dl_cc_find_ul_dci(srsran_ue_dl_t*     q,
          }
       }
    }
+  else
+   {
+     Warning("PUCCH:%s invalid rnti 0x%hx", __func__, rnti);
+   }
  
   return nof_msg;
 }
@@ -1520,8 +1523,14 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
            }
          else
            {
-             Error("PDSCH:%s: rnti %0xhx, no pdsch subMsg", __func__, rnti);
+             Error("PDSCH:%s: rnti 0x%hx, not found in %zu sub messages",
+                   __func__, rnti, enb_dl_pdsch_messages_.size());
            }
+       }
+      else
+       {
+         if(tb == 0)
+           Info("PDSCH:%s: rnti 0x%hx, tb %u is not enabled", __func__, rnti, tb);
        }
     }
 
@@ -1651,8 +1660,16 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
 
                      if(sinrResult.bPassed_)
                       {
-                        Info("PMCH:%s: pass, cc=%u, txCarrierId %u, sinr %f, noise %f",
-                             __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                        Info("PMCH:%s: pass, cc=%u, tb %u, tbs %u, nbytes %d, seqnum %u, txCarrierId %u, sinr %f, noise %f",
+                             __func__, 
+                             cc_idx, 
+                             tb,
+                             cfg->pdsch_cfg.grant.tb[tb].tbs,
+                             pmch_subMsg.data().length(),
+                             pmch_message.seqnum(),
+                             txCarrierId,
+                             sinrResult.sinr_dB_,
+                             sinrResult.noiseFloor_dBm_);
 
                         ue_dl_update_chest_i(&q->chest_res,
                                              sinrResult.sinr_dB_,
@@ -1666,8 +1683,8 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                       }
                      else
                       {
-                        Warning("PMCH:%s: fail, cc=%u, txCarrierId %u, sinr %f, noise %f",
-                            __func__, cc_idx, txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
+                        Warning("PMCH:%s: fail, cc=%u, seqnum %u, txCarrierId %u, sinr %f, noise %f",
+                            __func__, cc_idx, pmch_message.seqnum(), txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
                       }
 
                      // done with this entry
@@ -1675,13 +1692,18 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
                    }
                   else
                    {
-                     Info("MHAL:%s: cc=%u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch_subMsg.area_id(), area_id);
+                     Info("PMCH:%s: cc=%u, dl_area_id %u != area_id %hu, skip", __func__, cc_idx, pmch_subMsg.area_id(), area_id);
                    }
                 }
              }
           }
        }
-    }
+      else
+       {
+         if(tb == 0)
+           Info("PMCH:%s: cc=%u, tb %u is not enabled ", __func__, cc_idx, tb);
+       }
+     }
 
   return SRSRAN_SUCCESS;
 }
@@ -1887,7 +1909,7 @@ int ue_ul_put_pucch_i(srsran_ue_ul_t* q,
    grant_message->set_rnti(rnti);
    grant_message->set_uci(&uci_data2, sizeof(srsran_uci_value_t));
 
-#if 0
+#if 1
    char logbuf[256] = {0};
    srsran_uci_data_info(&cfg->ul_cfg.pucch.uci_cfg, &uci_data2, logbuf, sizeof(logbuf));
 
@@ -1944,9 +1966,9 @@ static int ue_ul_put_pusch_i(srsran_pusch_cfg_t* cfg, srsran_pusch_data_t* data,
    grant_message->set_uci(&data->uci, sizeof(srsran_uci_value_t));
 
    // payload
-   grant_message->set_payload(data->ptr, bits_to_bytes(grant->tb.tbs));
+   grant_message->set_payload(data->ptr, tbs_to_bytes(grant->tb.tbs));
 
-#if 0
+#if 1
    char logbuf[256] = {0};
    srsran_uci_data_info(&cfg->uci_cfg, &data->uci, logbuf, sizeof(logbuf));
 

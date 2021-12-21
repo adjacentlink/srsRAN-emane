@@ -23,8 +23,8 @@
 #define SRSRAN_UE_NR_INTERFACES_H
 
 #include "srsran/common/interfaces_common.h"
+#include "srsran/common/phy_cfg_nr.h"
 #include "srsran/interfaces/mac_interface_types.h"
-#include "srsran/interfaces/rrc_nr_interface_types.h"
 #include <array>
 #include <set>
 #include <string>
@@ -34,9 +34,10 @@ namespace srsue {
 class rrc_interface_phy_nr
 {
 public:
-  virtual void in_sync()                   = 0;
-  virtual void out_of_sync()               = 0;
-  virtual void run_tti(const uint32_t tti) = 0;
+  virtual void in_sync()                            = 0;
+  virtual void out_of_sync()                        = 0;
+  virtual void run_tti(const uint32_t tti)          = 0;
+  virtual void set_phy_config_complete(bool status) = 0;
 };
 
 class mac_interface_phy_nr
@@ -63,8 +64,9 @@ public:
   } mac_nr_grant_dl_t;
 
   typedef struct {
-    srsran::unique_byte_buffer_t payload; // TB when decoded successfully, nullptr otherwise
-    bool                         ack;     // HARQ information
+    uint32_t                     rx_slot_idx; // Slot when DL TB has been decoded
+    srsran::unique_byte_buffer_t payload;     // TB when decoded successfully, nullptr otherwise
+    bool                         ack;         // HARQ information
   } tb_action_dl_result_t;
 
   // UL grant as conveyed between PHY and MAC
@@ -154,6 +156,7 @@ public:
 class mac_interface_rrc_nr
 {
 public:
+  virtual void reset() = 0;
   // Config calls that return SRSRAN_SUCCESS or SRSRAN_ERROR
   virtual int  setup_lcid(const srsran::logical_channel_config_t& config) = 0;
   virtual int  set_config(const srsran::bsr_cfg_nr_t& bsr_cfg)            = 0;
@@ -175,15 +178,22 @@ public:
 };
 
 struct phy_args_nr_t {
-  uint32_t               nof_carriers     = 1;
-  uint32_t               max_nof_prb      = 106;
-  uint32_t               nof_phy_threads  = 3;
-  uint32_t               worker_cpu_mask  = 0;
-  srsran::phy_log_args_t log              = {};
-  srsran_ue_dl_nr_args_t dl               = {};
-  srsran_ue_ul_nr_args_t ul               = {};
-  std::set<uint32_t>     fixed_sr         = {1};
-  uint32_t               fix_wideband_cqi = 15; // Set to a non-zero value for fixing the wide-band CQI report
+  uint32_t               rf_channel_offset  = 0; ///< Specifies the RF channel the NR carrier shall fill
+  uint32_t               nof_carriers       = 1;
+  uint32_t               max_nof_prb        = 106;
+  uint32_t               nof_phy_threads    = 3;
+  uint32_t               worker_cpu_mask    = 0;
+  srsran::phy_log_args_t log                = {};
+  srsran_ue_dl_nr_args_t dl                 = {};
+  srsran_ue_ul_nr_args_t ul                 = {};
+  std::set<uint32_t>     fixed_sr           = {1};
+  uint32_t               fix_wideband_cqi   = 15; // Set to a non-zero value for fixing the wide-band CQI report
+  bool                   store_pdsch_ko     = false;
+  float                  trs_epre_ema_alpha = 0.1f; ///< EPRE measurement exponential average alpha
+  float                  trs_rsrp_ema_alpha = 0.1f; ///< RSRP measurement exponential average alpha
+  float                  trs_sinr_ema_alpha = 0.1f; ///< SINR measurement exponential average alpha
+  float                  trs_cfo_ema_alpha  = 0.1f; ///< RSRP measurement exponential average alpha
+  bool                   enable_worker_cfo  = true; ///< Enable/Disable open loop CFO correction at the workers
 
   phy_args_nr_t()
   {
@@ -215,7 +225,8 @@ public:
   } tx_request_t;
 
   // MAC informs PHY about UL grant included in RAR PDU
-  virtual int set_ul_grant(std::array<uint8_t, SRSRAN_RAR_UL_GRANT_NBITS> packed_ul_grant,
+  virtual int set_ul_grant(uint32_t                                       rar_slot_idx,
+                           std::array<uint8_t, SRSRAN_RAR_UL_GRANT_NBITS> packed_ul_grant,
                            uint16_t                                       rnti,
                            srsran_rnti_type_t                             rnti_type) = 0;
 

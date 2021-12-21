@@ -81,7 +81,7 @@ bool sf_cch_allocator::alloc_dci(alloc_type_t alloc_type, uint32_t aggr_idx, sch
   record.alloc_type = alloc_type;
   record.pusch_uci  = has_pusch_grant;
 
-  if (is_dl_ctrl_alloc(alloc_type) and nof_allocs() == 0 and cc_cfg->nof_prb() == 6 and
+  if (is_dl_ctrl_alloc(alloc_type) and nof_allocs() == 0 and cc_cfg->nof_prb() <= 25 and
       current_max_cfix > current_cfix) {
     // Given that CFI is not currently dynamic for ctrl allocs, in case of SIB/RAR alloc and a low number of PRBs,
     // start with an CFI that maximizes nof potential CCE locs
@@ -188,6 +188,15 @@ bool sf_cch_allocator::alloc_dfs_node(const alloc_record& record, uint32_t start
       node.pucch_n_prb = srsran_pucch_n_prb(&cc_cfg->cfg.cell, &pucch_cfg_common, 0);
       if (not cc_cfg->sched_cfg->pucch_mux_enabled and node.total_pucch_mask.test(node.pucch_n_prb)) {
         // PUCCH allocation would collide with other PUCCH/PUSCH grants. Try another CCE position
+        continue;
+      }
+      int low_rb = node.pucch_n_prb < (int)cc_cfg->cfg.cell.nof_prb / 2
+                       ? node.pucch_n_prb
+                       : cc_cfg->cfg.cell.nof_prb - node.pucch_n_prb - 1;
+      if (cc_cfg->sched_cfg->pucch_harq_max_rb > 0 && low_rb >= cc_cfg->sched_cfg->pucch_harq_max_rb) {
+        // PUCCH allocation would fall outside the maximum allowed PUCCH HARQ region. Try another CCE position
+        logger.info("Skipping PDCCH allocation for CCE=%d due to PUCCH HARQ falling outside region\n",
+                    node.dci_pos.ncce);
         continue;
       }
     }

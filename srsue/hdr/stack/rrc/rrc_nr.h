@@ -22,15 +22,18 @@
 #ifndef SRSUE_RRC_NR_H
 #define SRSUE_RRC_NR_H
 
+#include "nr/rrc_nr_config.h"
+#include "srsran/adt/circular_map.h"
 #include "srsran/asn1/rrc_nr.h"
 #include "srsran/asn1/rrc_nr_utils.h"
 #include "srsran/common/block_queue.h"
-#include "srsran/common/common_nr.h"
 #include "srsran/common/buffer_pool.h"
+#include "srsran/common/common_nr.h"
 #include "srsran/common/stack_procedure.h"
 #include "srsran/common/task_scheduler.h"
-#include "srsran/interfaces/ue_rrc_interfaces.h"
+#include "srsran/interfaces/ue_interfaces.h"
 #include "srsran/interfaces/ue_nr_interfaces.h"
+#include "srsran/interfaces/ue_rrc_interfaces.h"
 #include "srsue/hdr/stack/upper/gw.h"
 
 namespace srsue {
@@ -38,25 +41,6 @@ namespace srsue {
 class usim_interface_rrc_nr;
 class pdcp_interface_rrc;
 class rlc_interface_rrc;
-class stack_interface_rrc;
-
-// Expert arguments to create GW without proper RRC
-struct core_less_args_t {
-  std::string      ip_addr;
-  srsue::gw_args_t gw_args;
-  uint8_t          drb_lcid;
-};
-
-struct rrc_nr_args_t {
-  core_less_args_t      coreless;
-  uint32_t              sim_nr_meas_pci;
-  bool                  pdcp_short_sn_support;
-  std::string           supported_bands_nr_str;
-  std::vector<uint32_t> supported_bands_nr;
-  std::vector<uint32_t> supported_bands_eutra;
-  std::string           log_level;
-  uint32_t              log_hex_limit;
-};
 
 struct rrc_nr_metrics_t {};
 
@@ -71,16 +55,16 @@ public:
   rrc_nr(srsran::task_sched_handle task_sched_);
   ~rrc_nr();
 
-  void init(phy_interface_rrc_nr*       phy_,
-            mac_interface_rrc_nr*       mac_,
-            rlc_interface_rrc*          rlc_,
-            pdcp_interface_rrc*         pdcp_,
-            gw_interface_rrc*           gw_,
-            rrc_eutra_interface_rrc_nr* rrc_eutra_,
-            usim_interface_rrc_nr*      usim_,
-            srsran::timer_handler*      timers_,
-            stack_interface_rrc*        stack_,
-            const rrc_nr_args_t&        args_);
+  int init(phy_interface_rrc_nr*       phy_,
+           mac_interface_rrc_nr*       mac_,
+           rlc_interface_rrc*          rlc_,
+           pdcp_interface_rrc*         pdcp_,
+           gw_interface_rrc*           gw_,
+           rrc_eutra_interface_rrc_nr* rrc_eutra_,
+           usim_interface_rrc_nr*      usim_,
+           srsran::timer_handler*      timers_,
+           stack_interface_rrc*        stack_,
+           const rrc_nr_args_t&        args_);
 
   void stop();
   void init_core_less();
@@ -110,6 +94,7 @@ public:
 
   // RLC interface
   void max_retx_attempted() final;
+  void protocol_failure() final;
 
   // MAC interface
   void run_tti(uint32_t tti) final;
@@ -123,10 +108,11 @@ public:
   void write_pdu_bcch_dlsch(srsran::unique_byte_buffer_t pdu) final;
   void write_pdu_pcch(srsran::unique_byte_buffer_t pdu) final;
   void write_pdu_mch(uint32_t lcid, srsran::unique_byte_buffer_t pdu) final;
+  void notify_pdcp_integrity_error(uint32_t lcid) final;
 
   // RRC (LTE) interface
-  void get_eutra_nr_capabilities(srsran::byte_buffer_t* eutra_nr_caps);
-  void get_nr_capabilities(srsran::byte_buffer_t* eutra_nr_caps);
+  int  get_eutra_nr_capabilities(srsran::byte_buffer_t* eutra_nr_caps);
+  int  get_nr_capabilities(srsran::byte_buffer_t* eutra_nr_caps);
   void phy_meas_stop();
   void phy_set_cells_to_meas(uint32_t carrier_freq_r15);
   bool rrc_reconfiguration(bool                endc_release_and_add_r15,
@@ -136,10 +122,13 @@ public:
                            uint32_t            sk_counter_r15,
                            bool                nr_radio_bearer_cfg1_r15_present,
                            asn1::dyn_octstring nr_radio_bearer_cfg1_r15);
+  void rrc_release();
   bool configure_sk_counter(uint16_t sk_counter);
   bool is_config_pending();
   // STACK interface
   void cell_search_completed(const rrc_interface_phy_lte::cell_search_ret_t& cs_ret, const phy_cell_t& found_cell);
+
+  void set_phy_config_complete(bool status) final;
 
 private:
   srsran::task_sched_handle task_sched;
@@ -180,10 +169,14 @@ private:
 
   //  rrc_nr_state_t state = RRC_NR_STATE_IDLE;
 
-  rrc_nr_args_t args = {};
+  // Stores the state of the PHy configuration setting
+  enum {
+    PHY_CFG_STATE_NONE = 0,
+    PHY_CFG_STATE_APPLY_SP_CELL,
+    PHY_CFG_STATE_RA_COMPLETED,
+  } phy_cfg_state;
 
-  // RRC constants and timers
-  srsran::timer_handler* timers = nullptr;
+  rrc_nr_args_t args = {};
 
   const char* get_rb_name(uint32_t lcid) final;
 
@@ -195,10 +188,9 @@ private:
   std::map<uint32_t, uint32_t> drb_eps_bearer_id; // Map of drb id to eps_bearer_id
 
   // temporary maps for building the pucch nr resources
-  std::map<uint32_t, srsran_pucch_nr_resource_t>   res_list;
-  std::map<uint32_t, bool>                         res_list_present;
-  std::map<uint32_t, srsran_csi_rs_zp_resource_t>  csi_rs_zp_res;
-  std::map<uint32_t, srsran_csi_rs_nzp_resource_t> csi_rs_nzp_res;
+  srsran::static_circular_map<uint32_t, srsran_pucch_nr_resource_t, 128> pucch_res_list;
+  std::map<uint32_t, srsran_csi_rs_zp_resource_t>                        csi_rs_zp_res;
+  std::map<uint32_t, srsran_csi_rs_nzp_resource_t>                       csi_rs_nzp_res;
 
   bool apply_cell_group_cfg(const asn1::rrc_nr::cell_group_cfg_s& cell_group_cfg);
   bool apply_radio_bearer_cfg(const asn1::rrc_nr::radio_bearer_cfg_s& radio_bearer_cfg);

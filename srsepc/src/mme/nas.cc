@@ -45,7 +45,8 @@ nas::nas(const nas_init_t& args, const nas_if_t& itf) :
   m_dns(args.dns),
   m_full_net_name(args.full_net_name),
   m_short_net_name(args.short_net_name),
-  m_t3413(args.paging_timer)
+  m_t3413(args.paging_timer),
+  m_request_imeisv(args.request_imeisv)
 {
   m_sec_ctx.integ_algo  = args.integ_algo;
   m_sec_ctx.cipher_algo = args.cipher_algo;
@@ -774,6 +775,31 @@ bool nas::handle_detach_request(uint32_t                m_tmsi,
   ecm_ctx_t* ecm_ctx = &nas_ctx->m_ecm_ctx;
   sec_ctx_t* sec_ctx = &nas_ctx->m_sec_ctx;
 
+  // TS 24.301, Sec 5.5.2.2.1, UE initiated detach request
+  if (detach_req.detach_type.switch_off == 0) {
+    // UE expects detach accept
+    srsran::unique_byte_buffer_t nas_tx = srsran::make_byte_buffer();
+    if (nas_tx == nullptr) {
+      nas_logger.error("Couldn't allocate PDU in %s().", __FUNCTION__);
+      return false;
+    }
+
+    LIBLTE_MME_DETACH_ACCEPT_MSG_STRUCT detach_accept = {};
+    err                                               = liblte_mme_pack_detach_accept_msg(&detach_accept,
+                                            LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS,
+                                            sec_ctx->dl_nas_count,
+                                            (LIBLTE_BYTE_MSG_STRUCT*)nas_tx.get());
+    if (err != LIBLTE_SUCCESS) {
+      nas_logger.error("Error packing Detach Accept\n");
+    }
+
+    nas_logger.info("Sending detach accept.\n");
+    sec_ctx->dl_nas_count++;
+    s1ap->send_downlink_nas_transport(enb_ue_s1ap_id, s1ap->get_next_mme_ue_s1ap_id(), nas_tx.get(), *enb_sri);
+  } else {
+    nas_logger.info("UE is switched off\n");
+  }
+
   gtpc->send_delete_session_request(emm_ctx->imsi);
   emm_ctx->state = EMM_STATE_DEREGISTERED;
   sec_ctx->ul_nas_count++;
@@ -951,7 +977,7 @@ bool nas::handle_attach_request(srsran::byte_buffer_t* nas_rx)
 bool nas::handle_authentication_response(srsran::byte_buffer_t* nas_rx)
 {
   LIBLTE_MME_AUTHENTICATION_RESPONSE_MSG_STRUCT auth_resp = {};
-  bool                                          ue_valid = true;
+  bool                                          ue_valid  = true;
 
   // Get NAS authentication response
   LIBLTE_ERROR_ENUM err = liblte_mme_unpack_authentication_response_msg((LIBLTE_BYTE_MSG_STRUCT*)nas_rx, &auth_resp);
@@ -1364,7 +1390,11 @@ bool nas::pack_security_mode_command(srsran::byte_buffer_t* nas_buffer)
   sm_cmd.ue_security_cap.gea_present = m_sec_ctx.ms_network_cap_present;
   memcpy(sm_cmd.ue_security_cap.gea, m_sec_ctx.ms_network_cap.gea, 8 * sizeof(bool));
 
-  sm_cmd.imeisv_req_present = false;
+  sm_cmd.imeisv_req_present = m_request_imeisv;
+  if (m_request_imeisv) {
+    sm_cmd.imeisv_req = LIBLTE_MME_IMEISV_REQUESTED;
+  }
+
   sm_cmd.nonce_ue_present   = false;
   sm_cmd.nonce_mme_present  = false;
 
@@ -1522,7 +1552,12 @@ bool nas::pack_attach_accept(srsran::byte_buffer_t* nas_buffer)
   act_def_eps_bearer_context_req.protocol_cnfg_opts.opt[0].len = 4;
 
   struct sockaddr_in dns_addr;
-  inet_pton(AF_INET, m_dns.c_str(), &(dns_addr.sin_addr));
+  if (inet_pton(AF_INET, m_dns.c_str(), &(dns_addr.sin_addr)) != 1) {
+    m_logger.error("Invalid m_dns: %s", m_dns.c_str());
+    srsran::console("Invalid m_dns: %s\n", m_dns.c_str());
+    perror("inet_pton");
+    return false;
+  }
   memcpy(act_def_eps_bearer_context_req.protocol_cnfg_opts.opt[0].contents, &dns_addr.sin_addr.s_addr, 4);
 
   // Make sure all unused options are set to false
@@ -1680,24 +1715,7 @@ bool nas::short_integrity_check(srsran::byte_buffer_t* pdu)
     return false;
   }
 
-  const uint8_t ul_count = (pdu->msg[1] & 0x1f);
-
-  const uint8_t curr_count = (m_sec_ctx.ul_nas_count & 0x1f);
-
-  uint32_t estimated_count = 0;
-
-  if(ul_count >= curr_count)
-   {
-     estimated_count = ((m_sec_ctx.ul_nas_count & 0xffffffe0) + ul_count);
-   }
-  else
-   {
-     // roll over
-     estimated_count = m_sec_ctx.ul_nas_count + (32 - (curr_count - ul_count));
-   }
-
-  m_logger.info("Local: count=%d, Estimated: count=%d, ul_count=%hhu, curr_count=%hhu", 
-                m_sec_ctx.ul_nas_count, estimated_count, ul_count, curr_count);
+  uint32_t estimated_count = (m_sec_ctx.ul_nas_count & 0xffffffe0) | (pdu->msg[1] & 0x1f);
 
   switch (m_sec_ctx.integ_algo) {
     case srsran::INTEGRITY_ALGORITHM_ID_EIA0:
@@ -1732,6 +1750,7 @@ bool nas::short_integrity_check(srsran::byte_buffer_t* pdu)
     default:
       break;
   }
+
   // Check if expected mac equals the sent mac
   for (i = 0; i < 2; i++) {
     if (exp_mac[i + 2] != mac[i]) {
@@ -1748,6 +1767,7 @@ bool nas::short_integrity_check(srsran::byte_buffer_t* pdu)
       return false;
     }
   }
+
   m_logger.info("Integrity check ok. Local: count=%d, Received: count=%d", m_sec_ctx.ul_nas_count, pdu->msg[1] & 0x1F);
   m_sec_ctx.ul_nas_count = estimated_count;
   return true;

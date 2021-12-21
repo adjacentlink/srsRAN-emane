@@ -45,21 +45,18 @@ public:
   sf_worker(uint32_t max_prb, phy_common* phy_, srslog::basic_logger& logger);
   virtual ~sf_worker();
 
-  void reset_cell_unlocked(uint32_t cc_idx);
-  bool set_cell_unlocked(uint32_t cc_idx, srsran_cell_t cell_);
+  void reset_cell_nolock(uint32_t cc_idx);
+  bool set_cell_nolock(uint32_t cc_idx, srsran_cell_t cell_);
 
   /* Functions used by main PHY thread */
   cf_t*    get_buffer(uint32_t cc_idx, uint32_t antenna_idx);
   uint32_t get_buffer_len();
-  void     set_tti(uint32_t tti);
-  void     set_tx_time(const srsran::rf_timestamp_t& tx_time);
+  void     set_context(const srsran::phy_common_interface::worker_context_t& w_ctx);
   void     set_prach(cf_t* prach_ptr, float prach_power);
-  void     set_cfo_unlocked(const uint32_t& cc_idx, float cfo);
+  void     set_cfo_nolock(const uint32_t& cc_idx, float cfo);
 
-  void set_tdd_config_unlocked(srsran_tdd_config_t config);
-  void set_config_unlocked(uint32_t cc_idx, srsran::phy_cfg_t phy_cfg);
-  void set_crnti_unlocked(uint16_t rnti);
-  void enable_pregen_signals_unlocked(bool enabled);
+  void set_tdd_config_nolock(srsran_tdd_config_t config);
+  void set_config_nolock(uint32_t cc_idx, const srsran::phy_cfg_t& phy_cfg);
 
   ///< Methods for plotting called from GUI thread
   int      read_ce_abs(float* ce_abs, uint32_t tx_antenna, uint32_t rx_antenna);
@@ -100,8 +97,7 @@ private:
   cf_t* prach_ptr   = nullptr;
   float prach_power = 0;
 
-  uint32_t               tti     = 0;
-  srsran::rf_timestamp_t tx_time = {};
+  srsran::phy_common_interface::worker_context_t context = {};
 };
 
 } // namespace lte

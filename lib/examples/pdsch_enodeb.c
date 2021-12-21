@@ -66,7 +66,7 @@ static int      net_port = -1; // -1 generates random dataThat means there is so
 static uint32_t cfi      = 2;
 static uint32_t mcs_idx = 1, last_mcs_idx = 1;
 static int      nof_frames              = -1;
-static srsran_tm_t transmission_mode       = SRSRAN_TM1;
+static srsran_tm_t transmission_mode    = SRSRAN_TM1;
 static uint32_t    nof_tb               = 1;
 static uint32_t    multiplex_pmi        = 0;
 static uint32_t    multiplex_nof_layers = 1;
@@ -198,7 +198,7 @@ static void parse_args(int argc, char** argv)
         mbsfn_area_id = (int)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       case 's':
         output_file_snr = strtof(argv[optind], NULL);
@@ -211,6 +211,9 @@ static void parse_args(int argc, char** argv)
         break;
       case 'Q':
         use_standard_lte_rate ^= true;
+        break;
+      case 'E':
+        cell.cp = SRSRAN_CP_EXT;
         break;
       default:
         usage(argv[0]);
@@ -316,7 +319,7 @@ static void base_init()
 
   /* create ifft object */
   for (i = 0; i < cell.nof_ports; i++) {
-    if (srsran_ofdm_tx_init(&ifft[i], SRSRAN_CP_NORM, sf_buffer[i], output_buffer[i], cell.nof_prb)) {
+    if (srsran_ofdm_tx_init(&ifft[i], cell.cp, sf_buffer[i], output_buffer[i], cell.nof_prb)) {
       ERROR("Error creating iFFT object");
       exit(-1);
     }
@@ -734,7 +737,7 @@ int main(int argc, char** argv)
     generate_mcch_table(mch_table, mbsfn_sf_mask);
   }
   N_id_2       = cell.id % 3;
-  sf_n_re      = 2 * SRSRAN_CP_NORM_NSYMB * cell.nof_prb * SRSRAN_NRE;
+  sf_n_re      = SRSRAN_SF_LEN_RE(cell.nof_prb, cell.cp);
   sf_n_samples = 2 * SRSRAN_SLOT_LEN(srsran_symbol_sz(cell.nof_prb));
 
   cell.phich_length    = SRSRAN_PHICH_NORM;
@@ -850,8 +853,8 @@ int main(int argc, char** argv)
       srsran_vec_cf_zero(sf_symbols[0], sf_n_re);
 
       if (sf_idx == 0 || sf_idx == 5) {
-        srsran_pss_put_slot(pss_signal, sf_symbols[0], cell.nof_prb, SRSRAN_CP_NORM);
-        srsran_sss_put_slot(sf_idx ? sss_signal5 : sss_signal0, sf_symbols[0], cell.nof_prb, SRSRAN_CP_NORM);
+        srsran_pss_put_slot(pss_signal, sf_symbols[0], cell.nof_prb, cell.cp);
+        srsran_sss_put_slot(sf_idx ? sss_signal5 : sss_signal0, sf_symbols[0], cell.nof_prb, cell.cp);
       }
 
       /* Copy zeros, SSS, PSS into the rest of antenna ports */

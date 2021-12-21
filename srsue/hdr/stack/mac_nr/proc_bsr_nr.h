@@ -27,6 +27,7 @@
 
 #include "proc_sr_nr.h"
 #include "srsran/common/task_scheduler.h"
+#include "srsran/mac/bsr_nr.h"
 #include "srsran/mac/mac_sch_pdu_nr.h"
 #include "srsran/srslog/srslog.h"
 #include "srsue/hdr/stack/mac_common/mac_common.h"
@@ -41,9 +42,6 @@ class rlc_interface_mac;
 class bsr_interface_mux_nr
 {
 public:
-  // TS 38.321 Sec 6.1.3.1
-  typedef enum { SHORT_BSR, LONG_BSR, SHORT_TRUNC_BSR, LONG_TRUNC_BSR } bsr_format_nr_t;
-
   /// MUX calls BSR to receive the buffer state of a single LCG.
   virtual srsran::mac_sch_subpdu_nr::lcg_bsr_t generate_sbsr() = 0;
 };
@@ -52,7 +50,7 @@ class mux_interface_bsr_nr
 {
 public:
   /// Inform MUX unit to that a BSR needs to be generated in the next UL transmission.
-  virtual void generate_bsr_mac_ce(const bsr_interface_mux_nr::bsr_format_nr_t& format) = 0;
+  virtual void generate_bsr_mac_ce(const srsran::bsr_format_nr_t& format) = 0;
 };
 
 /**
@@ -80,7 +78,7 @@ public:
 
   /// MUX interface for BSR generation
   srsran::mac_sch_subpdu_nr::lcg_bsr_t generate_sbsr();
-  bool                                 generate_padding_bsr(uint32_t nof_padding_bytes);
+  void                                 set_padding_bytes(uint32_t nof_bytes);
 
 private:
   const static int QUEUE_STATUS_PERIOD_MS = 1000;
@@ -110,7 +108,7 @@ private:
   bool     check_new_data(const mac_buffer_states_t& new_buffer_state);
   bool     check_any_channel();
 
-  uint8_t buff_size_bytes_to_field(uint32_t buffer_size, bsr_format_nr_t format);
+  uint8_t buff_size_bytes_to_field(uint32_t buffer_size, srsran::bsr_format_nr_t format);
 
   uint32_t find_max_priority_lcg_with_data();
 

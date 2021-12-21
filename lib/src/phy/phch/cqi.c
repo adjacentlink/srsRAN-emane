@@ -74,7 +74,7 @@ static int cqi_hl_subband_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_hl_subband_t* m
   return bit_count;
 }
 
-static int cqi_ue_subband_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_ue_subband_t* msg, uint8_t* buff)
+static int cqi_ue_subband_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_ue_diff_subband_t* msg, uint8_t* buff)
 {
   uint8_t* body_ptr = buff;
   srsran_bit_unpack(msg->wideband_cqi, &body_ptr, 4);
@@ -110,7 +110,7 @@ static int cqi_format2_wideband_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_format2_w
   return (int)(body_ptr - buff);
 }
 
-static int cqi_format2_subband_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_format2_subband_t* msg, uint8_t* buff)
+static int cqi_format2_subband_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_ue_subband_t* msg, uint8_t* buff)
 {
   uint8_t* body_ptr = buff;
   srsran_bit_unpack(msg->subband_cqi, &body_ptr, 4);
@@ -123,10 +123,10 @@ int srsran_cqi_value_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_value_t* value, uint
   switch (cfg->type) {
     case SRSRAN_CQI_TYPE_WIDEBAND:
       return cqi_format2_wideband_pack(cfg, &value->wideband, buff);
-    case SRSRAN_CQI_TYPE_SUBBAND:
-      return cqi_format2_subband_pack(cfg, &value->subband, buff);
     case SRSRAN_CQI_TYPE_SUBBAND_UE:
-      return cqi_ue_subband_pack(cfg, &value->subband_ue, buff);
+      return cqi_format2_subband_pack(cfg, &value->subband_ue, buff);
+    case SRSRAN_CQI_TYPE_SUBBAND_UE_DIFF:
+      return cqi_ue_subband_pack(cfg, &value->subband_ue_diff, buff);
     case SRSRAN_CQI_TYPE_SUBBAND_HL:
       return cqi_hl_subband_pack(cfg, &value->subband_hl, buff);
   }
@@ -172,7 +172,7 @@ int cqi_hl_subband_unpack(srsran_cqi_cfg_t* cfg, uint8_t* buff, srsran_cqi_hl_su
   return bit_count;
 }
 
-int cqi_ue_subband_unpack(srsran_cqi_cfg_t* cfg, uint8_t* buff, srsran_cqi_ue_subband_t* msg)
+int cqi_ue_subband_unpack(srsran_cqi_cfg_t* cfg, uint8_t* buff, srsran_cqi_ue_diff_subband_t* msg)
 {
   uint8_t* body_ptr     = buff;
   msg->wideband_cqi     = srsran_bit_pack(&body_ptr, 4);
@@ -206,7 +206,7 @@ static int cqi_format2_wideband_unpack(srsran_cqi_cfg_t* cfg, uint8_t* buff, srs
   return 4;
 }
 
-static int cqi_format2_subband_unpack(srsran_cqi_cfg_t* cfg, uint8_t* buff, srsran_cqi_format2_subband_t* msg)
+static int cqi_format2_subband_unpack(srsran_cqi_cfg_t* cfg, uint8_t* buff, srsran_cqi_ue_subband_t* msg)
 {
   uint8_t* body_ptr  = buff;
   msg->subband_cqi   = srsran_bit_pack(&body_ptr, 4);
@@ -219,10 +219,10 @@ int srsran_cqi_value_unpack(srsran_cqi_cfg_t* cfg, uint8_t buff[SRSRAN_CQI_MAX_B
   switch (cfg->type) {
     case SRSRAN_CQI_TYPE_WIDEBAND:
       return cqi_format2_wideband_unpack(cfg, buff, &value->wideband);
-    case SRSRAN_CQI_TYPE_SUBBAND:
-      return cqi_format2_subband_unpack(cfg, buff, &value->subband);
     case SRSRAN_CQI_TYPE_SUBBAND_UE:
-      return cqi_ue_subband_unpack(cfg, buff, &value->subband_ue);
+      return cqi_format2_subband_unpack(cfg, buff, &value->subband_ue);
+    case SRSRAN_CQI_TYPE_SUBBAND_UE_DIFF:
+      return cqi_ue_subband_unpack(cfg, buff, &value->subband_ue_diff);
     case SRSRAN_CQI_TYPE_SUBBAND_HL:
       return cqi_hl_subband_unpack(cfg, buff, &value->subband_hl);
   }
@@ -251,17 +251,18 @@ cqi_format2_wideband_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_format2_wideband
 }
 
 static int
-cqi_format2_subband_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_format2_subband_t* msg, char* buff, uint32_t buff_len)
+cqi_format2_subband_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_ue_subband_t* msg, char* buff, uint32_t buff_len)
 {
   int n = 0;
 
   n += snprintf(buff + n, buff_len - n, ", cqi=%d", msg->subband_cqi);
   n += snprintf(buff + n, buff_len - n, ", label=%d", msg->subband_label);
-
+  n += snprintf(buff + n, buff_len - n, ", sb_idx=%d", cfg->sb_idx);
   return n;
 }
 
-static int cqi_ue_subband_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_ue_subband_t* msg, char* buff, uint32_t buff_len)
+static int
+cqi_ue_subband_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_ue_diff_subband_t* msg, char* buff, uint32_t buff_len)
 {
   int n = 0;
 
@@ -301,17 +302,17 @@ int srsran_cqi_value_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_value_t* value, 
     case SRSRAN_CQI_TYPE_WIDEBAND:
       ret = cqi_format2_wideband_tostring(cfg, &value->wideband, buff, buff_len);
       break;
-    case SRSRAN_CQI_TYPE_SUBBAND:
-      ret = cqi_format2_subband_tostring(cfg, &value->subband, buff, buff_len);
-      break;
     case SRSRAN_CQI_TYPE_SUBBAND_UE:
-      ret = cqi_ue_subband_tostring(cfg, &value->subband_ue, buff, buff_len);
+      ret = cqi_format2_subband_tostring(cfg, &value->subband_ue, buff, buff_len);
+      break;
+    case SRSRAN_CQI_TYPE_SUBBAND_UE_DIFF:
+      ret = cqi_ue_subband_tostring(cfg, &value->subband_ue_diff, buff, buff_len);
       break;
     case SRSRAN_CQI_TYPE_SUBBAND_HL:
       ret = cqi_hl_subband_tostring(cfg, &value->subband_hl, buff, buff_len);
       break;
     default:
-      /* Do nothing */;
+        /* Do nothing */;
   }
 
   return ret;
@@ -348,10 +349,10 @@ int srsran_cqi_size(srsran_cqi_cfg_t* cfg)
         }
       }
       break;
-    case SRSRAN_CQI_TYPE_SUBBAND:
+    case SRSRAN_CQI_TYPE_SUBBAND_UE:
       size = 4 + ((cfg->subband_label_2_bits) ? 2 : 1);
       break;
-    case SRSRAN_CQI_TYPE_SUBBAND_UE:
+    case SRSRAN_CQI_TYPE_SUBBAND_UE_DIFF:
       size = 4 + 2 + cfg->L;
       break;
     case SRSRAN_CQI_TYPE_SUBBAND_HL:
@@ -453,9 +454,8 @@ static bool cqi_get_N_tdd(uint32_t I_cqi_pmi, uint32_t* N_p, uint32_t* N_offset)
   return true;
 }
 
-static bool cqi_send(uint32_t I_cqi_pmi, uint32_t tti, bool is_fdd)
+static bool cqi_send(uint32_t I_cqi_pmi, uint32_t tti, bool is_fdd, uint32_t H)
 {
-
   uint32_t N_p      = 0;
   uint32_t N_offset = 0;
 
@@ -470,7 +470,7 @@ static bool cqi_send(uint32_t I_cqi_pmi, uint32_t tti, bool is_fdd)
   }
 
   if (N_p) {
-    if ((tti - N_offset) % N_p == 0) {
+    if ((tti - N_offset) % (H * N_p) == 0) {
       return true;
     }
   }
@@ -479,7 +479,6 @@ static bool cqi_send(uint32_t I_cqi_pmi, uint32_t tti, bool is_fdd)
 
 static bool ri_send(uint32_t I_cqi_pmi, uint32_t I_ri, uint32_t tti, bool is_fdd)
 {
-
   uint32_t M_ri        = 0;
   int      N_offset_ri = 0;
   uint32_t N_p         = 0;
@@ -526,6 +525,95 @@ static bool ri_send(uint32_t I_cqi_pmi, uint32_t I_ri, uint32_t tti, bool is_fdd
   return false;
 }
 
+/* Returns the subband size for higher layer-configured subband feedback,
+ * i.e., the number of RBs per subband as a function of the cell bandwidth
+ * (Table 7.2.1-3 in TS 36.213)
+ */
+static int cqi_hl_get_subband_size(int nof_prb)
+{
+  if (nof_prb < 7) {
+    ERROR("Error: nof_prb is invalid (< 7)");
+    return SRSRAN_ERROR;
+  } else if (nof_prb <= 26) {
+    return 4;
+  } else if (nof_prb <= 63) {
+    return 6;
+  } else if (nof_prb <= 110) {
+    return 8;
+  } else {
+    ERROR("Error: nof_prb is invalid (> 110)");
+    return SRSRAN_ERROR;
+  }
+}
+
+/* Returns the bandwidth parts (J)
+ * (Table 7.2.2-2 in TS 36.213)
+ */
+static int cqi_hl_get_bwp_J(int nof_prb)
+{
+  if (nof_prb < 7) {
+    ERROR("Error: nof_prb is not valid (< 7)");
+    return SRSRAN_ERROR;
+  } else if (nof_prb <= 10) {
+    return 1;
+  } else if (nof_prb <= 26) {
+    return 2;
+  } else if (nof_prb <= 63) {
+    return 3;
+  } else if (nof_prb <= 110) {
+    return 4;
+  } else {
+    ERROR("Error: nof_prb is not valid (> 110)");
+    return SRSRAN_ERROR;
+  }
+}
+
+/* Returns the number of subbands in the j-th bandwidth part
+ */
+static int cqi_sb_get_Nj(uint32_t j, uint32_t nof_prb)
+{
+  // from Table 7.2.2-2 in TS 36.213
+  int J = cqi_hl_get_bwp_J(nof_prb);
+  int K = cqi_hl_get_subband_size(nof_prb);
+
+  // Catch the J and k errors, and prevent undefined modulo operations
+  if (J <= 0 || K <= 0) {
+    return 0;
+  }
+
+  if (J == 1) {
+    return (uint32_t)ceil((float)nof_prb / K);
+  } else {
+    // all bw parts have the same number of subbands except the last one
+    uint32_t Nj = (uint32_t)ceil((float)nof_prb / K / J);
+    if (j < J - 1) {
+      return Nj;
+    } else {
+      return Nj - 1;
+    }
+  }
+}
+
+uint32_t srsran_cqi_get_sb_idx(uint32_t                       tti,
+                               uint32_t                       subband_label,
+                               const srsran_cqi_report_cfg_t* cqi_report_cfg,
+                               const srsran_cell_t*           cell)
+{
+  uint32_t bw_part_idx = srsran_cqi_periodic_sb_bw_part_idx(cqi_report_cfg, tti, cell->nof_prb, cell->frame_type);
+  return subband_label + bw_part_idx * cqi_sb_get_Nj(bw_part_idx, cell->nof_prb);
+}
+
+int srsran_cqi_hl_get_L(int nof_prb)
+{
+  int subband_size = cqi_hl_get_subband_size(nof_prb);
+  int bwp_J        = cqi_hl_get_bwp_J(nof_prb);
+  if (subband_size <= 0 || bwp_J <= 0) {
+    ERROR("Invalid parameters");
+    return SRSRAN_ERROR;
+  }
+  return (int)SRSRAN_CEIL_LOG2((double)nof_prb / (subband_size * bwp_J));
+}
+
 bool srsran_cqi_periodic_ri_send(const srsran_cqi_report_cfg_t* cfg, uint32_t tti, srsran_frame_type_t frame_type)
 {
   return cfg->periodic_configured && cfg->ri_idx_present &&
@@ -534,7 +622,65 @@ bool srsran_cqi_periodic_ri_send(const srsran_cqi_report_cfg_t* cfg, uint32_t tt
 
 bool srsran_cqi_periodic_send(const srsran_cqi_report_cfg_t* cfg, uint32_t tti, srsran_frame_type_t frame_type)
 {
-  return cfg->periodic_configured && cqi_send(cfg->pmi_idx, tti, frame_type == SRSRAN_FDD);
+  return cfg->periodic_configured && cqi_send(cfg->pmi_idx, tti, frame_type == SRSRAN_FDD, 1);
+}
+
+uint32_t cqi_sb_get_H(const srsran_cqi_report_cfg_t* cfg, uint32_t nof_prb)
+{
+  uint32_t K = cfg->subband_wideband_ratio;
+  uint32_t J = cqi_hl_get_bwp_J(nof_prb);
+
+  // Catch the J errors
+  if (J <= 0)
+  {
+    return 0;
+  }
+
+  uint32_t H = J * K + 1;
+  return H;
+}
+
+bool srsran_cqi_periodic_is_subband(const srsran_cqi_report_cfg_t* cfg,
+                                    uint32_t                       tti,
+                                    uint32_t                       nof_prb,
+                                    srsran_frame_type_t            frame_type)
+{
+  uint32_t H = cqi_sb_get_H(cfg, nof_prb);
+
+  // A periodic report is subband if it's a CQI opportunity and is not wideband
+  return srsran_cqi_periodic_send(cfg, tti, frame_type) && !cqi_send(cfg->pmi_idx, tti, frame_type == SRSRAN_FDD, H);
+}
+
+uint32_t srsran_cqi_periodic_sb_bw_part_idx(const srsran_cqi_report_cfg_t* cfg,
+                                            uint32_t                       tti,
+                                            uint32_t                       nof_prb,
+                                            srsran_frame_type_t            frame_type)
+{
+  uint32_t H   = cqi_sb_get_H(cfg, nof_prb);
+  uint32_t N_p = 0, N_offset = 0;
+
+  if (frame_type == SRSRAN_FDD) {
+    if (!cqi_get_N_fdd(cfg->pmi_idx, &N_p, &N_offset)) {
+      return false;
+    }
+  } else {
+    if (!cqi_get_N_tdd(cfg->pmi_idx, &N_p, &N_offset)) {
+      return false;
+    }
+  }
+
+  assert(N_p != 0);
+  uint32_t x = ((tti - N_offset) / N_p) % H;
+  if (x > 0) {
+    int J = cqi_hl_get_bwp_J(nof_prb);
+    // Catch the J errors and prevent undefined modulo operation
+    if (J <= 0) {
+      return 0;
+    }
+    return (x - 1) % J;
+  } else {
+    return 0;
+  }
 }
 
 // CQI-to-Spectral Efficiency:  36.213 Table 7.2.3-1
@@ -599,25 +745,6 @@ uint8_t srsran_cqi_from_snr(float snr)
     }
   }
   return 0;
-}
-
-/* Returns the subband size for higher layer-configured subband feedback,
- * i.e., the number of RBs per subband as a function of the cell bandwidth
- * (Table 7.2.1-3 in TS 36.213)
- */
-static int cqi_hl_get_subband_size(int nof_prb)
-{
-  if (nof_prb < 7) {
-    return 0;
-  } else if (nof_prb <= 26) {
-    return 4;
-  } else if (nof_prb <= 63) {
-    return 6;
-  } else if (nof_prb <= 110) {
-    return 8;
-  } else {
-    return -1;
-  }
 }
 
 /* Returns the number of subbands to be reported in CQI measurements as

@@ -34,14 +34,14 @@ if (RPATH)
 endif (RPATH)
 
 add_library(enb_cfg_parser STATIC parser.cc enb_cfg_parser.cc)
-target_link_libraries(enb_cfg_parser ${LIBCONFIGPP_LIBRARIES})
+target_link_libraries(enb_cfg_parser srsran_common ${LIBCONFIGPP_LIBRARIES})
 
 add_executable(srsenb-emane main.cc enb.cc metrics_stdout.cc metrics_csv.cc metrics_json.cc metrics_ostatistic.cc)
 
-set(SRSENB_SOURCES srsenb_phy srsenb_stack srsenb_common srsenb_upper srsenb_mac srsenb_rrc srslog system)
-set(SRSRAN_SOURCES srsran_common srsran_mac srsran_phy srsran_upper srsran_radio rrc_asn1 s1ap_asn1 enb_cfg_parser srslog system)
+set(SRSENB_SOURCES srsenb_phy srsenb_stack srsenb_common srsenb_s1ap srsenb_upper srsenb_mac srsenb_rrc srslog system)
+set(SRSRAN_SOURCES srsran_common srsran_mac srsran_phy srsran_gtpu srsran_rlc srsran_pdcp srsran_radio rrc_asn1 s1ap_asn1 enb_cfg_parser srslog support system)
 
-set(SRSENB_SOURCES ${SRSENB_SOURCES} srsgnb_phy srsgnb_stack srsgnb_upper srsgnb_mac srsgnb_rrc)
+set(SRSENB_SOURCES ${SRSENB_SOURCES} srsgnb_stack srsgnb_ngap srsgnb_upper srsgnb_mac srsgnb_rrc)
 set(SRSRAN_SOURCES ${SRSRAN_SOURCES} rrc_nr_asn1 ngap_nr_asn1)
 
 target_link_libraries(srsenb-emane  ${SRSENB_SOURCES}

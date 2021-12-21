@@ -20,6 +20,7 @@
  */
 #include "srsepc/hdr/hss/hss.h"
 #include "srsran/common/security.h"
+#include "srsran/common/string_helpers.h"
 #include <arpa/inet.h>
 #include <inttypes.h> // for printing uint64_t
 #include <iomanip>
@@ -103,7 +104,7 @@ bool hss::read_db_file(std::string db_filename)
   while (std::getline(m_db_file, line)) {
     if (line[0] != '#' && line.length() > 0) {
       uint                     column_size = 10;
-      std::vector<std::string> split       = split_string(line, ',');
+      std::vector<std::string> split       = srsran::split_string(line, ',');
       if (split.size() != column_size) {
         m_logger.error("Error parsing UE database. Wrong number of columns in .csv");
         m_logger.error("Columns: %zd, Expected %d.", split.size(), column_size);
@@ -124,20 +125,20 @@ bool hss::read_db_file(std::string db_filename)
         return false;
       }
       ue_ctx->imsi = strtoull(split[2].c_str(), nullptr, 10);
-      get_uint_vec_from_hex_str(split[3], ue_ctx->key, 16);
+      srsran::get_uint_vec_from_hex_str(split[3], ue_ctx->key, 16);
       if (split[4] == std::string("op")) {
         ue_ctx->op_configured = true;
-        get_uint_vec_from_hex_str(split[5], ue_ctx->op, 16);
+        srsran::get_uint_vec_from_hex_str(split[5], ue_ctx->op, 16);
         srsran::compute_opc(ue_ctx->key, ue_ctx->op, ue_ctx->opc);
       } else if (split[4] == std::string("opc")) {
         ue_ctx->op_configured = false;
-        get_uint_vec_from_hex_str(split[5], ue_ctx->opc, 16);
+        srsran::get_uint_vec_from_hex_str(split[5], ue_ctx->opc, 16);
       } else {
         m_logger.error("Neither OP nor OPc configured.");
         return false;
       }
-      get_uint_vec_from_hex_str(split[6], ue_ctx->amf, 2);
-      get_uint_vec_from_hex_str(split[7], ue_ctx->sqn, 6);
+      srsran::get_uint_vec_from_hex_str(split[6], ue_ctx->amf, 2);
+      srsran::get_uint_vec_from_hex_str(split[7], ue_ctx->sqn, 6);
 
       m_logger.debug("Added user from DB, IMSI: %015" PRIu64 "", ue_ctx->imsi);
       m_logger.debug(ue_ctx->key, 16, "User Key : ");
@@ -223,19 +224,19 @@ bool hss::write_db_file(std::string db_filename)
     m_db_file << ",";
     m_db_file << std::setfill('0') << std::setw(15) << it->second->imsi;
     m_db_file << ",";
-    m_db_file << hex_string(it->second->key, 16);
+    m_db_file << srsran::hex_string(it->second->key, 16);
     m_db_file << ",";
     if (it->second->op_configured) {
       m_db_file << "op,";
-      m_db_file << hex_string(it->second->op, 16);
+      m_db_file << srsran::hex_string(it->second->op, 16);
     } else {
       m_db_file << "opc,";
-      m_db_file << hex_string(it->second->opc, 16);
+      m_db_file << srsran::hex_string(it->second->opc, 16);
     }
     m_db_file << ",";
-    m_db_file << hex_string(it->second->amf, 2);
+    m_db_file << srsran::hex_string(it->second->amf, 2);
     m_db_file << ",";
-    m_db_file << hex_string(it->second->sqn, 6);
+    m_db_file << srsran::hex_string(it->second->sqn, 6);
     m_db_file << ",";
     m_db_file << it->second->qci;
     if (it->second->static_ip_addr != "0.0.0.0") {
@@ -311,8 +312,12 @@ void hss::gen_auth_info_answer_milenage(hss_ue_ctx_t* ue_ctx,
   m_logger.debug(sqn, 6, "User SQN : ");
   m_logger.debug(mac, 8, "User MAC : ");
 
+  uint8_t ak_xor_sqn[6];
+  for (int i = 0; i < 6; i++) {
+    ak_xor_sqn[i] = sqn[i] ^ ak[i];
+  }
   // Generate K_asme
-  srsran::security_generate_k_asme(ck, ik, ak, sqn, mcc, mnc, k_asme);
+  srsran::security_generate_k_asme(ck, ik, ak_xor_sqn, mcc, mnc, k_asme);
 
   m_logger.debug("User MCC : %x  MNC : %x ", mcc, mnc);
   m_logger.debug(k_asme, 32, "User k_asme : ");
@@ -405,8 +410,12 @@ void hss::gen_auth_info_answer_xor(hss_ue_ctx_t* ue_ctx, uint8_t* k_asme, uint8_
     autn[8 + i] = mac[i];
   }
 
+  uint8_t ak_xor_sqn[6];
+  for (int i = 0; i < 6; i++) {
+    ak_xor_sqn[i] = sqn[i] ^ ak[i];
+  }
   // Generate K_asme
-  srsran::security_generate_k_asme(ck, ik, ak, sqn, mcc, mnc, k_asme);
+  srsran::security_generate_k_asme(ck, ik, ak_xor_sqn, mcc, mnc, k_asme);
 
   m_logger.debug("User MCC : %x  MNC : %x ", mcc, mnc);
   m_logger.debug(k_asme, 32, "User k_asme : ");
@@ -610,41 +619,6 @@ hss_ue_ctx_t* hss::get_ue_ctx(uint64_t imsi)
   }
 
   return ue_ctx_it->second.get();
-}
-
-/* Helper functions*/
-std::vector<std::string> hss::split_string(const std::string& str, char delimiter)
-{
-  std::vector<std::string> tokens;
-  std::string              token;
-  std::istringstream       tokenStream(str);
-
-  while (std::getline(tokenStream, token, delimiter)) {
-    tokens.push_back(token);
-  }
-  return tokens;
-}
-
-void hss::get_uint_vec_from_hex_str(const std::string& key_str, uint8_t* key, uint len)
-{
-  const char* pos = key_str.c_str();
-
-  for (uint count = 0; count < len; count++) {
-    sscanf(pos, "%2hhx", &key[count]);
-    pos += 2;
-  }
-  return;
-}
-
-std::string hss::hex_string(uint8_t* hex, int size)
-{
-  std::stringstream ss;
-
-  ss << std::hex << std::setfill('0');
-  for (int i = 0; i < size; i++) {
-    ss << std::setw(2) << static_cast<unsigned>(hex[i]);
-  }
-  return ss.str();
 }
 
 std::map<std::string, uint64_t> hss::get_ip_to_imsi(void) const

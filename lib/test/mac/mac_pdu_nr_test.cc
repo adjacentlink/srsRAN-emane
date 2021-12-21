@@ -20,6 +20,7 @@
  */
 
 #include "srsran/common/mac_pcap.h"
+#include "srsran/common/string_helpers.h"
 #include "srsran/common/test_common.h"
 #include "srsran/config.h"
 #include "srsran/mac/mac_rar_pdu_nr.h"
@@ -32,6 +33,7 @@
 
 #define PCAP 0
 #define PCAP_CRNTI (0x1001)
+#define PCAP_RAR_RNTI (0x0016)
 #define PCAP_TTI (666)
 
 using namespace srsran;
@@ -226,8 +228,13 @@ int mac_dl_sch_pdu_pack_test5()
     pcap_handle->write_dl_crnti_nr(tx_buffer.msg, tx_buffer.N_bytes, PCAP_CRNTI, true, PCAP_TTI);
   }
 
+  // pretty print PDU
+  fmt::memory_buffer buff;
+  tx_pdu.to_string(buff);
+
   auto& mac_logger = srslog::fetch_basic_logger("MAC");
-  mac_logger.info(tx_buffer.msg, tx_buffer.N_bytes, "Generated MAC PDU (%d B)", tx_buffer.N_bytes);
+  mac_logger.info(
+      tx_buffer.msg, tx_buffer.N_bytes, "Generated MAC PDU (%d B): %s", tx_buffer.N_bytes, srsran::to_c_str(buff));
 
   return SRSRAN_SUCCESS;
 }
@@ -254,7 +261,7 @@ int mac_dl_sch_pdu_unpack_test6()
   return SRSRAN_SUCCESS;
 }
 
-int mac_rar_pdu_unpack_test7()
+int mac_rar_pdu_test7()
 {
   // MAC PDU with RAR PDU with single RAPID=0
   // rapid=0
@@ -282,13 +289,17 @@ int mac_rar_pdu_unpack_test7()
   uint8_t mac_dl_rar_pdu[] = {0x40, 0x05, 0xa0, 0x00, 0x11, 0x46, 0x46, 0x16, 0x00, 0x00, 0x00};
 
   if (pcap_handle) {
-    pcap_handle->write_dl_ra_rnti_nr(mac_dl_rar_pdu, sizeof(mac_dl_rar_pdu), 0x0016, true, PCAP_TTI);
+    pcap_handle->write_dl_ra_rnti_nr(mac_dl_rar_pdu, sizeof(mac_dl_rar_pdu), PCAP_RAR_RNTI, true, PCAP_TTI);
   }
 
   srsran::mac_rar_pdu_nr pdu;
   TESTASSERT(pdu.unpack(mac_dl_rar_pdu, sizeof(mac_dl_rar_pdu)) == true);
 
-  std::cout << pdu.to_string() << std::endl;
+  fmt::memory_buffer buff;
+  pdu.to_string(buff);
+
+  auto& mac_logger = srslog::fetch_basic_logger("MAC");
+  mac_logger.info("Rx PDU: %s", srsran::to_c_str(buff));
 
   TESTASSERT(pdu.get_num_subpdus() == 1);
 
@@ -301,6 +312,30 @@ int mac_rar_pdu_unpack_test7()
 
   std::array<uint8_t, mac_rar_subpdu_nr::UL_GRANT_NBITS> msg3_grant = subpdu.get_ul_grant();
   TESTASSERT(memcmp(msg3_grant.data(), tv_msg3_grant, msg3_grant.size()) == 0);
+
+  // pack again
+  byte_buffer_t  tx_buffer;
+  tx_buffer.clear();
+
+  srsran::mac_rar_pdu_nr tx_pdu;
+  tx_pdu.init_tx(&tx_buffer, sizeof(mac_dl_rar_pdu));
+
+  mac_rar_subpdu_nr& rar_subpdu = tx_pdu.add_subpdu();
+  rar_subpdu.set_ta(tv_ta);
+  rar_subpdu.set_rapid(tv_rapid);
+  rar_subpdu.set_temp_crnti(tv_tcrnti);
+  rar_subpdu.set_ul_grant(msg3_grant);
+
+  TESTASSERT(tx_pdu.pack() == SRSRAN_SUCCESS);
+  TESTASSERT(tx_buffer.N_bytes == sizeof(mac_dl_rar_pdu));
+  TESTASSERT(memcmp(tx_buffer.msg, mac_dl_rar_pdu, tx_buffer.N_bytes) == 0);
+
+  tx_pdu.to_string(buff);
+  mac_logger.info("Tx PDU: %s", srsran::to_c_str(buff));
+
+  if (pcap_handle) {
+    pcap_handle->write_dl_ra_rnti_nr(tx_buffer.msg, tx_buffer.N_bytes, PCAP_RAR_RNTI, true, PCAP_TTI);
+  }
 
   return SRSRAN_SUCCESS;
 }
@@ -490,6 +525,90 @@ int mac_ul_sch_pdu_unpack_and_pack_test3()
   return SRSRAN_SUCCESS;
 }
 
+int mac_ul_sch_pdu_unpack_and_pack_test4()
+{
+  // MAC PDU with UL-SCH with C-RNTI, Long BSR (all zeros) and padding
+  uint8_t        mac_ul_sch_pdu_1[] = {0x3a, 0x46, 0x01, 0x3e, 0x01, 0x00, 0x3f, 0x21, 0x21, 0x21, 0x21};
+  const uint16_t TV_CRNTI           = 0x4601;
+
+  // only LBSR with only one LCG (LCG7 leftmost bit) reporting buffer state
+  uint8_t mac_ul_sch_pdu_2[] = {0x3e, 0x02, 0x80, 0xab};
+
+  // only LBSR with only two LCG (LCG7 leftmost bit. LCG0) reporting buffer state
+  uint8_t mac_ul_sch_pdu_3[] = {0x3e, 0x03, 0x81, 0xab, 0xcd};
+
+  if (pcap_handle) {
+    pcap_handle->write_ul_crnti_nr(mac_ul_sch_pdu_1, sizeof(mac_ul_sch_pdu_1), PCAP_CRNTI, true, PCAP_TTI);
+    pcap_handle->write_ul_crnti_nr(mac_ul_sch_pdu_2, sizeof(mac_ul_sch_pdu_2), PCAP_CRNTI, true, PCAP_TTI);
+    pcap_handle->write_ul_crnti_nr(mac_ul_sch_pdu_3, sizeof(mac_ul_sch_pdu_3), PCAP_CRNTI, true, PCAP_TTI);
+  }
+
+  // pretty print PDU
+  fmt::memory_buffer buff;
+  auto&              mac_logger = srslog::fetch_basic_logger("MAC");
+
+  // first TV
+  srsran::mac_sch_pdu_nr pdu(true);
+  pdu.unpack(mac_ul_sch_pdu_1, sizeof(mac_ul_sch_pdu_1));
+  pdu.to_string(buff);
+  mac_logger.info("Rx PDU: %s", srsran::to_c_str(buff));
+
+  TESTASSERT(pdu.get_num_subpdus() == 3);
+
+  // 1st subPDU is C-RNTI CE
+  mac_sch_subpdu_nr subpdu = pdu.get_subpdu(0);
+  TESTASSERT(subpdu.get_total_length() == 3);
+  TESTASSERT(subpdu.get_sdu_length() == 2);
+  TESTASSERT(subpdu.get_lcid() == mac_sch_subpdu_nr::CRNTI);
+  TESTASSERT(subpdu.get_c_rnti() == TV_CRNTI);
+
+  // 2nd subPDU is LBSR
+  subpdu = pdu.get_subpdu(1);
+  TESTASSERT(subpdu.get_lcid() == mac_sch_subpdu_nr::LONG_BSR);
+  mac_sch_subpdu_nr::lbsr_t lbsr = subpdu.get_lbsr();
+  TESTASSERT(lbsr.list.size() == 0);
+
+  // 3rd is padding
+  subpdu = pdu.get_subpdu(2);
+  TESTASSERT(subpdu.get_lcid() == mac_sch_subpdu_nr::PADDING);
+
+  // TODO: pack again and test
+
+  // 2nd TV
+  pdu.init_rx(true);
+  pdu.unpack(mac_ul_sch_pdu_2, sizeof(mac_ul_sch_pdu_2));
+  buff.clear();
+  pdu.to_string(buff);
+  mac_logger.info("Rx PDU: %s", srsran::to_c_str(buff));
+
+  TESTASSERT(pdu.get_num_subpdus() == 1);
+  subpdu = pdu.get_subpdu(0);
+  TESTASSERT(subpdu.get_lcid() == mac_sch_subpdu_nr::LONG_BSR);
+  lbsr = subpdu.get_lbsr();
+  TESTASSERT(lbsr.list.size() == 1);
+  TESTASSERT(lbsr.list.at(0).lcg_id == 7);
+  TESTASSERT(lbsr.list.at(0).buffer_size == 0xab);
+
+  // 3nd TV
+  pdu.init_rx(true);
+  pdu.unpack(mac_ul_sch_pdu_3, sizeof(mac_ul_sch_pdu_3));
+  buff.clear();
+  pdu.to_string(buff);
+  mac_logger.info("Rx PDU: %s", srsran::to_c_str(buff));
+
+  TESTASSERT(pdu.get_num_subpdus() == 1);
+  subpdu = pdu.get_subpdu(0);
+  TESTASSERT(subpdu.get_lcid() == mac_sch_subpdu_nr::LONG_BSR);
+  lbsr = subpdu.get_lbsr();
+  TESTASSERT(lbsr.list.size() == 2);
+  TESTASSERT(lbsr.list.at(0).lcg_id == 0);
+  TESTASSERT(lbsr.list.at(0).buffer_size == 0xab);
+  TESTASSERT(lbsr.list.at(1).lcg_id == 7);
+  TESTASSERT(lbsr.list.at(1).buffer_size == 0xcd);
+
+  return SRSRAN_SUCCESS;
+}
+
 int mac_ul_sch_pdu_pack_test4()
 {
   // MAC PDU with UL-SCH (with normal LCID) subheader for long SDU
@@ -596,6 +715,13 @@ int mac_dl_sch_pdu_unpack_and_pack_test6()
     // 4th is padding
     subpdu = pdu_rx.get_subpdu(3);
     TESTASSERT(subpdu.get_lcid() == mac_sch_subpdu_nr::PADDING);
+
+    // pretty print PDU
+    fmt::memory_buffer buff;
+    pdu_rx.to_string(buff);
+
+    auto& mac_logger = srslog::fetch_basic_logger("MAC");
+    mac_logger.info("Rx PDU: %s", srsran::to_c_str(buff));
   }
 
   // Let's pack the entire PDU again
@@ -620,6 +746,13 @@ int mac_dl_sch_pdu_unpack_and_pack_test6()
 
     // finish PDU packing
     pdu_tx.pack();
+
+    // pretty print PDU
+    fmt::memory_buffer buff;
+    pdu_tx.to_string(buff);
+
+    auto& mac_logger = srslog::fetch_basic_logger("MAC");
+    mac_logger.info("Tx PDU: %s", srsran::to_c_str(buff));
 
     // compare PDUs
     TESTASSERT(tx_buffer.N_bytes == sizeof(tv));
@@ -701,7 +834,7 @@ int main(int argc, char** argv)
     return SRSRAN_ERROR;
   }
 
-  if (mac_rar_pdu_unpack_test7()) {
+  if (mac_rar_pdu_test7()) {
     fprintf(stderr, "mac_rar_pdu_unpack_test7() failed.\n");
     return SRSRAN_ERROR;
   }
@@ -731,6 +864,11 @@ int main(int argc, char** argv)
     return SRSRAN_ERROR;
   }
 
+  if (mac_ul_sch_pdu_unpack_and_pack_test4()) {
+    fprintf(stderr, "mac_ul_sch_pdu_unpack_and_pack_test4() failed.\n");
+    return SRSRAN_ERROR;
+  }
+
   if (mac_ul_sch_pdu_pack_test4()) {
     fprintf(stderr, "mac_ul_sch_pdu_pack_test4() failed.\n");
     return SRSRAN_ERROR;
@@ -754,6 +892,8 @@ int main(int argc, char** argv)
   if (pcap_handle) {
     pcap_handle->close();
   }
+
+  srslog::flush();
 
   return SRSRAN_SUCCESS;
 }

@@ -23,6 +23,8 @@
 #define SRSENB_MAC_H
 
 #include "sched.h"
+#include "sched_interface.h"
+#include "srsenb/hdr/common/rnti_pool.h"
 #include "srsenb/hdr/stack/mac/schedulers/sched_time_rr.h"
 #include "srsran/adt/circular_map.h"
 #include "srsran/adt/pool/batch_mem_pool.h"
@@ -34,7 +36,6 @@
 #include "srsran/interfaces/enb_mac_interfaces.h"
 #include "srsran/interfaces/enb_metrics_interface.h"
 #include "srsran/interfaces/enb_rrc_interface_types.h"
-#include "srsran/interfaces/sched_interface.h"
 #include "srsran/srslog/srslog.h"
 #include "ta.h"
 #include "ue.h"
@@ -64,11 +65,13 @@ public:
   int ri_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t ri_value) override;
   int pmi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t pmi_value) override;
   int cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t cqi_value) override;
+  int sb_cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t sb_idx, uint32_t cqi_value) override;
   int snr_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, float snr, ul_channel_t ch) override;
   int ta_info(uint32_t tti, uint16_t rnti, float ta_us) override;
   int ack_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t tb_idx, bool ack) override;
   int crc_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t nof_bytes, bool crc_res) override;
-  int push_pdu(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t nof_bytes, bool crc_res) override;
+  int push_pdu(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t nof_bytes, bool crc_res, uint32_t ul_nof_prbs)
+      override;
 
   int  get_dl_sched(uint32_t tti_tx_dl, dl_sched_list_t& dl_sched_res) override;
   int  get_ul_sched(uint32_t tti_tx_ul, ul_sched_list_t& ul_sched_res) override;
@@ -81,28 +84,30 @@ public:
 
   /******** Interface from RRC (RRC -> MAC) ****************/
   /* Provides cell configuration including SIB periodicity, etc. */
-  int  cell_cfg(const std::vector<sched_interface::cell_cfg_t>& cell_cfg) override;
-  void reset() override;
+  int cell_cfg(const std::vector<sched_interface::cell_cfg_t>& cell_cfg) override;
 
   /* Manages UE scheduling context */
-  int ue_cfg(uint16_t rnti, sched_interface::ue_cfg_t* cfg) override;
+  int ue_cfg(uint16_t rnti, const sched_interface::ue_cfg_t* cfg) override;
   int ue_rem(uint16_t rnti) override;
-  int ue_set_crnti(uint16_t temp_crnti, uint16_t crnti, sched_interface::ue_cfg_t* cfg) override;
+  int ue_set_crnti(uint16_t temp_crnti, uint16_t crnti, const sched_interface::ue_cfg_t& cfg) override;
 
   // Indicates that the PHY config dedicated has been enabled or not
   void phy_config_enabled(uint16_t rnti, bool enabled) override;
 
   /* Manages UE bearers and associated configuration */
-  int bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, sched_interface::ue_bearer_cfg_t* cfg) override;
+  int bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, mac_lc_ch_cfg_t* cfg) override;
   int bearer_ue_rem(uint16_t rnti, uint32_t lc_id) override;
   int rlc_buffer_state(uint16_t rnti, uint32_t lc_id, uint32_t tx_queue, uint32_t retx_queue) override;
 
   /* Handover-related */
   uint16_t reserve_new_crnti(const sched_interface::ue_cfg_t& ue_cfg) override;
 
-  bool process_pdus();
-
   void get_metrics(mac_metrics_t& metrics);
+
+  void toggle_padding();
+
+  void add_padding();
+
   void write_mcch(const srsran::sib2_mbms_t* sib2_,
                   const srsran::sib13_t*     sib13_,
                   const srsran::mcch_msg_t*  mcch_,
@@ -110,13 +115,9 @@ public:
                   const uint8_t              mcch_payload_length) override;
 
 private:
-  static const uint32_t cfi = 3;
-
-  bool     check_ue_exists(uint16_t rnti);
-  uint16_t allocate_rnti();
-  uint16_t allocate_ue();
-
-  std::mutex rnti_mutex;
+  bool     check_ue_active(uint16_t rnti);
+  uint16_t allocate_ue(uint32_t enb_cc_idx);
+  bool     is_valid_rnti_unprotected(uint16_t rnti);
 
   srslog::basic_logger& logger;
 
@@ -145,12 +146,9 @@ private:
   sched_interface::dl_pdu_mch_t mch = {};
 
   /* Map of active UEs */
-  rnti_map_t<std::unique_ptr<ue> >         ue_db;
-  std::map<uint16_t, std::unique_ptr<ue> > ues_to_rem;
-  uint16_t                                 last_rnti = 70;
-
-  srsran::static_blocking_queue<std::unique_ptr<ue>, 32> ue_pool; ///< Pool of pre-allocated UE objects
-  void                                                   prealloc_ue(uint32_t nof_ue);
+  static const uint16_t            FIRST_RNTI = 0x46;
+  rnti_map_t<unique_rnti_ptr<ue> > ue_db;
+  std::atomic<uint16_t>            ue_counter{0};
 
   uint8_t* assemble_rar(sched_interface::dl_sched_rar_grant_t* grants,
                         uint32_t                               enb_cc_idx,
@@ -166,12 +164,12 @@ private:
   const static int NOF_BCCH_DLSCH_MSG = sched_interface::MAX_SIBS;
 
   const static int pcch_payload_buffer_len = 1024;
-  typedef struct {
+  struct common_buffers_t {
     uint8_t                pcch_payload_buffer[pcch_payload_buffer_len] = {};
     srsran_softbuffer_tx_t bcch_softbuffer_tx[NOF_BCCH_DLSCH_MSG]       = {};
     srsran_softbuffer_tx_t pcch_softbuffer_tx                           = {};
     srsran_softbuffer_tx_t rar_softbuffer_tx                            = {};
-  } common_buffers_t;
+  };
 
   std::vector<common_buffers_t> common_buffers;
 
@@ -185,8 +183,9 @@ private:
   uint8_t             mtch_payload_buffer[mtch_payload_len] = {};
 
   // pointer to MAC PCAP object
-  srsran::mac_pcap*     pcap     = nullptr;
-  srsran::mac_pcap_net* pcap_net = nullptr;
+  srsran::mac_pcap*     pcap       = nullptr;
+  srsran::mac_pcap_net* pcap_net   = nullptr;
+  bool                  do_padding = false;
 
   // Number of rach preambles detected for a cc.
   std::vector<uint32_t> detected_rachs;

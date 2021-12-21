@@ -42,6 +42,7 @@ typedef struct {
   uint32_t base_srate;
   uint32_t decim_factor; // decimation factor between base_srate used on transport on radio's rate
   double   rx_gain;
+  double   tx_gain;
   uint32_t tx_freq_mhz[SRSRAN_MAX_CHANNELS];
   uint32_t rx_freq_mhz[SRSRAN_MAX_CHANNELS];
   bool     tx_off;
@@ -62,6 +63,7 @@ typedef struct {
   pthread_mutex_t tx_config_mutex;
   pthread_mutex_t rx_config_mutex;
   pthread_mutex_t decim_mutex;
+  pthread_mutex_t rx_gain_mutex;
 } rf_zmq_handler_t;
 
 void update_rates(rf_zmq_handler_t* handler, double srate);
@@ -203,9 +205,11 @@ int rf_zmq_open_multi(char* args, void** h, uint32_t nof_channels)
       return SRSRAN_ERROR;
     }
     bzero(handler, sizeof(rf_zmq_handler_t));
-    *h                        = handler;
-    handler->base_srate       = ZMQ_BASERATE_DEFAULT_HZ; // Sample rate for 100 PRB cell
-    handler->rx_gain          = 0.0;
+    *h                  = handler;
+    handler->base_srate = ZMQ_BASERATE_DEFAULT_HZ; // Sample rate for 100 PRB cell
+    pthread_mutex_lock(&handler->rx_gain_mutex);
+    handler->rx_gain = 0.0;
+    pthread_mutex_unlock(&handler->rx_gain_mutex);
     handler->info.max_rx_gain = ZMQ_MAX_GAIN_DB;
     handler->info.min_rx_gain = ZMQ_MIN_GAIN_DB;
     handler->info.max_tx_gain = ZMQ_MAX_GAIN_DB;
@@ -227,6 +231,9 @@ int rf_zmq_open_multi(char* args, void** h, uint32_t nof_channels)
       perror("Mutex init");
     }
     if (pthread_mutex_init(&handler->decim_mutex, NULL)) {
+      perror("Mutex init");
+    }
+    if (pthread_mutex_init(&handler->rx_gain_mutex, NULL)) {
       perror("Mutex init");
     }
 
@@ -281,7 +288,9 @@ int rf_zmq_open_multi(char* args, void** h, uint32_t nof_channels)
         }
       }
     } else {
-      fprintf(stderr, "[zmq] Error: RF device args are required for ZMQ no-RF module\n");
+      fprintf(stderr,
+              "[zmq] Error: No device 'args' option has been set. Please make sure to set this option to be able to "
+              "use the ZMQ no-RF module\n");
       goto clean_exit;
     }
 
@@ -417,6 +426,7 @@ int rf_zmq_close(void* h)
   pthread_mutex_destroy(&handler->tx_config_mutex);
   pthread_mutex_destroy(&handler->rx_config_mutex);
   pthread_mutex_destroy(&handler->decim_mutex);
+  pthread_mutex_destroy(&handler->rx_gain_mutex);
 
   // Free all
   free(handler);
@@ -472,7 +482,9 @@ int rf_zmq_set_rx_gain(void* h, double gain)
 {
   if (h) {
     rf_zmq_handler_t* handler = (rf_zmq_handler_t*)h;
-    handler->rx_gain          = gain;
+    pthread_mutex_lock(&handler->rx_gain_mutex);
+    handler->rx_gain = gain;
+    pthread_mutex_unlock(&handler->rx_gain_mutex);
   }
   return SRSRAN_SUCCESS;
 }
@@ -484,6 +496,12 @@ int rf_zmq_set_rx_gain_ch(void* h, uint32_t ch, double gain)
 
 int rf_zmq_set_tx_gain(void* h, double gain)
 {
+  if (h) {
+    rf_zmq_handler_t* handler = (rf_zmq_handler_t*)h;
+    pthread_mutex_lock(&handler->tx_config_mutex);
+    handler->tx_gain = gain;
+    pthread_mutex_unlock(&handler->tx_config_mutex);
+  }
   return SRSRAN_SUCCESS;
 }
 
@@ -497,14 +515,23 @@ double rf_zmq_get_rx_gain(void* h)
   double ret = 0.0;
   if (h) {
     rf_zmq_handler_t* handler = (rf_zmq_handler_t*)h;
-    ret                       = handler->rx_gain;
+    pthread_mutex_lock(&handler->rx_gain_mutex);
+    ret = handler->rx_gain;
+    pthread_mutex_unlock(&handler->rx_gain_mutex);
   }
   return ret;
 }
 
 double rf_zmq_get_tx_gain(void* h)
 {
-  return 0.0;
+  float ret = NAN;
+  if (h) {
+    rf_zmq_handler_t* handler = (rf_zmq_handler_t*)h;
+    pthread_mutex_lock(&handler->tx_config_mutex);
+    ret = handler->tx_gain;
+    pthread_mutex_unlock(&handler->tx_config_mutex);
+  }
+  return ret;
 }
 
 srsran_rf_info_t* rf_zmq_get_info(void* h)
@@ -606,12 +633,7 @@ int rf_zmq_recv_with_time(void* h, void* data, uint32_t nsamples, bool blocking,
   return rf_zmq_recv_with_time_multi(h, &data, nsamples, blocking, secs, frac_secs);
 }
 
-int rf_zmq_recv_with_time_multi(void*    h,
-                                void*    data[4],
-                                uint32_t nsamples,
-                                bool     blocking,
-                                time_t*  secs,
-                                double*  frac_secs)
+int rf_zmq_recv_with_time_multi(void* h, void** data, uint32_t nsamples, bool blocking, time_t* secs, double* frac_secs)
 {
   int ret = SRSRAN_ERROR;
 
@@ -620,23 +642,28 @@ int rf_zmq_recv_with_time_multi(void*    h,
 
     // Map ports to data buffers according to the selected frequencies
     pthread_mutex_lock(&handler->rx_config_mutex);
+    bool  mapped[SRSRAN_MAX_CHANNELS]  = {}; // Mapped mask, set to true when the physical channel is used
     cf_t* buffers[SRSRAN_MAX_CHANNELS] = {}; // Buffer pointers, NULL if unmatched
-    for (uint32_t i = 0; i < handler->nof_channels; i++) {
-      bool mapped = false;
 
-      // Find first matching frequency
-      for (uint32_t j = 0; j < handler->nof_channels && !mapped; j++) {
-        // Traverse all channels, break if mapped
-        if (buffers[j] == NULL && rf_zmq_rx_match_freq(&handler->receiver[j], handler->rx_freq_mhz[i])) {
-          // Available buffer and matched frequency with receiver
-          buffers[j] = (cf_t*)data[i];
-          mapped     = true;
+    // For each logical channel...
+    for (uint32_t logical = 0; logical < handler->nof_channels; logical++) {
+      bool unmatched = true;
+
+      // For each physical channel...
+      for (uint32_t physical = 0; physical < handler->nof_channels; physical++) {
+        // Consider a match if the physical channel is NOT mapped and the frequency match
+        if (!mapped[physical] && rf_zmq_rx_match_freq(&handler->receiver[physical], handler->rx_freq_mhz[logical])) {
+          // Not mapped and matched frequency with receiver
+          buffers[physical] = (cf_t*)data[logical];
+          mapped[physical]  = true;
+          unmatched         = false;
+          break;
         }
       }
 
       // If no matching frequency found; set data to zeros
-      if (!mapped && data[i]) {
-        memset(data[i], 0, sizeof(cf_t) * nsamples);
+      if (unmatched) {
+        srsran_vec_zero(data[logical], nsamples);
       }
     }
     pthread_mutex_unlock(&handler->rx_config_mutex);
@@ -660,7 +687,7 @@ int rf_zmq_recv_with_time_multi(void*    h,
     }
 
     // return if receiver is turned off
-    if (!handler->receiver[0].running) {
+    if (!rf_zmq_rx_is_running(&handler->receiver[0])) {
       update_ts(handler, &handler->next_rx_ts, nsamples_baserate, "rx");
       return nsamples;
     }
@@ -677,17 +704,17 @@ int rf_zmq_recv_with_time_multi(void*    h,
 
     // receive samples
     srsran_timestamp_t ts_tx = {}, ts_rx = {};
-    srsran_timestamp_init_uint64(&ts_tx, handler->transmitter[0].nsamples, handler->base_srate);
+    srsran_timestamp_init_uint64(&ts_tx, rf_zmq_tx_get_nsamples(&handler->transmitter[0]), handler->base_srate);
     srsran_timestamp_init_uint64(&ts_rx, handler->next_rx_ts, handler->base_srate);
     rf_zmq_info(handler->id, " - next rx time: %d + %.3f\n", ts_rx.full_secs, ts_rx.frac_secs);
     rf_zmq_info(handler->id, " - next tx time: %d + %.3f\n", ts_tx.full_secs, ts_tx.frac_secs);
 
     // Leave time for the Tx to transmit
-    usleep((1000000 * nsamples_baserate) / handler->base_srate);
+    usleep((1000000UL * nsamples_baserate) / handler->base_srate);
 
     // check for tx gap if we're also transmitting on this radio
     for (int i = 0; i < handler->nof_channels; i++) {
-      if (handler->transmitter[i].running) {
+      if (rf_zmq_tx_is_running(&handler->transmitter[i])) {
         rf_zmq_tx_align(&handler->transmitter[i], handler->next_rx_ts + nsamples_baserate);
       }
     }
@@ -703,7 +730,7 @@ int rf_zmq_recv_with_time_multi(void*    h,
         cf_t* ptr = (decim_factor != 1 || buffers[i] == NULL) ? handler->buffer_decimation[i] : buffers[i];
 
         // Completed condition
-        if (count[i] < nsamples_baserate && handler->receiver[i].running) {
+        if (count[i] < nsamples_baserate && rf_zmq_rx_is_running(&handler->receiver[i])) {
           // Keep receiving
           int32_t n = rf_zmq_rx_baseband(&handler->receiver[i], &ptr[count[i]], nsamples_baserate);
 #if ZMQ_MONITOR
@@ -780,7 +807,9 @@ int rf_zmq_recv_with_time_multi(void*    h,
     }
 
     // Set gain
+    pthread_mutex_lock(&handler->rx_gain_mutex);
     float scale = srsran_convert_dB_to_amplitude(handler->rx_gain);
+    pthread_mutex_unlock(&handler->rx_gain_mutex);
     for (uint32_t c = 0; c < handler->nof_channels; c++) {
       if (buffers[c]) {
         srsran_vec_sc_prod_cfc(buffers[c], scale, buffers[c], nsamples);
@@ -832,21 +861,32 @@ int rf_zmq_send_timed_multi(void*  h,
 
     // Map ports to data buffers according to the selected frequencies
     pthread_mutex_lock(&handler->tx_config_mutex);
-    cf_t* buffers[SRSRAN_MAX_CHANNELS] = {}; // Buffer pointers, NULL if unmatched
-    for (uint32_t i = 0; i < handler->nof_channels; i++) {
-      bool mapped = false;
+    bool  mapped[SRSRAN_MAX_CHANNELS]  = {}; // Mapped mask, set to true when the physical channel is used
+    cf_t* buffers[SRSRAN_MAX_CHANNELS] = {}; // Buffer pointers, NULL if unmatched or zero transmission
 
-      // Find first matching frequency
-      for (uint32_t j = 0; j < handler->nof_channels && !mapped; j++) {
-        // Traverse all channels, break if mapped
-        if (buffers[j] == NULL && rf_zmq_tx_match_freq(&handler->transmitter[j], handler->tx_freq_mhz[i])) {
-          // Available buffer and matched frequency with receiver
-          buffers[j] = (cf_t*)data[i];
-          mapped     = true;
+    // For each logical channel...
+    for (uint32_t logical = 0; logical < handler->nof_channels; logical++) {
+      // For each physical channel...
+      for (uint32_t physical = 0; physical < handler->nof_channels; physical++) {
+        // Consider a match if the physical channel is NOT mapped and the frequency match
+        if (!mapped[physical] && rf_zmq_tx_match_freq(&handler->transmitter[physical], handler->tx_freq_mhz[logical])) {
+          // Not mapped and matched frequency with receiver
+          buffers[physical] = (cf_t*)data[logical];
+          mapped[physical]  = true;
+          break;
         }
       }
     }
+
+    // Load transmission gain
+    float tx_gain = srsran_convert_dB_to_amplitude(handler->tx_gain);
+
     pthread_mutex_unlock(&handler->tx_config_mutex);
+
+    // If the Tx gain is NAN, INF or 0.0, use 1.0
+    if (!isnormal(tx_gain)) {
+      tx_gain = 1.0f;
+    }
 
     // Protect the access to decim_factor since is a shared variable
     pthread_mutex_lock(&handler->decim_mutex);
@@ -878,7 +918,7 @@ int rf_zmq_send_timed_multi(void*  h,
       int      num_tx_gap_samples = 0;
 
       for (int i = 0; i < handler->nof_channels; i++) {
-        if (handler->transmitter[i].running) {
+        if (rf_zmq_tx_is_running(&handler->transmitter[i])) {
           num_tx_gap_samples = rf_zmq_tx_align(&handler->transmitter[i], tx_ts);
         }
       }
@@ -888,7 +928,7 @@ int rf_zmq_send_timed_multi(void*  h,
                 "[zmq] Error: tx time is %.3f ms in the past (%" PRIu64 " < %" PRIu64 ")\n",
                 -1000.0 * num_tx_gap_samples / handler->base_srate,
                 tx_ts,
-                handler->transmitter[0].nsamples);
+                (uint64_t)rf_zmq_tx_get_nsamples(&handler->transmitter[0]));
         goto clean_exit;
       }
     }
@@ -925,6 +965,11 @@ int rf_zmq_send_timed_multi(void*  h,
           }
         }
 
+        // Scale according to current gain
+        // TODO: document baseband scaling for ZMQ with gain settings, etc. before enabling
+        // srsran_vec_sc_prod_cfc(buf, tx_gain, buf, nsamples_baseband);
+
+        // Finally, transmit baseband
         int n = rf_zmq_tx_baseband(&handler->transmitter[i], buf, nsamples_baseband);
         if (n == SRSRAN_ERROR) {
           goto clean_exit;

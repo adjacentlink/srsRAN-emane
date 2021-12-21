@@ -63,7 +63,7 @@ void proc_ra_nr::set_config(const srsran::rach_nr_cfg_t& rach_cfg_)
   }
   rach_cfg   = rach_cfg_;
   configured = true;
-  logger.info("Set RACH common config (Config Index %d, preambleTransMax %d, Repsonse Window %d)",
+  logger.info("Set RACH common config (Config Index %d, preambleTransMax %d, Response Window %d)",
               rach_cfg.prach_ConfigurationIndex,
               rach_cfg.preambleTransMax,
               rach_cfg.ra_responseWindow);
@@ -95,6 +95,7 @@ void proc_ra_nr::start_by_mac()
 
 bool proc_ra_nr::is_rar_opportunity(uint32_t tti)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   // TODO replace second "&&"" by rar_timeout_timer.running if timer thread safe and delayed starting (tti+3)
   if (state == WAITING_FOR_RESPONSE_RECEPTION && ra_window_start > 0 && ra_window_length > 0 &&
       mac_nr::is_in_window(tti, &ra_window_start, &ra_window_length)) {
@@ -106,6 +107,7 @@ bool proc_ra_nr::is_rar_opportunity(uint32_t tti)
 
 uint16_t proc_ra_nr::get_rar_rnti()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (rar_rnti == SRSRAN_INVALID_RNTI || state != WAITING_FOR_RESPONSE_RECEPTION) {
     logger.error("Requested ra rnti is invalid. Anyway we return an invalid ra rnti");
     return SRSRAN_INVALID_RNTI;
@@ -115,6 +117,7 @@ uint16_t proc_ra_nr::get_rar_rnti()
 
 bool proc_ra_nr::has_rar_rnti()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (rar_rnti != SRSRAN_INVALID_RNTI) {
     return true;
   }
@@ -123,11 +126,13 @@ bool proc_ra_nr::has_rar_rnti()
 
 bool proc_ra_nr::has_temp_crnti()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   return temp_crnti != SRSRAN_INVALID_RNTI;
 }
 
 uint16_t proc_ra_nr::get_temp_crnti()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   return temp_crnti;
 }
 
@@ -135,7 +140,7 @@ void proc_ra_nr::timer_expired(uint32_t timer_id)
 {
   if (prach_send_timer.id() == timer_id) {
     logger.warning("PRACH Send timer expired. PRACH was not transmitted within %d ttis by phy. (TODO)",
-                 prach_send_timer.duration());
+                   prach_send_timer.duration());
     ra_error();
   } else if (rar_timeout_timer.id() == timer_id) {
     logger.warning("RAR Timer expired. RA response not received within the response window");
@@ -156,10 +161,10 @@ void proc_ra_nr::ra_procedure_initialization()
 {
   mac.msg3_flush();
   preamble_transmission_counter = 1;
-  preamble_power_ramping_step = rach_cfg.powerRampingStep;
-  scaling_factor_bi           = 1;
+  preamble_power_ramping_step   = rach_cfg.powerRampingStep;
+  scaling_factor_bi             = 1;
   preamble_backoff              = 0;
-  preambleTransMax            = rach_cfg.preambleTransMax;
+  preambleTransMax              = rach_cfg.preambleTransMax;
   ra_resource_selection();
 }
 
@@ -189,6 +194,7 @@ void proc_ra_nr::ra_preamble_transmission()
 // 5.1.4 Random Access Preamble transmission
 void proc_ra_nr::ra_response_reception(const mac_interface_phy_nr::tb_action_dl_result_t& tb)
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (state != WAITING_FOR_RESPONSE_RECEPTION) {
     logger.warning(
         "Wrong state for ra reponse reception %s (expected state %s)",
@@ -205,7 +211,10 @@ void proc_ra_nr::ra_response_reception(const mac_interface_phy_nr::tb_action_dl_
       logger.warning("Error unpacking RAR PDU");
       return;
     }
-    logger.info("%s", pdu.to_string());
+
+    fmt::memory_buffer buff;
+    pdu.to_string(buff);
+    logger.info("%s", srsran::to_c_str(buff));
 
     for (auto& subpdu : pdu.get_subpdus()) {
       if (subpdu.has_rapid() && subpdu.get_rapid() == preamble_index) {
@@ -213,7 +222,7 @@ void proc_ra_nr::ra_response_reception(const mac_interface_phy_nr::tb_action_dl_
         temp_crnti = subpdu.get_temp_crnti();
 
         // Set Temporary-C-RNTI if provided, otherwise C-RNTI is ok
-        phy->set_ul_grant(subpdu.get_ul_grant(), temp_crnti, srsran_rnti_type_ra);
+        phy->set_ul_grant(tb.rx_slot_idx, subpdu.get_ul_grant(), temp_crnti, srsran_rnti_type_ra);
 
         // reset all parameters that are used before rar
         rar_rnti = SRSRAN_INVALID_RNTI;
@@ -271,6 +280,7 @@ void proc_ra_nr::ra_contention_resolution(uint64_t rx_contention_id)
 
 void proc_ra_nr::ra_completion()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   if (state != WAITING_FOR_COMPLETION) {
     logger.warning("Wrong state for ra completion by phy %s (expected state %s)",
                    srsran::enum_to_text(state_str_nr, (uint32_t)ra_state_t::MAX_RA_STATES, state),
@@ -280,11 +290,13 @@ void proc_ra_nr::ra_completion()
   srsran::console("Random Access Complete.     c-rnti=0x%x, ta=%d\n", mac.get_crnti(), current_ta);
   logger.info("Random Access Complete.     c-rnti=0x%x, ta=%d", mac.get_crnti(), current_ta);
   temp_crnti = SRSRAN_INVALID_RNTI;
+  mac.rrc_ra_completed();
   reset();
 }
 
 void proc_ra_nr::ra_error()
 {
+  std::lock_guard<std::mutex> lock(mutex);
   temp_crnti = SRSRAN_INVALID_RNTI;
   preamble_transmission_counter++;
   contention_resolution_timer.stop();
@@ -294,21 +306,26 @@ void proc_ra_nr::ra_error()
   if (preamble_transmission_counter >= rach_cfg.preambleTransMax + 1) {
     logger.warning("Maximum number of transmissions reached (%d)", rach_cfg.preambleTransMax);
     // if the Random Access Preamble is transmitted on the SpCell assumption (TODO)
-    mac.rrc_ra_problem();                 //  indicate a Random Access problem to upper layers;
+    mac.rrc_ra_problem();                  //  indicate a Random Access problem to upper layers;
     if (started_by == initiators_t::MAC) { // if this Random Access procedure was triggered for SI request
-      ra_procedure_completed = true;        // consider the Random Access procedure unsuccessfully completed.
+      ra_procedure_completed = true;       // consider the Random Access procedure unsuccessfully completed.
       reset();
     }
   } else {
-    // if the Random Access procedure is not completed
+    // try again, if RA failed
     if (preamble_backoff) {
       backoff_wait = rand() % preamble_backoff;
     } else {
       backoff_wait = 0;
     }
-    logger.warning("Backoff wait interval %d", backoff_wait);
-    backoff_timer.set(backoff_wait, [this](uint32_t tid) { timer_expired(tid); });
-    backoff_timer.run();
+    logger.debug("Backoff wait interval %d", backoff_wait);
+
+    if (backoff_wait > 0) {
+      backoff_timer.set(backoff_wait, [this](uint32_t tid) { timer_expired(tid); });
+      backoff_timer.run();
+    } else {
+      timer_expired(backoff_timer.id());
+    }
   }
 }
 
@@ -380,4 +397,5 @@ void proc_ra_nr::reset()
   rar_timeout_timer.stop();
   contention_resolution_timer.stop();
 }
+
 } // namespace srsue

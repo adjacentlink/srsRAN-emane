@@ -26,6 +26,7 @@
 #include "dl_sps.h"
 #include "srsran/common/mac_pcap.h"
 #include "srsran/common/timers.h"
+#include "srsue/hdr/stack/mac_common/mac_common.h"
 
 /* Downlink HARQ entity as defined in 5.3.2 of 36.321 */
 
@@ -36,7 +37,7 @@ class dl_harq_entity
 public:
   dl_harq_entity(uint8_t cc_idx_);
 
-  bool init(mac_interface_rrc::ue_rnti_t* rntis, demux* demux_unit);
+  bool init(ue_rnti* rntis, demux* demux_unit);
   void reset();
   void start_pcap(srsran::mac_pcap* pcap_);
 
@@ -47,6 +48,7 @@ public:
   void set_si_window_start(int si_window_start);
 
   float get_average_retx();
+  void  set_average_retx(uint32_t n_retx);
 
 private:
   class dl_harq_process
@@ -72,7 +74,7 @@ private:
       ~dl_tb_process();
 
       bool init(int pid, dl_harq_entity* parent, uint32_t tb_idx);
-      void reset(bool lock = true);
+      void reset();
       void reset_ndi();
 
       void new_grant_dl(mac_interface_phy_lte::mac_grant_dl_t grant, mac_interface_phy_lte::tb_action_dl_t* action);
@@ -81,6 +83,9 @@ private:
     private:
       // Determine if it's a new transmission 5.3.2.2
       bool calc_is_new_transmission(mac_interface_phy_lte::mac_grant_dl_t grant);
+
+      // Internal function to reset process, caller must hold the mutex
+      void reset_nolock();
 
       std::mutex mutex;
 
@@ -113,14 +118,16 @@ private:
 
   dl_sps dl_sps_assig;
 
-  std::vector<dl_harq_process>  proc;
-  dl_harq_process               bcch_proc;
-  demux*                        demux_unit = nullptr;
-  srslog::basic_logger&         logger;
-  srsran::mac_pcap*             pcap                = nullptr;
-  mac_interface_rrc::ue_rnti_t* rntis               = nullptr;
-  uint16_t                      last_temporal_crnti = 0;
-  int                           si_window_start     = 0;
+  std::vector<dl_harq_process> proc;
+  dl_harq_process              bcch_proc;
+  demux*                       demux_unit = nullptr;
+  srslog::basic_logger&        logger;
+  srsran::mac_pcap*            pcap                = nullptr;
+  ue_rnti*                     rntis               = nullptr;
+  uint16_t                     last_temporal_crnti = 0;
+  int                          si_window_start     = 0;
+
+  std::mutex retx_cnt_mutex = {};
 
   float    average_retx = 0.0;
   uint64_t nof_pkts     = 0;

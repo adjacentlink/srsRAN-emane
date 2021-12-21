@@ -78,12 +78,19 @@ static int srsran_pdcch_nr_get_ncce(const srsran_coreset_t*      coreset,
     return SRSRAN_ERROR;
   }
 
+  // Calculate CORESET bandiwth in physical resource blocks
+  uint32_t coreset_bw = srsran_coreset_get_bw(coreset);
+
   // Every REG is 1PRB wide and a CCE is 6 REG. So, the number of N_CCE is a sixth of the bandwidth times the number of
   // symbols
-  uint32_t N_cce = srsran_coreset_get_bw(coreset) * coreset->duration / 6;
+  uint32_t N_cce = coreset_bw * coreset->duration / 6;
 
   if (N_cce < L) {
-    ERROR("Error number of CCE %d is lower than the aggregation level %d", N_cce, L);
+    ERROR("Error CORESET (total bandwidth of %d RBs and %d CCEs) cannot fit the aggregation level %d (%d)",
+          coreset_bw,
+          N_cce,
+          L,
+          aggregation_level);
     return SRSRAN_ERROR;
   }
 
@@ -306,33 +313,155 @@ int srsran_pdcch_nr_set_carrier(srsran_pdcch_nr_t*         q,
   return SRSRAN_SUCCESS;
 }
 
+static uint32_t pdcch_nr_bundle_size(srsran_coreset_bundle_size_t x)
+{
+  switch (x) {
+    case srsran_coreset_bundle_size_n2:
+      return 2;
+    case srsran_coreset_bundle_size_n3:
+      return 3;
+    case srsran_coreset_bundle_size_n6:
+      return 6;
+  }
+  return 0;
+}
+
+static int pdcch_nr_cce_to_reg_mapping_non_interleaved(const srsran_coreset_t*      coreset,
+                                                       const srsran_dci_location_t* dci_location,
+                                                       bool                         rb_mask[SRSRAN_MAX_PRB_NR])
+{
+  uint32_t nof_cce        = 1U << dci_location->L;
+  uint32_t L              = 6;
+  uint32_t nof_reg_bundle = 6 / L;
+
+  // For each CCE j in the PDCCH transmission
+  for (uint32_t j = dci_location->ncce; j < dci_location->ncce + nof_cce; j++) {
+    // For each REG bundle i in the CCE j
+    for (uint32_t reg_bundle = 0; reg_bundle < nof_reg_bundle; reg_bundle++) {
+      // Calculate x variable
+      uint32_t x = (6 * j) / L + reg_bundle;
+
+      // For non interleaved f(x) = x
+      uint32_t i = x;
+
+      // For each REG in the REG bundle
+      uint32_t rb_start = (i * L) / coreset->duration;
+      uint32_t rb_end   = ((i + 1) * L) / coreset->duration;
+      for (uint32_t rb = rb_start; rb < rb_end; rb++) {
+        rb_mask[rb] = true;
+      }
+    }
+  }
+
+  return SRSRAN_SUCCESS;
+}
+
+static int pdcch_nr_cce_to_reg_mapping_interleaved(const srsran_coreset_t*      coreset,
+                                                   const srsran_dci_location_t* dci_location,
+                                                   bool                         rb_mask[SRSRAN_MAX_PRB_NR])
+{
+  // Calculate CORESET constants
+  uint32_t N_CORESET_REG = coreset->duration * srsran_coreset_get_bw(coreset);
+  uint32_t L             = pdcch_nr_bundle_size(coreset->reg_bundle_size);
+  uint32_t R             = pdcch_nr_bundle_size(coreset->interleaver_size);
+  uint32_t C             = N_CORESET_REG / (L * R);
+  uint32_t n_shift       = coreset->shift_index;
+
+  // Validate
+  if (N_CORESET_REG == 0 || N_CORESET_REG % (L * R) != 0 || L % coreset->duration != 0) {
+    ERROR("Invalid CORESET configuration N=%d; L=%d; R=%d;", N_CORESET_REG, L, R);
+    return 0;
+  }
+
+  uint32_t nof_cce        = 1U << dci_location->L;
+  uint32_t nof_reg_bundle = 6 / L;
+
+  // For each CCE j in the PDCCH transmission
+  for (uint32_t j = dci_location->ncce; j < dci_location->ncce + nof_cce; j++) {
+    // For each REG bundle i in the CCE j
+    for (uint32_t reg_bundle = 0; reg_bundle < nof_reg_bundle; reg_bundle++) {
+      // Calculate x variable
+      uint32_t x = (6 * j) / L + reg_bundle;
+
+      // For non interleaved f(x) = x
+      uint32_t r = x % R;
+      uint32_t c = x / R;
+      uint32_t i = (r * C + c + n_shift) % (N_CORESET_REG / L);
+
+      // For each REG in the REG bundle
+      uint32_t rb_start = (i * L) / coreset->duration;
+      uint32_t rb_end   = ((i + 1) * L) / coreset->duration;
+      for (uint32_t rb = rb_start; rb < rb_end; rb++) {
+        rb_mask[rb] = true;
+      }
+    }
+  }
+
+  return SRSRAN_SUCCESS;
+}
+
+int srsran_pdcch_nr_cce_to_reg_mapping(const srsran_coreset_t*      coreset,
+                                       const srsran_dci_location_t* dci_location,
+                                       bool                         rb_mask[SRSRAN_MAX_PRB_NR])
+{
+  if (coreset == NULL || dci_location == NULL) {
+    return SRSRAN_ERROR_INVALID_INPUTS;
+  }
+
+  // Non-interleaved case
+  if (coreset->mapping_type == srsran_coreset_mapping_type_non_interleaved) {
+    return pdcch_nr_cce_to_reg_mapping_non_interleaved(coreset, dci_location, rb_mask);
+  }
+
+  // Interleaved case
+  return pdcch_nr_cce_to_reg_mapping_interleaved(coreset, dci_location, rb_mask);
+}
+
 static uint32_t pdcch_nr_cp(const srsran_pdcch_nr_t*     q,
                             const srsran_dci_location_t* dci_location,
                             cf_t*                        slot_grid,
                             cf_t*                        symbols,
                             bool                         put)
 {
-  uint32_t L = 1U << dci_location->L;
+  uint32_t offset_k = q->coreset.offset_rb * SRSRAN_NRE;
 
-  // Calculate begin and end sub-carrier index for the selected candidate
-  uint32_t k_begin = (dci_location->ncce * SRSRAN_NRE * 6) / q->coreset.duration;
-  uint32_t k_end   = k_begin + (L * 6 * SRSRAN_NRE) / q->coreset.duration;
+  // Compute REG list
+  bool rb_mask[SRSRAN_MAX_PRB_NR] = {};
+  if (srsran_pdcch_nr_cce_to_reg_mapping(&q->coreset, dci_location, rb_mask) < SRSRAN_SUCCESS) {
+    return 0;
+  }
 
   uint32_t count = 0;
 
   // Iterate over symbols
   for (uint32_t l = 0; l < q->coreset.duration; l++) {
     // Iterate over frequency resource groups
-    uint32_t k = 0;
+    uint32_t rb = 0;
     for (uint32_t r = 0; r < SRSRAN_CORESET_FREQ_DOMAIN_RES_SIZE; r++) {
-      if (q->coreset.freq_resources[r]) {
-        for (uint32_t i = r * 6 * SRSRAN_NRE; i < (r + 1) * 6 * SRSRAN_NRE; i++, k++) {
-          if (k >= k_begin && k < k_end && k % 4 != 1) {
-            if (put) {
-              slot_grid[q->carrier.nof_prb * SRSRAN_NRE * l + i] = symbols[count++];
-            } else {
-              symbols[count++] = slot_grid[q->carrier.nof_prb * SRSRAN_NRE * l + i];
-            }
+      // Skip frequency resource if not set
+      if (!q->coreset.freq_resources[r]) {
+        continue;
+      }
+
+      // For each RB in the frequency resource
+      for (uint32_t i = r * 6; i < (r + 1) * 6; i++, rb++) {
+        // Skip if this RB is not marked as mapped
+        if (!rb_mask[rb]) {
+          continue;
+        }
+
+        // For each RE in the RB
+        for (uint32_t k = i * SRSRAN_NRE; k < (i + 1) * SRSRAN_NRE; k++) {
+          // Skip if it is a DMRS
+          if (k % 4 == 1) {
+            continue;
+          }
+
+          // Read or write in the grid
+          if (put) {
+            slot_grid[q->carrier.nof_prb * SRSRAN_NRE * l + k + offset_k] = symbols[count++];
+          } else {
+            symbols[count++] = slot_grid[q->carrier.nof_prb * SRSRAN_NRE * l + k + offset_k];
           }
         }
       }
@@ -401,7 +530,7 @@ int srsran_pdcch_nr_encode(srsran_pdcch_nr_t* q, const srsran_dci_msg_nr_t* dci_
   srsran_polar_interleaver_run_u8(c, c_prime, q->K, true);
 
   // Print c and c_prime (after interleaving)
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     PDCCH_INFO_TX("c=");
     srsran_vec_fprint_hex(stdout, c, q->K);
     PDCCH_INFO_TX("c_prime=");
@@ -417,7 +546,7 @@ int srsran_pdcch_nr_encode(srsran_pdcch_nr_t* q, const srsran_dci_msg_nr_t* dci_
   }
 
   // Print d
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     PDCCH_INFO_TX("d=");
     srsran_vec_fprint_byte(stdout, q->d, q->code.N);
   }
@@ -444,7 +573,7 @@ int srsran_pdcch_nr_encode(srsran_pdcch_nr_t* q, const srsran_dci_msg_nr_t* dci_
     q->meas_time_us = (uint32_t)t[0].tv_usec;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     char str[128] = {};
     srsran_pdcch_nr_info(q, NULL, str, sizeof(str));
     PDCCH_INFO_TX("%s", str);
@@ -493,7 +622,7 @@ int srsran_pdcch_nr_decode(srsran_pdcch_nr_t*      q,
   }
 
   // Print channel estimates if enabled
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     PDCCH_DEBUG_RX("ce=");
     srsran_vec_fprint_c(stdout, ce->ce, q->M);
   }
@@ -502,7 +631,7 @@ int srsran_pdcch_nr_decode(srsran_pdcch_nr_t*      q,
   srsran_predecoding_single(q->symbols, ce->ce, q->symbols, NULL, q->M, 1.0f, ce->noise_var);
 
   // Print symbols if enabled
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     PDCCH_DEBUG_RX("symbols=");
     srsran_vec_fprint_c(stdout, q->symbols, q->M);
   }
@@ -533,7 +662,7 @@ int srsran_pdcch_nr_decode(srsran_pdcch_nr_t*      q,
   }
 
   // Print d
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     PDCCH_DEBUG_RX("d=");
     srsran_vec_fprint_bs(stdout, d, q->K);
   }
@@ -556,7 +685,7 @@ int srsran_pdcch_nr_decode(srsran_pdcch_nr_t*      q,
   srsran_polar_interleaver_run_u8(c_prime, c, q->K, false);
 
   // Print c
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     PDCCH_INFO_RX("c_prime=");
     srsran_vec_fprint_hex(stdout, c_prime, q->K);
     PDCCH_INFO_RX("c=");
@@ -577,7 +706,7 @@ int srsran_pdcch_nr_decode(srsran_pdcch_nr_t*      q,
   uint32_t checksum2 = srsran_bit_pack(&ptr, 24);
   res->crc           = checksum1 == checksum2;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     PDCCH_INFO_RX("CRC={%06x, %06x}; msg=", checksum1, checksum2);
     srsran_vec_fprint_hex(stdout, c, dci_msg->nof_bits);
   }
@@ -591,7 +720,7 @@ int srsran_pdcch_nr_decode(srsran_pdcch_nr_t*      q,
     q->meas_time_us = (uint32_t)t[0].tv_usec;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     char str[128] = {};
     srsran_pdcch_nr_info(q, res, str, sizeof(str));
     PDCCH_INFO_RX("%s", str);

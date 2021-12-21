@@ -116,14 +116,14 @@ int sched::ue_cfg(uint16_t rnti, const sched_interface::ue_cfg_t& ue_cfg)
   // Add new user case
   std::unique_ptr<sched_ue>   ue{new sched_ue(rnti, sched_cell_params, ue_cfg)};
   std::lock_guard<std::mutex> lock(sched_mutex);
-  ue_db.insert(std::make_pair(rnti, std::move(ue)));
+  ue_db.insert(rnti, std::move(ue));
   return SRSRAN_SUCCESS;
 }
 
 int sched::ue_rem(uint16_t rnti)
 {
   std::lock_guard<std::mutex> lock(sched_mutex);
-  if (ue_db.count(rnti) > 0) {
+  if (ue_db.contains(rnti)) {
     ue_db.erase(rnti);
   } else {
     Error("User rnti=0x%x not found", rnti);
@@ -145,7 +145,7 @@ void sched::phy_config_enabled(uint16_t rnti, bool enabled)
       rnti, [this, enabled](sched_ue& ue) { ue.phy_config_enabled(last_tti, enabled); }, __PRETTY_FUNCTION__);
 }
 
-int sched::bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, const sched_interface::ue_bearer_cfg_t& cfg_)
+int sched::bearer_ue_cfg(uint16_t rnti, uint32_t lc_id, const mac_lc_ch_cfg_t& cfg_)
 {
   return ue_db_access_locked(rnti, [lc_id, cfg_](sched_ue& ue) { ue.set_bearer_cfg(lc_id, cfg_); });
 }
@@ -174,9 +174,9 @@ uint32_t sched::get_ul_buffer(uint16_t rnti)
   return ret;
 }
 
-int sched::dl_rlc_buffer_state(uint16_t rnti, uint32_t lc_id, uint32_t tx_queue, uint32_t retx_queue)
+int sched::dl_rlc_buffer_state(uint16_t rnti, uint32_t lc_id, uint32_t tx_queue, uint32_t prio_tx_queue)
 {
-  return ue_db_access_locked(rnti, [&](sched_ue& ue) { ue.dl_buffer_state(lc_id, tx_queue, retx_queue); });
+  return ue_db_access_locked(rnti, [&](sched_ue& ue) { ue.dl_buffer_state(lc_id, tx_queue, prio_tx_queue); });
 }
 
 int sched::dl_mac_buffer_state(uint16_t rnti, uint32_t ce_code, uint32_t nof_cmds)
@@ -218,6 +218,13 @@ int sched::dl_cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_
       rnti, [tti, enb_cc_idx, cqi_value](sched_ue& ue) { ue.set_dl_cqi(tti_point{tti}, enb_cc_idx, cqi_value); });
 }
 
+int sched::dl_sb_cqi_info(uint32_t tti, uint16_t rnti, uint32_t enb_cc_idx, uint32_t sb_idx, uint32_t cqi_value)
+{
+  return ue_db_access_locked(rnti, [tti, enb_cc_idx, cqi_value, sb_idx](sched_ue& ue) {
+    ue.set_dl_sb_cqi(tti_point{tti}, enb_cc_idx, sb_idx, cqi_value);
+  });
+}
+
 int sched::dl_rach_info(uint32_t enb_cc_idx, dl_sched_rar_info_t rar_info)
 {
   std::lock_guard<std::mutex> lock(sched_mutex);
@@ -240,10 +247,10 @@ int sched::ul_buffer_add(uint16_t rnti, uint32_t lcid, uint32_t bytes)
   return ue_db_access_locked(rnti, [lcid, bytes](sched_ue& ue) { ue.ul_buffer_add(lcid, bytes); });
 }
 
-int sched::ul_phr(uint16_t rnti, int phr)
+int sched::ul_phr(uint16_t rnti, int phr, uint32_t ul_nof_prb)
 {
   return ue_db_access_locked(
-      rnti, [phr](sched_ue& ue) { ue.ul_phr(phr); }, __PRETTY_FUNCTION__);
+      rnti, [phr, ul_nof_prb](sched_ue& ue) { ue.ul_phr(phr, ul_nof_prb); }, __PRETTY_FUNCTION__);
 }
 
 int sched::ul_sr_info(uint32_t tti, uint16_t rnti)
@@ -276,18 +283,22 @@ std::array<int, SRSRAN_MAX_CARRIERS> sched::get_enb_ue_cc_map(uint16_t rnti)
   return ret;
 }
 
-std::array<bool, SRSRAN_MAX_CARRIERS> sched::get_scell_activation_mask(uint16_t rnti)
+std::array<int, SRSRAN_MAX_CARRIERS> sched::get_enb_ue_activ_cc_map(uint16_t rnti)
 {
-  std::array<bool, SRSRAN_MAX_CARRIERS> scell_mask = {};
-  ue_db_access_locked(rnti, [this, &scell_mask](sched_ue& ue) {
-    for (size_t enb_cc_idx = 0; enb_cc_idx < carrier_schedulers.size(); ++enb_cc_idx) {
-      const sched_ue_cell* cc_ue = ue.find_ue_carrier(enb_cc_idx);
-      if (cc_ue != nullptr and (cc_ue->cc_state() == cc_st::active or cc_ue->cc_state() == cc_st::activating)) {
-        scell_mask[cc_ue->get_ue_cc_idx()] = true;
-      }
-    }
-  });
-  return scell_mask;
+  std::array<int, SRSRAN_MAX_CARRIERS> ret{};
+  ret.fill(-1); // -1 for inactive & non-existent carriers
+  ue_db_access_locked(
+      rnti,
+      [this, &ret](sched_ue& ue) {
+        for (size_t enb_cc_idx = 0; enb_cc_idx < carrier_schedulers.size(); ++enb_cc_idx) {
+          const sched_ue_cell* cc_ue = ue.find_ue_carrier(enb_cc_idx);
+          if (cc_ue != nullptr and (cc_ue->cc_state() == cc_st::active or cc_ue->cc_state() == cc_st::activating)) {
+            ret[enb_cc_idx] = cc_ue->get_ue_cc_idx();
+          }
+        }
+      },
+      __PRETTY_FUNCTION__);
+  return ret;
 }
 
 /*******************************************************

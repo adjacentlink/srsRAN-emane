@@ -38,7 +38,7 @@ class ul_harq_entity
 public:
   ul_harq_entity(const uint8_t cc_idx_);
 
-  bool init(mac_interface_rrc_common::ue_rnti_t* rntis_, ra_proc* ra_proc_h_, mux* mux_unit_);
+  bool init(ue_rnti* rntis_, ra_proc* ra_proc_h_, mux* mux_unit_);
 
   void reset();
   void reset_ndi();
@@ -75,14 +75,63 @@ private:
     void new_grant_ul(mac_interface_phy_lte::mac_grant_ul_t grant, mac_interface_phy_lte::tb_action_ul_t* action);
 
   private:
-    mac_interface_phy_lte::mac_grant_ul_t cur_grant;
+    /// Thread safe wrapper for a mac_grant_ul_t object.
+    class lockable_grant
+    {
+      mac_interface_phy_lte::mac_grant_ul_t grant = {};
+      mutable std::mutex                    mutex;
 
-    uint32_t pid;
-    uint32_t current_tx_nb;
-    uint32_t current_irv;
-    bool     harq_feedback;
-    bool     is_grant_configured;
-    bool     is_initiated;
+    public:
+      void set(const mac_interface_phy_lte::mac_grant_ul_t& other)
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        grant = other;
+      }
+
+      void reset()
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        grant = {};
+      }
+
+      void set_ndi(bool ndi)
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        grant.tb.ndi = ndi;
+      }
+
+      bool get_ndi() const
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        return grant.tb.ndi;
+      }
+
+      uint32_t get_tbs() const
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        return grant.tb.tbs;
+      }
+
+      int get_rv() const
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        return grant.tb.rv;
+      }
+
+      void set_rv(int rv)
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        grant.tb.rv = rv;
+      }
+    };
+    lockable_grant cur_grant;
+
+    uint32_t              pid;
+    std::atomic<uint32_t> current_tx_nb       = {0};
+    std::atomic<uint32_t> current_irv         = {0};
+    std::atomic<bool>     harq_feedback       = {false};
+    std::atomic<bool>     is_grant_configured = {false};
+    bool                  is_initiated;
 
     srslog::basic_logger&  logger;
     ul_harq_entity*        harq_entity;
@@ -105,12 +154,14 @@ private:
   srsran::mac_pcap*     pcap     = nullptr;
   srslog::basic_logger& logger;
 
-  mac_interface_rrc_common::ue_rnti_t* rntis    = nullptr;
-  srsran::ul_harq_cfg_t                harq_cfg = {};
+  ue_rnti* rntis = nullptr;
 
-  float    average_retx = 0.0;
-  uint64_t nof_pkts     = 0;
-  ra_proc* ra_procedure = nullptr;
+  srsran::ul_harq_cfg_t harq_cfg = {};
+  std::mutex            config_mutex;
+
+  std::atomic<float>    average_retx{0};
+  std::atomic<uint64_t> nof_pkts{0};
+  ra_proc*              ra_procedure = nullptr;
 
   uint8_t cc_idx = 0;
 };

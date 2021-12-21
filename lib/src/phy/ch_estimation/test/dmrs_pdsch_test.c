@@ -19,26 +19,17 @@
  *
  */
 
-#include "srsran/common/test_common.h"
 #include "srsran/phy/ch_estimation/dmrs_sch.h"
 #include "srsran/phy/phch/ra_dl_nr.h"
 #include "srsran/srsran.h"
+#include "srsran/support/srsran_test.h"
 #include <complex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
 #include <unistd.h>
 
-static srsran_carrier_nr_t carrier = {
-    1,                               // pci
-    0,                               // absolute_frequency_ssb
-    0,                               // absolute_frequency_point_a
-    0,                               // offset_to_carrier
-    srsran_subcarrier_spacing_15kHz, // scs
-    50,                              // nof_prb
-    0,                               // start
-    1                                // max_mimo_layers
-};
+static srsran_carrier_nr_t carrier = SRSRAN_DEFAULT_CARRIER_NR;
 
 typedef struct {
   srsran_sch_mapping_type_t   mapping_type;
@@ -159,7 +150,7 @@ static void parse_args(int argc, char** argv)
         carrier.pci = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);

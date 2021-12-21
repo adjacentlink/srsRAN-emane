@@ -330,7 +330,7 @@ static inline int pdsch_nr_encode_codeword(srsran_pdsch_nr_t*         q,
     return SRSRAN_ERROR;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("b=");
     srsran_vec_fprint_b(stdout, q->b[tb->cw_idx], tb->nof_bits);
   }
@@ -342,7 +342,7 @@ static inline int pdsch_nr_encode_codeword(srsran_pdsch_nr_t*         q,
   // 7.3.1.2 Modulation
   srsran_mod_modulate(&q->modem_tables[tb->mod], q->b[tb->cw_idx], q->d[tb->cw_idx], tb->nof_bits);
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("d=");
     srsran_vec_fprint_c(stdout, q->d[tb->cw_idx], tb->nof_re);
   }
@@ -446,7 +446,7 @@ static inline int pdsch_nr_decode_codeword(srsran_pdsch_nr_t*         q,
     return SRSRAN_ERROR_OUT_OF_BOUNDS;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("d=");
     srsran_vec_fprint_c(stdout, q->d[tb->cw_idx], tb->nof_re);
   }
@@ -469,7 +469,7 @@ static inline int pdsch_nr_decode_codeword(srsran_pdsch_nr_t*         q,
   // Descrambling
   srsran_sequence_apply_c(llr, llr, tb->nof_bits, pdsch_nr_cinit(&q->carrier, cfg, rnti, tb->cw_idx));
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("b=");
     srsran_vec_fprint_b(stdout, q->b[tb->cw_idx], tb->nof_bits);
   }
@@ -491,7 +491,7 @@ int srsran_pdsch_nr_decode(srsran_pdsch_nr_t*           q,
                            srsran_pdsch_res_nr_t*       data)
 {
   // Check input pointers
-  if (!q || !cfg || !grant || !data || !sf_symbols) {
+  if (!q || !cfg || !grant || !data || !sf_symbols || !channel) {
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
 
@@ -525,7 +525,7 @@ int srsran_pdsch_nr_decode(srsran_pdsch_nr_t*           q,
     return SRSRAN_ERROR;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("ce=");
     srsran_vec_fprint_c(stdout, channel->ce[0][0], nof_re);
     DEBUG("x=");
@@ -537,8 +537,7 @@ int srsran_pdsch_nr_decode(srsran_pdsch_nr_t*           q,
 
   // Antenna port demapping
   // ... Not implemented
-  srsran_predecoding_type(
-      q->x, channel->ce, q->d, NULL, 1, 1, 1, 0, nof_re, SRSRAN_TXSCHEME_PORT0, 1.0f, channel->noise_estimate);
+  srsran_predecoding_single(q->x[0], channel->ce[0][0], q->d[0], NULL, nof_re, 1.0f, channel->noise_estimate);
 
   // Layer demapping
   if (grant->nof_layers > 1) {
@@ -578,9 +577,19 @@ static uint32_t pdsch_nr_grant_info(const srsran_pdsch_nr_t*     q,
     }
   }
 
+  // Append RNTI type and id
+  len =
+      srsran_print_check(str, str_len, len, "%s-rnti=0x%x ", srsran_rnti_type_str_short(grant->rnti_type), grant->rnti);
+
   // Append time-domain resource mapping
-  len = srsran_print_check(
-      str, str_len, len, "rnti=0x%x prb=%d:%d symb=%d:%d ", grant->rnti, first_prb, grant->nof_prb, grant->S, grant->L);
+  len = srsran_print_check(str,
+                           str_len,
+                           len,
+                           "prb=(%d,%d) symb=(%d,%d) ",
+                           first_prb,
+                           first_prb + grant->nof_prb - 1,
+                           grant->S,
+                           grant->S + grant->L - 1);
 
   // Append TB info
   for (uint32_t i = 0; i < SRSRAN_MAX_TB; i++) {

@@ -93,6 +93,9 @@ struct phy_args_t {
   uint32_t    intra_freq_meas_len_ms       = 20;
   uint32_t    intra_freq_meas_period_ms    = 200;
   float       force_ul_amplitude           = 0.0f;
+  bool        detect_cp                    = false;
+
+  bool nr_store_pdsch_ko = false;
 
   float    in_sync_rsrp_dbm_th    = -130.0f;
   float    in_sync_snr_db_th      = 1.0f;
@@ -137,8 +140,8 @@ public:
   } prach_info_t;
 
   virtual void
-                       prach_send(uint32_t preamble_idx, int allowed_subframe, float target_power_dbm, float ta_base_sec = 0.0f) = 0;
-  virtual prach_info_t prach_get_info() = 0;
+  prach_send(uint32_t preamble_idx, int allowed_subframe, float target_power_dbm, float ta_base_sec = 0.0f) = 0;
+  virtual prach_info_t prach_get_info()                                                                     = 0;
 
   /* Indicates the transmission of a SR signal in the next opportunity */
   virtual void sr_send()        = 0;
@@ -167,8 +170,6 @@ public:
   virtual bool cell_search()                = 0;
   virtual bool cell_select(phy_cell_t cell) = 0;
   virtual bool cell_is_camping()            = 0;
-
-  virtual void enable_pregen_signals(bool enable) = 0;
 };
 
 // Combined interface for stack (MAC and RRC) to access PHY

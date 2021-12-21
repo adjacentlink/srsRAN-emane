@@ -36,22 +36,26 @@ static int       plot_worker_id = -1;
 
 namespace srsue {
 namespace nr {
-sf_worker::sf_worker(phy_common* phy_, state* phy_state_, srslog::basic_logger& log) :
-  phy_state(phy_state_), phy(phy_), logger(log)
+
+sf_worker::sf_worker(srsran::phy_common_interface& common_,
+                     state&                        phy_state_,
+                     const srsran::phy_cfg_nr_t&   cfg,
+                     srslog::basic_logger&         log) :
+  phy_state(phy_state_), common(common_), logger(log), sf_len(SRSRAN_SF_LEN_PRB_NR(cfg.carrier.nof_prb))
 {
-  for (uint32_t i = 0; i < phy_state->args.nof_carriers; i++) {
-    cc_worker* w = new cc_worker(i, log, phy_state);
+  for (uint32_t i = 0; i < phy_state.args.nof_carriers; i++) {
+    cc_worker* w = new cc_worker(i, log, phy_state, cfg);
     cc_workers.push_back(std::unique_ptr<cc_worker>(w));
   }
 }
 
-bool sf_worker::update_cfg(uint32_t cc_idx)
+void sf_worker::update_cfg(uint32_t cc_idx, const srsran::phy_cfg_nr_t& new_cfg)
 {
   if (cc_idx >= cc_workers.size()) {
-    return false;
+    return;
   }
 
-  return cc_workers[cc_idx]->update_cfg();
+  cc_workers[cc_idx]->update_cfg(new_cfg);
 }
 
 cf_t* sf_worker::get_buffer(uint32_t cc_idx, uint32_t antenna_idx)
@@ -68,19 +72,19 @@ uint32_t sf_worker::get_buffer_len()
   return cc_workers.at(0)->get_buffer_len();
 }
 
-void sf_worker::set_tti(uint32_t tti)
+void sf_worker::set_context(const srsran::phy_common_interface::worker_context_t& w_ctx)
 {
-  tti_rx = tti;
-  logger.set_context(tti);
+  tti_rx = w_ctx.sf_idx;
+  logger.set_context(w_ctx.sf_idx);
   for (auto& w : cc_workers) {
-    w->set_tti(tti);
+    w->set_tti(w_ctx.sf_idx);
   }
+  context.copy(w_ctx);
 }
 
 void sf_worker::work_imp()
 {
-  srsran::rf_buffer_t    tx_buffer = {};
-  srsran::rf_timestamp_t dummy_ts  = {};
+  srsran::rf_buffer_t tx_buffer = {};
 
   // Perform DL processing
   for (auto& w : cc_workers) {
@@ -88,23 +92,17 @@ void sf_worker::work_imp()
   }
 
   // Align workers, wait for previous workers to finish DL processing before starting UL processing
-  phy_state->dl_ul_semaphore.wait(this);
-  phy_state->dl_ul_semaphore.release();
+  phy_state.dl_ul_semaphore.wait(this);
+  phy_state.dl_ul_semaphore.release();
 
   // Check if PRACH is available
   if (prach_ptr != nullptr) {
     // PRACH is available, set buffer, transmit and return
-    tx_buffer.set(0, prach_ptr);
-
-    // Notify MAC about PRACH transmission
-    phy_state->stack->prach_sent(TTI_TX(tti_rx),
-                                 srsran_prach_nr_start_symbol_fr1_unpaired(phy_state->cfg.prach.config_idx),
-                                 SRSRAN_SLOT_NR_MOD(phy_state->cfg.carrier.scs, TTI_TX(tti_rx)),
-                                 0,
-                                 0);
+    tx_buffer.set(phy_state.args.rf_channel_offset, prach_ptr);
+    tx_buffer.set_nof_samples(sf_len);
 
     // Transmit NR PRACH
-    phy->worker_end(this, false, tx_buffer, dummy_ts, true);
+    common.worker_end(context, true, tx_buffer);
 
     // Reset PRACH pointer
     prach_ptr = nullptr;
@@ -114,16 +112,17 @@ void sf_worker::work_imp()
 
   // Perform UL processing
   for (auto& w : cc_workers) {
-    w->work_ul();
+    w.get()->work_ul();
   }
 
   // Set Tx buffers
   for (uint32_t i = 0; i < (uint32_t)cc_workers.size(); i++) {
-    tx_buffer.set(i, cc_workers[i]->get_tx_buffer(0));
+    tx_buffer.set(i + phy_state.args.rf_channel_offset, cc_workers[i]->get_tx_buffer(0));
   }
+  tx_buffer.set_nof_samples(sf_len);
 
   // Always call worker_end before returning
-  phy->worker_end(this, false, tx_buffer, dummy_ts, true);
+  common.worker_end(context, true, tx_buffer);
 
   // Tell the plotting thread to draw the plots
 #ifdef ENABLE_GUI

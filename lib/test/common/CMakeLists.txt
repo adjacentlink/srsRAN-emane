@@ -51,6 +51,10 @@ add_executable(test_f12345 test_f12345.cc)
 target_link_libraries(test_f12345 srsran_common ${CMAKE_THREAD_LIBS_INIT})
 add_test(test_f12345 test_f12345)
 
+add_executable(test_security_kdf test_security_kdf.cc)
+target_link_libraries(test_security_kdf srsran_common ${CMAKE_THREAD_LIBS_INIT})
+add_test(test_security_kdf test_security_kdf)
+
 add_executable(timeout_test timeout_test.cc)
 target_link_libraries(timeout_test srsran_phy ${CMAKE_THREAD_LIBS_INIT})
 
@@ -66,7 +70,7 @@ target_link_libraries(queue_test srsran_common ${CMAKE_THREAD_LIBS_INIT})
 add_test(queue_test queue_test)
 
 add_executable(timer_test timer_test.cc)
-target_link_libraries(timer_test srsran_common)
+target_link_libraries(timer_test srsran_common ${ATOMIC_LIBS})
 add_test(timer_test timer_test)
 
 add_executable(network_utils_test network_utils_test.cc)
@@ -82,14 +86,8 @@ target_link_libraries(choice_type_test srsran_common)
 add_test(choice_type_test choice_type_test)
 
 add_executable(task_scheduler_test task_scheduler_test.cc)
-target_link_libraries(task_scheduler_test srsran_common)
+target_link_libraries(task_scheduler_test srsran_common ${ATOMIC_LIBS})
 add_test(task_scheduler_test task_scheduler_test)
-
-add_executable(pnf_dummy pnf_dummy.cc)
-target_link_libraries(pnf_dummy srsran_common ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES})
-
-add_executable(pnf_bridge pnf_bridge.cc)
-target_link_libraries(pnf_bridge srsran_common ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES})
 
 add_executable(mac_pcap_net_test mac_pcap_net_test.cc)
 target_link_libraries(mac_pcap_net_test srsran_common ${SCTP_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})

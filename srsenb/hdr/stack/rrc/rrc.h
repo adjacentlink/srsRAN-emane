@@ -28,12 +28,14 @@
 #include "srsenb/hdr/common/common_enb.h"
 #include "srsenb/hdr/common/rnti_pool.h"
 #include "srsran/adt/circular_buffer.h"
+#include "srsran/common/bearer_manager.h"
 #include "srsran/common/buffer_pool.h"
 #include "srsran/common/common.h"
 #include "srsran/common/stack_procedure.h"
 #include "srsran/common/task_scheduler.h"
 #include "srsran/common/timeout.h"
 #include "srsran/interfaces/enb_rrc_interfaces.h"
+#include "srsran/interfaces/enb_x2_interfaces.h"
 #include "srsran/srslog/srslog.h"
 #include <map>
 
@@ -44,6 +46,8 @@ class pdcp_interface_rrc;
 class rlc_interface_rrc;
 class mac_interface_rrc;
 class phy_interface_rrc_lte;
+
+class paging_manager;
 
 static const char rrc_state_text[RRC_STATE_N_ITEMS][100] = {"IDLE",
                                                             "WAIT FOR CON SETUP COMPLETE",
@@ -56,10 +60,11 @@ static const char rrc_state_text[RRC_STATE_N_ITEMS][100] = {"IDLE",
 class rrc final : public rrc_interface_pdcp,
                   public rrc_interface_mac,
                   public rrc_interface_rlc,
-                  public rrc_interface_s1ap
+                  public rrc_interface_s1ap,
+                  public rrc_eutra_interface_rrc_nr
 {
 public:
-  explicit rrc(srsran::task_sched_handle task_sched_);
+  explicit rrc(srsran::task_sched_handle task_sched_, enb_bearer_manager& manager_);
   ~rrc();
 
   int32_t init(const rrc_cfg_t&       cfg_,
@@ -69,6 +74,15 @@ public:
                pdcp_interface_rrc*    pdcp,
                s1ap_interface_rrc*    s1ap,
                gtpu_interface_rrc*    gtpu);
+
+  int32_t init(const rrc_cfg_t&       cfg_,
+               phy_interface_rrc_lte* phy,
+               mac_interface_rrc*     mac,
+               rlc_interface_rrc*     rlc,
+               pdcp_interface_rrc*    pdcp,
+               s1ap_interface_rrc*    s1ap,
+               gtpu_interface_rrc*    gtpu,
+               rrc_nr_interface_rrc*  rrc_nr);
 
   void stop();
   void get_metrics(rrc_metrics_t& m);
@@ -84,8 +98,9 @@ public:
   uint8_t* read_pdu_bcch_dlsch(const uint8_t cc_idx, const uint32_t sib_index) override;
 
   // rrc_interface_rlc
-  void read_pdu_pcch(uint8_t* payload, uint32_t buffer_size) override;
+  void read_pdu_pcch(uint32_t tti_tx_dl, uint8_t* payload, uint32_t buffer_size) override;
   void max_retx_attempted(uint16_t rnti) override;
+  void protocol_failure(uint16_t rnti) override;
 
   // rrc_interface_s1ap
   void     write_dl_info(uint16_t rnti, srsran::unique_byte_buffer_t sdu) override;
@@ -109,7 +124,7 @@ public:
                        asn1::s1ap::cause_c&                       cause) override;
   bool     release_erabs(uint32_t rnti) override;
   int      release_erab(uint16_t rnti, uint16_t erab_id) override;
-  void     add_paging_id(uint32_t ueid, const asn1::s1ap::ue_paging_id_c& UEPagingID) override;
+  void     add_paging_id(uint32_t ueid, const asn1::s1ap::ue_paging_id_c& ue_paging_id) override;
   void     ho_preparation_complete(uint16_t                     rnti,
                                    rrc::ho_prep_result          result,
                                    const asn1::s1ap::ho_cmd_s&  msg,
@@ -121,60 +136,64 @@ public:
 
   int notify_ue_erab_updates(uint16_t rnti, srsran::const_byte_span nas_pdu) override;
 
+  // rrc_eutra_interface_rrc_nr
+  void sgnb_addition_ack(uint16_t eutra_rnti, const sgnb_addition_ack_params_t params) override;
+  void sgnb_addition_reject(uint16_t eutra_rnti) override;
+  void sgnb_addition_complete(uint16_t eutra_rnti, uint16_t nr_rnti) override;
+  void sgnb_inactivity_timeout(uint16_t eutra_rnti) override;
+  void sgnb_release_ack(uint16_t eutra_rnti) override;
+
   // rrc_interface_pdcp
   void write_pdu(uint16_t rnti, uint32_t lcid, srsran::unique_byte_buffer_t pdu) override;
+  void notify_pdcp_integrity_error(uint16_t rnti, uint32_t lcid) override;
 
   uint32_t get_nof_users();
 
   // logging
-  typedef enum { Rx = 0, Tx, toS1AP, fromS1AP } direction_t;
+  enum direction_t { Rx = 0, Tx, toS1AP, fromS1AP };
   template <class T>
-  void log_rrc_message(const std::string&           source,
-                       const direction_t            dir,
-                       const srsran::byte_buffer_t* pdu,
-                       const T&                     msg,
-                       const std::string&           msg_type)
-  {
-    log_rrc_message(source, dir, srsran::make_span(*pdu), msg, msg_type);
-  }
-  template <class T>
-  void log_rrc_message(const std::string&      source,
-                       const direction_t       dir,
+  void log_rrc_message(const direction_t       dir,
+                       uint16_t                rnti,
+                       uint32_t                lcid,
                        srsran::const_byte_span pdu,
                        const T&                msg,
-                       const std::string&      msg_type)
+                       const char*             msg_type)
   {
-    static const char* dir_str[] = {"Rx", "Tx", "S1AP Tx", "S1AP Rx"};
+    log_rxtx_pdu_impl(dir, rnti, lcid, pdu, msg_type);
     if (logger.debug.enabled()) {
       asn1::json_writer json_writer;
       msg.to_json(json_writer);
-      logger.debug(
-          pdu.data(), pdu.size(), "%s - %s %s (%zd B)", source.c_str(), dir_str[dir], msg_type.c_str(), pdu.size());
       logger.debug("Content:\n%s", json_writer.to_string().c_str());
-    } else if (logger.info.enabled()) {
-      logger.info("%s - %s %s (%zd B)", source.c_str(), dir_str[dir], msg_type.c_str(), pdu.size());
     }
   }
+  template <class T>
+  void log_broadcast_rrc_message(uint16_t rnti, srsran::const_byte_span pdu, const T& msg, const char* msg_type)
+  {
+    log_rrc_message(Tx, rnti, -1, pdu, msg, msg_type);
+  }
+
+  class ue;
 
 private:
-  class ue;
   // args
   srsran::task_sched_handle task_sched;
-  phy_interface_rrc_lte*    phy  = nullptr;
-  mac_interface_rrc*        mac  = nullptr;
-  rlc_interface_rrc*        rlc  = nullptr;
-  pdcp_interface_rrc*       pdcp = nullptr;
-  gtpu_interface_rrc*       gtpu = nullptr;
-  s1ap_interface_rrc*       s1ap = nullptr;
+  enb_bearer_manager&       bearer_manager;
+  phy_interface_rrc_lte*    phy    = nullptr;
+  mac_interface_rrc*        mac    = nullptr;
+  rlc_interface_rrc*        rlc    = nullptr;
+  pdcp_interface_rrc*       pdcp   = nullptr;
+  gtpu_interface_rrc*       gtpu   = nullptr;
+  s1ap_interface_rrc*       s1ap   = nullptr;
+  rrc_nr_interface_rrc*     rrc_nr = nullptr;
   srslog::basic_logger&     logger;
 
   // derived params
   std::unique_ptr<enb_cell_common_list> cell_common_list;
 
   // state
-  std::unique_ptr<freq_res_common_list>          cell_res_list;
-  std::map<uint16_t, unique_rnti_ptr<ue> >       users; // NOTE: has to have fixed addr
-  std::map<uint32_t, asn1::rrc::paging_record_s> pending_paging;
+  std::unique_ptr<freq_res_common_list>    cell_res_list;
+  std::map<uint16_t, unique_rnti_ptr<ue> > users; // NOTE: has to have fixed addr
+  std::unique_ptr<paging_manager>          pending_paging;
 
   void     process_release_complete(uint16_t rnti);
   void     rem_user(uint16_t rnti);
@@ -183,29 +202,31 @@ private:
   int      pack_mcch();
 
   void config_mac();
-  void parse_ul_dcch(uint16_t rnti, uint32_t lcid, srsran::unique_byte_buffer_t pdu);
-  void parse_ul_ccch(uint16_t rnti, srsran::unique_byte_buffer_t pdu);
+  void parse_ul_dcch(ue& ue, uint32_t lcid, srsran::unique_byte_buffer_t pdu);
+  void parse_ul_ccch(ue& ue, srsran::unique_byte_buffer_t pdu);
   void send_rrc_connection_reject(uint16_t rnti);
 
-  uint32_t              paging_tti = INVALID_TTI;
-  srsran::byte_buffer_t byte_buf_paging;
-  const static int      mcch_payload_len                      = 3000;
-  int                   current_mcch_length                   = 0;
-  uint8_t               mcch_payload_buffer[mcch_payload_len] = {};
-  typedef struct {
+  const static int mcch_payload_len                      = 3000;
+  int              current_mcch_length                   = 0;
+  uint8_t          mcch_payload_buffer[mcch_payload_len] = {};
+  struct rrc_pdu {
     uint16_t                     rnti;
     uint32_t                     lcid;
     uint32_t                     arg;
     srsran::unique_byte_buffer_t pdu;
-  } rrc_pdu;
+  };
+  void log_rx_pdu_fail(uint16_t rnti, uint32_t lcid, srsran::const_byte_span pdu, const char* cause);
+  void
+  log_rxtx_pdu_impl(direction_t dir, uint16_t rnti, uint32_t lcid, srsran::const_byte_span pdu, const char* msg_type);
 
-  const static uint32_t LCID_EXIT        = 0xffff0000;
-  const static uint32_t LCID_REM_USER    = 0xffff0001;
-  const static uint32_t LCID_REL_USER    = 0xffff0002;
-  const static uint32_t LCID_ACT_USER    = 0xffff0004;
-  const static uint32_t LCID_RTX_USER    = 0xffff0005;
-  const static uint32_t LCID_RADLINK_DL  = 0xffff0006;
-  const static uint32_t LCID_RADLINK_UL  = 0xffff0007;
+  const static uint32_t LCID_EXIT       = 0xffff0000;
+  const static uint32_t LCID_REM_USER   = 0xffff0001;
+  const static uint32_t LCID_REL_USER   = 0xffff0002;
+  const static uint32_t LCID_ACT_USER   = 0xffff0004;
+  const static uint32_t LCID_RLC_RTX    = 0xffff0005;
+  const static uint32_t LCID_RADLINK_DL = 0xffff0006;
+  const static uint32_t LCID_RADLINK_UL = 0xffff0007;
+  const static uint32_t LCID_PROT_FAIL  = 0xffff0008;
 
   bool                                running = false;
   srsran::dyn_blocking_queue<rrc_pdu> rx_pdu_queue;
@@ -217,8 +238,6 @@ private:
   asn1::rrc::sib_type7_s sib7;
 
   void rem_user_thread(uint16_t rnti);
-
-  std::mutex paging_mutex;
 };
 
 } // namespace srsenb

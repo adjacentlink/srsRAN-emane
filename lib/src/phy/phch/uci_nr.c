@@ -42,6 +42,40 @@ uint32_t srsran_uci_nr_crc_len(uint32_t A)
   return (A <= 11) ? 0 : (A < 20) ? 6 : 11;
 }
 
+static inline int uci_nr_pusch_cfg_valid(const srsran_uci_nr_pusch_cfg_t* cfg)
+{
+  // No data pointer
+  if (cfg == NULL) {
+    return SRSRAN_ERROR_INVALID_INPUTS;
+  }
+
+  // Unset configuration is unset
+  if (cfg->nof_re == 0 && cfg->nof_layers == 0 && !isnormal(cfg->R)) {
+    return SRSRAN_SUCCESS;
+  }
+
+  // Detect invalid number of layers
+  if (cfg->nof_layers == 0) {
+    ERROR("Invalid number of layers %d", cfg->nof_layers);
+    return SRSRAN_ERROR;
+  }
+
+  // Detect invalid number of RE
+  if (cfg->nof_re == 0) {
+    ERROR("Invalid number of RE %d", cfg->nof_re);
+    return SRSRAN_ERROR;
+  }
+
+  // Detect invalid Rate
+  if (!isnormal(cfg->R)) {
+    ERROR("Invalid R %f", cfg->R);
+    return SRSRAN_ERROR;
+  }
+
+  // Otherwise it is set and valid
+  return 1;
+}
+
 int srsran_uci_nr_init(srsran_uci_nr_t* q, const srsran_uci_nr_args_t* args)
 {
   if (q == NULL || args == NULL) {
@@ -165,15 +199,15 @@ static int uci_nr_pack_ack_sr(const srsran_uci_cfg_nr_t* cfg, const srsran_uci_v
   int A = 0;
 
   // Append ACK bits
-  srsran_vec_u8_copy(&sequence[A], value->ack, cfg->o_ack);
-  A += cfg->o_ack;
+  srsran_vec_u8_copy(&sequence[A], value->ack, cfg->ack.count);
+  A += cfg->ack.count;
 
   // Append SR bits
   uint8_t* bits = &sequence[A];
   srsran_bit_unpack(value->sr, &bits, cfg->o_sr);
   A += cfg->o_sr;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_TX("Packed UCI bits: ");
     srsran_vec_fprint_byte(stdout, sequence, A);
   }
@@ -186,15 +220,15 @@ static int uci_nr_unpack_ack_sr(const srsran_uci_cfg_nr_t* cfg, uint8_t* sequenc
   int A = 0;
 
   // Append ACK bits
-  srsran_vec_u8_copy(value->ack, &sequence[A], cfg->o_ack);
-  A += cfg->o_ack;
+  srsran_vec_u8_copy(value->ack, &sequence[A], cfg->ack.count);
+  A += cfg->ack.count;
 
   // Append SR bits
   uint8_t* bits = &sequence[A];
   value->sr     = srsran_bit_pack(&bits, cfg->o_sr);
   A += cfg->o_sr;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_RX("Unpacked UCI bits: ");
     srsran_vec_fprint_byte(stdout, sequence, A);
   }
@@ -207,8 +241,8 @@ static int uci_nr_pack_ack_sr_csi(const srsran_uci_cfg_nr_t* cfg, const srsran_u
   int A = 0;
 
   // Append ACK bits
-  srsran_vec_u8_copy(&sequence[A], value->ack, cfg->o_ack);
-  A += cfg->o_ack;
+  srsran_vec_u8_copy(&sequence[A], value->ack, cfg->ack.count);
+  A += cfg->ack.count;
 
   // Append SR bits
   uint8_t* bits = &sequence[A];
@@ -223,7 +257,7 @@ static int uci_nr_pack_ack_sr_csi(const srsran_uci_cfg_nr_t* cfg, const srsran_u
   }
   A += n;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_TX("Packed UCI bits: ");
     srsran_vec_fprint_byte(stdout, sequence, A);
   }
@@ -236,15 +270,15 @@ static int uci_nr_unpack_ack_sr_csi(const srsran_uci_cfg_nr_t* cfg, uint8_t* seq
   int A = 0;
 
   // Append ACK bits
-  srsran_vec_u8_copy(value->ack, &sequence[A], cfg->o_ack);
-  A += cfg->o_ack;
+  srsran_vec_u8_copy(value->ack, &sequence[A], cfg->ack.count);
+  A += cfg->ack.count;
 
   // Append SR bits
   uint8_t* bits = &sequence[A];
   value->sr     = srsran_bit_pack(&bits, cfg->o_sr);
   A += cfg->o_sr;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_RX("Unpacked UCI bits: ");
     srsran_vec_fprint_byte(stdout, sequence, A);
   }
@@ -265,17 +299,16 @@ static int uci_nr_A(const srsran_uci_cfg_nr_t* cfg)
 
   // 6.3.1.1.1 HARQ-ACK/SR only UCI bit sequence generation
   if (o_csi == 0) {
-    return cfg->o_ack + cfg->o_sr;
+    return cfg->ack.count + cfg->o_sr;
   }
 
   // 6.3.1.1.2 CSI only
-  if (cfg->o_ack == 0 && cfg->o_sr == 0) {
+  if (cfg->ack.count == 0 && cfg->o_sr == 0) {
     return o_csi;
   }
 
   // 6.3.1.1.3 HARQ-ACK/SR and CSI
-  ERROR("HARQ-ACK/SR and CSI encoding are not implemented");
-  return SRSRAN_ERROR;
+  return cfg->ack.count + cfg->o_sr + o_csi;
 }
 
 static int uci_nr_pack_pucch(const srsran_uci_cfg_nr_t* cfg, const srsran_uci_value_nr_t* value, uint8_t* sequence)
@@ -288,7 +321,7 @@ static int uci_nr_pack_pucch(const srsran_uci_cfg_nr_t* cfg, const srsran_uci_va
   }
 
   // 6.3.1.1.2 CSI only
-  if (cfg->o_ack == 0 && cfg->o_sr == 0) {
+  if (cfg->ack.count == 0 && cfg->o_sr == 0) {
     return srsran_csi_part1_pack(cfg->csi, value->csi, cfg->nof_csi, sequence, SRSRAN_UCI_NR_MAX_NOF_BITS);
   }
 
@@ -306,9 +339,8 @@ static int uci_nr_unpack_pucch(const srsran_uci_cfg_nr_t* cfg, uint8_t* sequence
   }
 
   // 6.3.1.1.2 CSI only
-  if (cfg->o_ack == 0 && cfg->o_sr == 0) {
-    ERROR("CSI only are not implemented");
-    return SRSRAN_ERROR;
+  if (cfg->ack.count == 0 && cfg->o_sr == 0) {
+    return srsran_csi_part1_unpack(cfg->csi, cfg->nof_csi, sequence, SRSRAN_UCI_NR_MAX_NOF_BITS, value->csi);
   }
 
   // 6.3.1.1.3 HARQ-ACK/SR and CSI
@@ -370,7 +402,7 @@ static int uci_nr_encode_1bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg
       return SRSRAN_ERROR;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_TX("One bit encoded NR-UCI; o=");
     srsran_vec_fprint_b(stdout, o, E);
   }
@@ -411,7 +443,7 @@ static int uci_nr_decode_1_bit(srsran_uci_nr_t*           q,
   // Save decoded bit
   q->bit_sequence[0] = (corr < 0) ? 0 : 1;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_RX("One bit decoding NR-UCI llr=");
     srsran_vec_fprint_bs(stdout, llr, E);
     UCI_NR_INFO_RX("One bit decoding NR-UCI A=%d; E=%d; pwr=%f; corr=%f; norm=%f; thr=%f; %s",
@@ -516,7 +548,7 @@ static int uci_nr_encode_2bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg
       return SRSRAN_ERROR;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_TX("Two bit encoded NR-UCI; E=%d; o=", E);
     srsran_vec_fprint_b(stdout, o, E);
   }
@@ -562,7 +594,7 @@ static int uci_nr_decode_2_bit(srsran_uci_nr_t*           q,
   q->bit_sequence[0] = c0 ? 1 : 0;
   q->bit_sequence[1] = c1 ? 1 : 0;
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_RX("Two bit decoding NR-UCI llr=");
     srsran_vec_fprint_bs(stdout, llr, E);
     UCI_NR_INFO_RX("Two bit decoding NR-UCI A=%d; E=%d; Qm=%d; c0=%d; c1=%d; c2=%d %s",
@@ -583,7 +615,7 @@ uci_nr_encode_3_11_bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg, uint3
 {
   srsran_block_encode(q->bit_sequence, A, o, E);
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_TX("Block encoded UCI bits; o=");
     srsran_vec_fprint_b(stdout, o, E);
   }
@@ -610,9 +642,11 @@ static int uci_nr_decode_3_11_bit(srsran_uci_nr_t*           q,
 
   // Compute average LLR power
   float pwr = srsran_vec_avg_power_bf(llr, E);
+
+  // If the power measurement is invalid (zero, NAN, INF) then consider it cannot be decoded
   if (!isnormal(pwr)) {
-    ERROR("Received all zeros");
-    return SRSRAN_ERROR;
+    *decoded_ok = false;
+    return SRSRAN_SUCCESS;
   }
 
   // Decode
@@ -624,7 +658,7 @@ static int uci_nr_decode_3_11_bit(srsran_uci_nr_t*           q,
   // Take decoded decision with threshold
   *decoded_ok = (corr > q->block_code_threshold);
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     UCI_NR_INFO_RX("Block decoding NR-UCI llr=");
     srsran_vec_fprint_bs(stdout, llr, E);
     UCI_NR_INFO_RX("Block decoding NR-UCI A=%d; E=%d; pwr=%f; corr=%f; norm=%f; thr=%f; %s",
@@ -688,7 +722,7 @@ uci_nr_encode_11_1706_bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg, ui
     srsran_crc_attach(crc, q->c, A_prime / C);
     UCI_NR_INFO_TX("Attaching %d/%d CRC%d=%" PRIx64, r, C, L, srsran_crc_checksum_get(crc));
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_TX("Polar cb %d/%d c=", r, C);
       srsran_vec_fprint_byte(stdout, q->c, K_r);
     }
@@ -696,7 +730,7 @@ uci_nr_encode_11_1706_bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg, ui
     // Allocate channel
     srsran_polar_chanalloc_tx(q->c, q->allocated, q->code.N, q->code.K, q->code.nPC, q->code.K_set, q->code.PC_set);
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_TX("Polar alloc %d/%d ", r, C);
       srsran_vec_fprint_byte(stdout, q->allocated, q->code.N);
     }
@@ -706,7 +740,7 @@ uci_nr_encode_11_1706_bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg, ui
       return SRSRAN_ERROR;
     }
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_TX("Polar encoded %d/%d ", r, C);
       srsran_vec_fprint_byte(stdout, q->d, q->code.N);
     }
@@ -714,7 +748,7 @@ uci_nr_encode_11_1706_bit(srsran_uci_nr_t* q, const srsran_uci_cfg_nr_t* cfg, ui
     // Rate matching
     srsran_polar_rm_tx(&q->rm_tx, q->d, &o[E_r * r], q->code.n, E_r, K_r, UCI_NR_POLAR_RM_IBIL);
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_TX("Polar RM cw %d/%d ", r, C);
       srsran_vec_fprint_byte(stdout, &o[E_r * r], E_r);
     }
@@ -765,7 +799,7 @@ static int uci_nr_decode_11_1706_bit(srsran_uci_nr_t*           q,
   for (uint32_t r = 0, s = 0; r < C; r++) {
     uint32_t k = 0;
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_RX("Polar LLR %d/%d ", r, C);
       srsran_vec_fprint_bs(stdout, &llr[E_r * r], q->code.N);
     }
@@ -780,7 +814,7 @@ static int uci_nr_decode_11_1706_bit(srsran_uci_nr_t*           q,
       return SRSRAN_ERROR;
     }
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_RX("Polar alloc %d/%d ", r, C);
       srsran_vec_fprint_byte(stdout, q->allocated, q->code.N);
     }
@@ -788,7 +822,7 @@ static int uci_nr_decode_11_1706_bit(srsran_uci_nr_t*           q,
     // Undo channel allocation
     srsran_polar_chanalloc_rx(q->allocated, q->c, q->code.K, q->code.nPC, q->code.K_set, q->code.PC_set);
 
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
       UCI_NR_INFO_RX("Polar cb %d/%d c=", r, C);
       srsran_vec_fprint_byte(stdout, q->c, K_r);
     }
@@ -989,16 +1023,25 @@ uint32_t srsran_uci_nr_total_bits(const srsran_uci_cfg_nr_t* uci_cfg)
     return 0;
   }
 
-  return uci_cfg->o_ack + uci_cfg->o_sr + srsran_csi_part1_nof_bits(uci_cfg->csi, uci_cfg->nof_csi);
+  uint32_t o_csi = srsran_csi_part1_nof_bits(uci_cfg->csi, uci_cfg->nof_csi);
+
+  // According to 38.213 9.2.4 UE procedure for reporting SR
+  // The UE transmits a PUCCH in the PUCCH resource for the corresponding SR configuration only when the UE transmits a
+  // positive SR
+  if (uci_cfg->ack.count == 0 && o_csi == 0 && !uci_cfg->sr_positive_present) {
+    return 0;
+  }
+
+  return uci_cfg->ack.count + uci_cfg->o_sr + o_csi;
 }
 
 uint32_t srsran_uci_nr_info(const srsran_uci_data_nr_t* uci_data, char* str, uint32_t str_len)
 {
   uint32_t len = 0;
 
-  if (uci_data->cfg.o_ack > 0) {
+  if (uci_data->cfg.ack.count > 0) {
     char str_ack[10];
-    srsran_vec_sprint_bin(str_ack, (uint32_t)sizeof(str_ack), uci_data->value.ack, uci_data->cfg.o_ack);
+    srsran_vec_sprint_bin(str_ack, (uint32_t)sizeof(str_ack), uci_data->value.ack, uci_data->cfg.ack.count);
     len = srsran_print_check(str, str_len, len, "ack=%s ", str_ack);
   }
 
@@ -1015,10 +1058,6 @@ uint32_t srsran_uci_nr_info(const srsran_uci_data_nr_t* uci_data, char* str, uin
 
 static int uci_nr_pusch_Q_prime_ack(const srsran_uci_nr_pusch_cfg_t* cfg, uint32_t O_ack)
 {
-  if (cfg == NULL) {
-    return SRSRAN_ERROR_INVALID_INPUTS;
-  }
-
   uint32_t L_ack = srsran_uci_nr_crc_len(O_ack);              // Number of CRC bits
   uint32_t Qm    = srsran_mod_bits_x_symbol(cfg->modulation); // modulation order of the PUSCH
 
@@ -1046,14 +1085,15 @@ static int uci_nr_pusch_Q_prime_ack(const srsran_uci_nr_pusch_cfg_t* cfg, uint32
 
 int srsran_uci_nr_pusch_ack_nof_bits(const srsran_uci_nr_pusch_cfg_t* cfg, uint32_t O_ack)
 {
-  // Check inputs
-  if (cfg == NULL) {
+  // Validate configuration
+  int err = uci_nr_pusch_cfg_valid(cfg);
+  if (err < SRSRAN_SUCCESS) {
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
 
-  if (cfg->nof_layers == 0) {
-    ERROR("Invalid number of layers (%d)", cfg->nof_layers);
-    return SRSRAN_ERROR;
+  // Configuration is unset
+  if (err == 0) {
+    return 0;
   }
 
   int Q_ack_prime = uci_nr_pusch_Q_prime_ack(cfg, O_ack);
@@ -1075,7 +1115,7 @@ int srsran_uci_nr_encode_pusch_ack(srsran_uci_nr_t*             q,
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
 
-  int A = cfg->o_ack;
+  int A = cfg->ack.count;
 
   // 6.3.2.1 UCI bit sequence generation
   // 6.3.2.1.1 HARQ-ACK
@@ -1088,7 +1128,7 @@ int srsran_uci_nr_encode_pusch_ack(srsran_uci_nr_t*             q,
     UCI_NR_INFO_TX("No HARQ-ACK to mux");
     return SRSRAN_SUCCESS;
   } else {
-    srsran_vec_u8_copy(q->bit_sequence, value->ack, cfg->o_ack);
+    srsran_vec_u8_copy(q->bit_sequence, value->ack, cfg->ack.count);
   }
 
   // Compute total of encoded bits according to 6.3.2.4 Rate matching
@@ -1111,12 +1151,12 @@ int srsran_uci_nr_decode_pusch_ack(srsran_uci_nr_t*           q,
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
 
-  int A = cfg->o_ack;
+  int A = cfg->ack.count;
 
   // 6.3.2.1 UCI bit sequence generation
   // 6.3.2.1.1 HARQ-ACK
   bool has_csi_part2 = srsran_csi_has_part2(cfg->csi, cfg->nof_csi);
-  if (cfg->pusch.K_sum == 0 && cfg->nof_csi > 1 && !has_csi_part2 && cfg->o_ack < 2) {
+  if (cfg->pusch.K_sum == 0 && cfg->nof_csi > 1 && !has_csi_part2 && cfg->ack.count < 2) {
     A = 2;
   }
 
@@ -1177,9 +1217,15 @@ static int uci_nr_pusch_Q_prime_csi1(const srsran_uci_nr_pusch_cfg_t* cfg, uint3
 
 int srsran_uci_nr_pusch_csi1_nof_bits(const srsran_uci_cfg_nr_t* cfg)
 {
-  // Check inputs
-  if (cfg == NULL) {
+  // Validate configuration
+  int err = uci_nr_pusch_cfg_valid(&cfg->pusch);
+  if (err < SRSRAN_SUCCESS) {
     return SRSRAN_ERROR_INVALID_INPUTS;
+  }
+
+  // Configuration is unset
+  if (err == 0) {
+    return 0;
   }
 
   int O_csi1 = srsran_csi_part1_nof_bits(cfg->csi, cfg->nof_csi);
@@ -1187,7 +1233,7 @@ int srsran_uci_nr_pusch_csi1_nof_bits(const srsran_uci_cfg_nr_t* cfg)
     ERROR("Errpr calculating CSI part 1 number of bits");
     return SRSRAN_ERROR;
   }
-  uint32_t O_ack = SRSRAN_MAX(2, cfg->o_ack);
+  uint32_t O_ack = SRSRAN_MAX(2, cfg->ack.count);
 
   int Q_csi1_prime = uci_nr_pusch_Q_prime_csi1(&cfg->pusch, (uint32_t)O_csi1, O_ack);
   if (Q_csi1_prime < SRSRAN_SUCCESS) {

@@ -52,15 +52,34 @@ extern "C" {
 #define SRSRAN_CEIL(NUM, DEN) (((NUM) + ((DEN)-1)) / (DEN))
 #define SRSRAN_FLOOR(NUM, DEN) ((NUM) / (DEN))
 #define SRSRAN_ROUND(NUM, DEN) ((uint32_t)round((double)(NUM) / (double)(DEN)))
+#define SRSRAN_CEIL_LOG2(N) (((N) == 0) ? 0 : ceil(log2((double)(N))))
+
+// Complex squared absolute value
+#define SRSRAN_CSQABS(X) (__real__(X) * __real__(X) + __imag__(X) * __imag__(X))
 
 // Cumulative moving average
 #define SRSRAN_VEC_CMA(data, average, n) ((average) + ((data) - (average)) / ((n) + 1))
+
+// Cumulative moving average
+#ifdef __cplusplus
+#define SRSRAN_VEC_SAFE_CMA(data, average, n) (std::isnormal(average) ? SRSRAN_VEC_CMA(data, average, n) : (data))
+#else
+#define SRSRAN_VEC_SAFE_CMA(data, average, n) (isnormal(average) ? SRSRAN_VEC_CMA(data, average, n) : (data))
+#endif
 
 // Proportional moving average
 #define SRSRAN_VEC_PMA(average1, n1, average2, n2) (((average1) * (n1) + (average2) * (n2)) / ((n1) + (n2)))
 
 // Exponential moving average
 #define SRSRAN_VEC_EMA(data, average, alpha) ((alpha) * (data) + (1 - alpha) * (average))
+
+// Safe exponential moving average
+#ifdef __cplusplus
+#define SRSRAN_VEC_SAFE_EMA(data, average, alpha)                                                                      \
+  (std::isnormal(average) ? SRSRAN_VEC_EMA(data, average, alpha) : (data))
+#else
+#define SRSRAN_VEC_SAFE_EMA(data, average, alpha) (isnormal(average) ? SRSRAN_VEC_EMA(data, average, alpha) : (data))
+#endif
 
 static inline float srsran_convert_amplitude_to_dB(float v)
 {
@@ -126,16 +145,16 @@ SRSRAN_API void srsran_vec_u16_copy(uint16_t* dst, const uint16_t* src, uint32_t
 SRSRAN_API void srsran_vec_i16_copy(int16_t* dst, const int16_t* src, uint32_t len);
 
 /* print vectors */
-SRSRAN_API void srsran_vec_fprint_c(FILE* stream, const cf_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_f(FILE* stream, const float* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_b(FILE* stream, const uint8_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_bs(FILE* stream, const int8_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_byte(FILE* stream, const uint8_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_i(FILE* stream, const int* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_s(FILE* stream, const int16_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_fprint_hex(FILE* stream, uint8_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_sprint_hex(char* str, const uint32_t max_str_len, uint8_t* x, const uint32_t len);
-SRSRAN_API void srsran_vec_sprint_bin(char* str, const uint32_t max_str_len, const uint8_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_c(FILE* stream, const cf_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_f(FILE* stream, const float* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_b(FILE* stream, const uint8_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_bs(FILE* stream, const int8_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_byte(FILE* stream, const uint8_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_i(FILE* stream, const int* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_s(FILE* stream, const int16_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_fprint_hex(FILE* stream, uint8_t* x, const uint32_t len);
+SRSRAN_API uint32_t srsran_vec_sprint_hex(char* str, const uint32_t max_str_len, uint8_t* x, const uint32_t len);
+SRSRAN_API void     srsran_vec_sprint_bin(char* str, const uint32_t max_str_len, const uint8_t* x, const uint32_t len);
 
 /* Saves/loads a vector to a file */
 SRSRAN_API void srsran_vec_save_file(char* filename, const void* buffer, const uint32_t len);
@@ -333,7 +352,7 @@ SRSRAN_API void srsran_vec_interleave(const cf_t* x, const cf_t* y, cf_t* z, con
 
 SRSRAN_API void srsran_vec_interleave_add(const cf_t* x, const cf_t* y, cf_t* z, const int len);
 
-SRSRAN_API void srsran_vec_gen_sine(cf_t amplitude, float freq, cf_t* z, int len);
+SRSRAN_API cf_t srsran_vec_gen_sine(cf_t amplitude, float freq, cf_t* z, int len);
 
 SRSRAN_API void srsran_vec_apply_cfo(const cf_t* x, float cfo, cf_t* z, int len);
 

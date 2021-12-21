@@ -133,3 +133,47 @@ target_link_libraries(cfo_test srsran_phy)
 
 add_test(cfo_test_1 cfo_test -f 0.12345 -n 1000)
 add_test(cfo_test_2 cfo_test -f 0.99849 -n 1000)
+
+
+########################################################################
+# NR TEST
+########################################################################
+
+add_executable(ssb_measure_test ssb_measure_test.c)
+target_link_libraries(ssb_measure_test srsran_phy)
+
+add_executable(ssb_decode_test ssb_decode_test.c)
+target_link_libraries(ssb_decode_test srsran_phy)
+
+# For 1.0 GHz and 3.5 GHz Center frequencies
+foreach (CELL_FREQ 1000000 3500000)
+  # For each supported Cell/Carrier subcarrier spacing
+  foreach (CELL_SCS 15 30)
+    # For SSB centered at -960, 0 and 960 kHz from the center frequency
+    foreach (SSB_OFFSET_FREQ -960 +0 +960)
+      # For each supported SSB subcarrier spacing
+      foreach (SSB_SCS 15 30)
+        # For patterns A, B, C
+        foreach (SSB_PATTERN A B C)
+          # Calculate Actual SSB center frequency
+          math(EXPR SSB_FREQ "${CELL_FREQ}${SSB_OFFSET_FREQ}")
+
+          # Test SSB measurements
+          add_nr_test(ssb_measure_test_${CELL_FREQ}000_${CELL_SCS}_${SSB_FREQ}000_${SSB_SCS}_${SSB_PATTERN} ssb_measure_test
+                  -F ${CELL_FREQ}000 -S ${CELL_SCS} -f ${SSB_FREQ}000 -s ${SSB_SCS} -P ${SSB_PATTERN})
+
+          # Test SSB PBCH decoding
+          add_nr_test(ssb_decode_test_${CELL_FREQ}000_${CELL_SCS}_${SSB_FREQ}000_${SSB_SCS}_${SSB_PATTERN} ssb_decode_test
+                  -F ${CELL_FREQ}000 -S ${CELL_SCS} -f ${SSB_FREQ}000 -s ${SSB_SCS} -P ${SSB_PATTERN})
+        endforeach ()
+      endforeach ()
+    endforeach ()
+  endforeach ()
+endforeach ()
+
+add_executable(ssb_file_test ssb_file_test.c)
+target_link_libraries(ssb_file_test srsran_phy)
+
+# File test 1
+# Captured with command: lib/examples/usrp_capture -a type=x300,clock=external,sampling_rate=46.08e6,rx_subdev_spec=B:0 -g 20 -r 46.08e6 -n 460800  -f 3502.8e6 -o /tmp/n78.fo35028.fs2304M.data
+add_nr_test(ssb_file_test ssb_file_test -i ${CMAKE_CURRENT_SOURCE_DIR}/n78.fo35028.fs4608M.data -v -r 46.08e6 -f 3502.8e6 -F 3512.64e6 -n 460800 -A 500 357802 2 0 1 0)

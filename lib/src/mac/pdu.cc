@@ -559,7 +559,7 @@ bool sch_subh::is_var_len_ce()
 
 uint16_t sch_subh::get_c_rnti()
 {
-  return le16toh((uint16_t)payload[0] << 8 | payload[1]);
+  return (uint16_t)payload[0] << 8 | payload[1];
 }
 
 uint64_t sch_subh::get_con_res_id()
@@ -1009,7 +1009,6 @@ uint8_t sch_subh::phr_report_table(float phr_value)
 
 void rar_pdu::to_string(fmt::memory_buffer& buffer)
 {
-  std::string msg("MAC PDU for RAR: ");
   fmt::format_to(buffer, "MAC PDU for RAR: ");
   pdu::to_string(buffer);
 }

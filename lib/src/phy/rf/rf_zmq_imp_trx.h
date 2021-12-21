@@ -106,11 +106,15 @@ SRSRAN_API int rf_zmq_tx_align(rf_zmq_tx_t* q, uint64_t ts);
 
 SRSRAN_API int rf_zmq_tx_baseband(rf_zmq_tx_t* q, cf_t* buffer, uint32_t nsamples);
 
+SRSRAN_API int rf_zmq_tx_get_nsamples(rf_zmq_tx_t* q);
+
 SRSRAN_API int rf_zmq_tx_zeros(rf_zmq_tx_t* q, uint32_t nsamples);
 
 SRSRAN_API bool rf_zmq_tx_match_freq(rf_zmq_tx_t* q, uint32_t freq_hz);
 
 SRSRAN_API void rf_zmq_tx_close(rf_zmq_tx_t* q);
+
+SRSRAN_API bool rf_zmq_tx_is_running(rf_zmq_tx_t* q);
 
 /*
  * Receiver functions
@@ -122,5 +126,7 @@ SRSRAN_API int rf_zmq_rx_baseband(rf_zmq_rx_t* q, cf_t* buffer, uint32_t nsample
 SRSRAN_API bool rf_zmq_rx_match_freq(rf_zmq_rx_t* q, uint32_t freq_hz);
 
 SRSRAN_API void rf_zmq_rx_close(rf_zmq_rx_t* q);
+
+SRSRAN_API bool rf_zmq_rx_is_running(rf_zmq_rx_t* q);
 
 #endif // SRSRAN_RF_ZMQ_IMP_TRX_H

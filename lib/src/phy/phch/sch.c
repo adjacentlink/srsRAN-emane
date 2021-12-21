@@ -32,6 +32,7 @@
 #include <string.h>
 #include <strings.h>
 
+#define SRSRAN_PDSCH_MIN_TDEC_ITERS 2
 #define SRSRAN_PDSCH_MAX_TDEC_ITERS 10
 
 #ifdef LV_HAVE_SSE
@@ -442,8 +443,9 @@ bool decode_tb_cb(srsran_sch_t*           q,
           crc_ptr = &q->crc_tb;
         }
 
-        // CRC is OK
-        if (!srsran_crc_checksum_byte(crc_ptr, &data[cb_idx * rlen / 8], len_crc)) {
+        // CRC is OK and ran the minimum number of iterations
+        if (!srsran_crc_checksum_byte(crc_ptr, &data[cb_idx * rlen / 8], len_crc) &&
+            (cb_noi >= SRSRAN_PDSCH_MIN_TDEC_ITERS)) {
           softbuffer->cb_crc[cb_idx] = true;
           early_stop                 = true;
 
@@ -513,54 +515,8 @@ static int decode_tb(srsran_sch_t*           q,
                      int16_t*                e_bits,
                      uint8_t*                data)
 {
-  if (q != NULL && data != NULL && softbuffer != NULL && e_bits != NULL && cb_segm != NULL && Qm != 0) {
-    if (cb_segm->tbs == 0 || cb_segm->C == 0) {
-      return SRSRAN_SUCCESS;
-    }
-
-    if (cb_segm->F) {
-      fprintf(stderr, "Error filler bits are not supported. Use standard TBS\n");
-      return SRSRAN_ERROR_INVALID_INPUTS;
-    }
-
-    if (cb_segm->C > softbuffer->max_cb) {
-      fprintf(stderr,
-              "Error number of CB to decode (%d) exceeds soft buffer size (%d CBs)\n",
-              cb_segm->C,
-              softbuffer->max_cb);
-      return SRSRAN_ERROR_INVALID_INPUTS;
-    }
-
-    bool crc_ok = true;
-
-    data[cb_segm->tbs / 8 + 0] = 0;
-    data[cb_segm->tbs / 8 + 1] = 0;
-    data[cb_segm->tbs / 8 + 2] = 0;
-
-    // Process Codeblocks
-    crc_ok = decode_tb_cb(q, softbuffer, cb_segm, Qm, rv, nof_e_bits, e_bits, data);
-
-    if (crc_ok) {
-      uint32_t par_rx = 0, par_tx = 0;
-
-      // Compute transport block CRC
-      par_rx = srsran_crc_checksum_byte(&q->crc_tb, data, cb_segm->tbs);
-
-      // check parity bits
-      par_tx = ((uint32_t)data[cb_segm->tbs / 8 + 0]) << 16 | ((uint32_t)data[cb_segm->tbs / 8 + 1]) << 8 |
-               ((uint32_t)data[cb_segm->tbs / 8 + 2]);
-
-      if (par_rx == par_tx && par_rx) {
-        INFO("TB decoded OK");
-        return SRSRAN_SUCCESS;
-      } else {
-        INFO("Error in TB parity: par_tx=0x%x, par_rx=0x%x", par_tx, par_rx);
-        return SRSRAN_ERROR;
-      }
-    } else {
-      return SRSRAN_ERROR;
-    }
-  } else {
+  // Check inputs
+  if (q == NULL || data == NULL || softbuffer == NULL || e_bits == NULL || cb_segm == NULL || Qm == 0) {
     ERROR("Missing inputs: data=%d, softbuffer=%d, e_bits=%d, cb_segm=%d Qm=%d",
           data != 0,
           softbuffer != 0,
@@ -569,6 +525,51 @@ static int decode_tb(srsran_sch_t*           q,
           Qm);
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
+
+  // Check segmentation is valid
+  if (cb_segm->tbs == 0 || cb_segm->C == 0) {
+    return SRSRAN_SUCCESS;
+  }
+
+  if (cb_segm->F) {
+    fprintf(stderr, "Error filler bits are not supported. Use standard TBS\n");
+    return SRSRAN_ERROR_INVALID_INPUTS;
+  }
+
+  if (cb_segm->C > softbuffer->max_cb) {
+    fprintf(stderr,
+            "Error number of CB to decode (%d) exceeds soft buffer size (%d CBs)\n",
+            cb_segm->C,
+            softbuffer->max_cb);
+    return SRSRAN_ERROR_INVALID_INPUTS;
+  }
+
+  // Process Codeblocks
+  bool cb_crc_ok = decode_tb_cb(q, softbuffer, cb_segm, Qm, rv, nof_e_bits, e_bits, data);
+
+  // If any of the CBs CRC is KO
+  if (!cb_crc_ok) {
+    INFO("Error in CB parity");
+    return SRSRAN_ERROR;
+  }
+
+  // One CB CRC OK, means TB CRC is OK.
+  if (cb_segm->C == 1) {
+    INFO("TB decoded OK");
+    return SRSRAN_SUCCESS;
+  }
+
+  // Check TB CRC for whole TB
+  if (srsran_crc_match_byte(&q->crc_tb, data, cb_segm->tbs)) {
+    INFO("TB decoded OK");
+    return SRSRAN_SUCCESS;
+  }
+
+  // TB CRC check failed, as at least one CB had a false alarm, reset all CB CRC flags in the softbuffer
+  srsran_softbuffer_rx_reset_cb_crc(softbuffer, cb_segm->C);
+
+  INFO("Error in TB parity");
+  return SRSRAN_ERROR;
 }
 
 int srsran_dlsch_decode(srsran_sch_t* q, srsran_pdsch_cfg_t* cfg, int16_t* e_bits, uint8_t* data)

@@ -24,8 +24,8 @@
 
 #include "srsran/adt/interval.h"
 #include "srsran/common/common.h"
-#include "srsran/common/srsran_assert.h"
 #include "srsran/srslog/srslog.h"
+#include "srsran/support/srsran_assert.h"
 #include <cstdint>
 #include <limits>
 
@@ -139,21 +139,22 @@ struct formatter<srsran::tti_point> {
 
 namespace srsenb {
 
-using tti_point = srsran::tti_point;
+using tti_point    = srsran::tti_point;
+using tti_interval = srsran::tti_interval;
 
-inline srsran::tti_point to_tx_dl(srsran::tti_point t)
+inline tti_point to_tx_dl(tti_point t)
 {
   return t + TX_ENB_DELAY;
 }
-inline srsran::tti_point to_tx_ul(srsran::tti_point t)
+inline tti_point to_tx_ul(tti_point t)
 {
   return t + (TX_ENB_DELAY + FDD_HARQ_DELAY_DL_MS);
 }
-inline srsran::tti_point to_tx_dl_ack(srsran::tti_point t)
+inline tti_point to_tx_dl_ack(tti_point t)
 {
   return to_tx_ul(t);
 }
-inline srsran::tti_point to_tx_ul_ack(srsran::tti_point t)
+inline tti_point to_tx_ul_ack(tti_point t)
 {
   return to_tx_ul(t) + TX_ENB_DELAY;
 }

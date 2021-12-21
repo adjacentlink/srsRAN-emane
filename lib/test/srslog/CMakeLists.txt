@@ -18,6 +18,9 @@
 # and at http://www.gnu.org/licenses/.
 #
 
+add_executable(srslog_frontend_latency benchmarks/frontend_latency.cpp)
+target_link_libraries(srslog_frontend_latency srslog)
+
 add_executable(srslog_test srslog_test.cpp)
 target_link_libraries(srslog_test srslog)
 add_test(srslog_test srslog_test)
@@ -43,6 +46,10 @@ add_executable(file_sink_test file_sink_test.cpp)
 target_include_directories(file_sink_test PUBLIC ../../)
 target_link_libraries(file_sink_test srslog)
 add_test(file_sink_test file_sink_test)
+
+add_executable(syslog_sink_test syslog_sink_test.cpp)
+target_include_directories(syslog_sink_test PUBLIC ../../)
+target_link_libraries(syslog_sink_test srslog)
 
 add_executable(file_utils_test file_utils_test.cpp)
 target_include_directories(file_utils_test PUBLIC ../../)

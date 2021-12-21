@@ -77,6 +77,7 @@ namespace {
 
   uint32_t pdcch_seqnum_ = 0; // seqnum per pdcch
   uint32_t pdsch_seqnum_ = 0; // seqnum per pdsch
+  uint32_t pmch_seqnum_  = 0; // seqnum per pmch
   uint32_t phich_seqnum_ = 0; // seqnum per phich
   uint64_t tx_seqnum_    = 0; // seqnum per ota msg
 
@@ -126,7 +127,7 @@ namespace {
      }
   }
 
-  inline int bits_to_bytes(int bits) { return bits/8; }
+  inline uint32_t tbs_to_bytes(const uint32_t tbs) { return tbs/8; }
 }
 
 #if 0 // enable to check log formats here
@@ -290,7 +291,6 @@ getRxCarriers(const UL_Message & ulMessage, const uint32_t cc_idx, const uint32_
           cell_id,
           rxFrequencyHz,
           ue_ul_msg.DebugString());
-
 #endif
 
   return carrierResults;
@@ -375,6 +375,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
 
   auto pdcch_message = carrier->mutable_pdcch();
 
+  // set seqnum for first entry
   if(! pdcch_message->has_seqnum())
    {
      pdcch_message->set_seqnum(pdcch_seqnum_++);
@@ -387,7 +388,6 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
                              EMANELTE::MHAL::MOD_QPSK,
                              rnti,
                              dci_msg->nof_bits);
-
 
   for(uint32_t i = start_reg; i < regs_len; ++i)
    {
@@ -415,6 +415,7 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
      }
    }
 
+  // 1 pdcch message can contain 1 or more ul/dl dci components
   if(type == 0)
    {
      // dl dci
@@ -450,9 +451,8 @@ static int enb_dl_put_dl_pdcch_i(const srsran_enb_dl_t * q,
    }
 
 #if 1
-   if(SRSRAN_RNTI_ISUSER(rnti))
-     Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
-          __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
+   Info("PDCCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdcch_seqnum %u, type %s",
+        __func__, cc_idx, q->cell.id, rnti, pdcch_message->seqnum(), type ? "UL" : "DL");
 #endif
 
   return SRSRAN_SUCCESS;
@@ -519,25 +519,27 @@ static int enb_dl_put_dl_pdsch_i(const srsran_enb_dl_t * q,
 
    auto pdsch_message = carrier->mutable_pdsch();
 
+  // set seqnum for first entry
    if(! pdsch_message->has_seqnum())
     {
       pdsch_message->set_seqnum(pdsch_seqnum_++);
     }
 
-   // pdsch submsg
+   // 1 pdsch message can contain 1 or more sub messages
    auto pdsch_subMsg = pdsch_message->add_submsg();
+
+   const auto nbytes = tbs_to_bytes(grant.tb[tb].tbs);
 
    pdsch_subMsg->set_refid(pdsch_ref_++);
    pdsch_subMsg->set_tb(tb);
    pdsch_subMsg->set_tbs(grant.tb[tb].tbs);
-   pdsch_subMsg->set_data(data, bits_to_bytes(grant.tb[tb].tbs));
+   pdsch_subMsg->set_data(data, nbytes);
    
    ENBSTATS::putDLGrant(rnti);
 
 #if 1
-   if(SRSRAN_RNTI_ISUSER(rnti))
-     Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, pdsch_seqnum %u",
-          __func__, cc_idx, q->cell.id, rnti, pdsch_message->seqnum());
+   Info("PDSCH:%s: cc=%u, cellId %u, rnti 0x%hx, nbytes %u, pdsch_seqnum %u",
+        __func__, cc_idx, q->cell.id, rnti, nbytes, pdsch_message->seqnum());
 #endif
 
    return SRSRAN_SUCCESS;
@@ -573,12 +575,21 @@ static int enb_dl_put_pmch_i(const srsran_enb_dl_t * q,
 
    auto pmch_message = carrier->mutable_pmch();
 
+   // set seqnum for first entry
+   if(! pmch_message->has_seqnum())
+    {
+      pmch_message->set_seqnum(pmch_seqnum_++);
+    }
+
+   // 1 pmch message can contain 1 or more sub messages
    auto pmch_subMsg = pmch_message->add_submsg();
+
+   const auto nbytes = tbs_to_bytes(grant.tb[tb].tbs);
 
    pmch_subMsg->set_area_id(pmch_cfg->area_id);
    pmch_subMsg->set_tbs(grant.tb[tb].tbs);
    pmch_subMsg->set_rnti(rnti);
-   pmch_subMsg->set_data(data ? data : zeros_, grant.tb[tb].tbs);
+   pmch_subMsg->set_data(data ? data : zeros_, nbytes);
 
    auto channelMessage = control->mutable_downlink()->mutable_pmch();
 
@@ -594,6 +605,11 @@ static int enb_dl_put_pmch_i(const srsran_enb_dl_t * q,
        channelMessage->add_resource_block_frequencies_slot1(EMANELTE::MHAL::ENB::get_tx_prb_frequency(rb, txFrequencyHz));
        channelMessage->add_resource_block_frequencies_slot2(EMANELTE::MHAL::ENB::get_tx_prb_frequency(rb, txFrequencyHz));
      }
+
+#if 1
+   Info("PMCH:%s: cc=%u, cellId %u, rnti 0x%hx, nbytes %u, pmch_seqnum %u",
+        __func__, cc_idx, q->cell.id, rnti, nbytes, pmch_message->seqnum());
+#endif
 
    return SRSRAN_SUCCESS;
 }
@@ -1118,7 +1134,7 @@ int enb_dl_cc_put_phich(srsran_enb_dl_t* q,
      channelMessage->add_resource_block_frequencies_slot1(EMANELTE::MHAL::ENB::get_tx_prb_frequency(rb, txFrequencyHz));
    }
 
-#if 0
+#if 1
    Info("PHICH:%s cc=%u, cellId %u, rnti 0x%hx, ack %d, n_prb_L %d, n_dmrs %d, phich_seqnum %u", 
         __func__,
         cc_idx,
@@ -1378,7 +1394,7 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                  const auto & uci_message = grant.uci();
                  const auto uci_data = (srsran_uci_value_t *) uci_message.data();
 
-#if 0
+#if 1
                  char logbuf[256] = {0};
                  srsran_uci_data_info(&cfg->uci_cfg, uci_data, logbuf, sizeof(logbuf));
 
@@ -1512,7 +1528,7 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                  const auto & uci_message = grant.uci();
                  const auto uci_data = (srsran_uci_value_t *) uci_message.data();
 
-#if 0
+#if 1
                  char logbuf[256] = {0};
                  srsran_uci_data_info(&cfg->uci_cfg, uci_data, logbuf, sizeof(logbuf));
 

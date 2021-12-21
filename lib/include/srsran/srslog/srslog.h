@@ -188,10 +188,20 @@ sink& fetch_stderr_sink(const std::string&             id = "stderr",
 /// Specifying a max_size value different to zero will make the sink create a
 /// new file each time the current file exceeds this value. The units of
 /// max_size are bytes.
+/// Setting force_flush to true will flush the sink after every write.
 /// NOTE: Any '#' characters in the path will get removed.
 sink& fetch_file_sink(const std::string&             path,
-                      size_t                         max_size = 0,
-                      std::unique_ptr<log_formatter> f        = get_default_log_formatter());
+                      size_t                         max_size    = 0,
+                      bool                           force_flush = false,
+                      std::unique_ptr<log_formatter> f           = get_default_log_formatter());
+
+/// Returns an instance of a sink that writes into syslog
+/// preamble: The string  prepended to every message, If ident is "", the program name is used.
+/// log_local: custom unused facilities that syslog provides which can be used by the user
+/// NOTE: Any '#' characters in the path will get removed.
+sink& fetch_syslog_sink(const std::string&             preamble_  = "",
+                        syslog_local_type              log_local_ = syslog_local_type::local0,
+                        std::unique_ptr<log_formatter> f          = get_default_log_formatter());
 
 /// Installs a custom user defined sink in the framework getting associated to
 /// the specified id. Returns true on success, otherwise false.
@@ -232,7 +242,7 @@ sink* create_stderr_sink(const std::string& name = "stderr");
 /// This function initializes the logging framework. It must be called before
 /// any log entry is generated.
 /// NOTE: Calling this function more than once has no side effects.
-void init();
+void init(backend_priority priority = backend_priority::normal);
 
 /// Flushes the contents of all the registered sinks. The caller thread will
 /// block until the operation is completed.

@@ -30,7 +30,7 @@ static void* rf_zmq_async_rx_thread(void* h)
 {
   rf_zmq_rx_t* q = (rf_zmq_rx_t*)h;
 
-  while (q->sock && q->running) {
+  while (q->sock && rf_zmq_rx_is_running(q)) {
     int     nbytes = 0;
     int     n      = SRSRAN_ERROR;
     uint8_t dummy  = 0xFF;
@@ -39,7 +39,7 @@ static void* rf_zmq_async_rx_thread(void* h)
 
     // Send request if socket type is REQUEST
     if (q->socket_type == ZMQ_REQ) {
-      while (n < 0 && q->running) {
+      while (n < 0 && rf_zmq_rx_is_running(q)) {
         rf_zmq_info(q->id, " - tx'ing rx request\n");
         n = zmq_send(q->sock, &dummy, sizeof(dummy), 0);
         if (n < 0) {
@@ -53,7 +53,7 @@ static void* rf_zmq_async_rx_thread(void* h)
     }
 
     // Receive baseband
-    for (n = (n < 0) ? 0 : -1; n < 0 && q->running;) {
+    for (n = (n < 0) ? 0 : -1; n < 0 && rf_zmq_rx_is_running(q);) {
       n = zmq_recv(q->sock, q->temp_buffer, ZMQ_MAX_BUFFER_SIZE, 0);
       if (n == -1) {
         if (rf_zmq_handle_error(q->id, "asynchronous rx baseband receive")) {
@@ -77,7 +77,7 @@ static void* rf_zmq_async_rx_thread(void* h)
       n = -1;
 
       // Try to write in ring buffer
-      while (n < 0 && q->running) {
+      while (n < 0 && rf_zmq_rx_is_running(q)) {
         n = srsran_ringbuffer_write_timed(&q->ringbuffer, q->temp_buffer, nbytes, q->trx_timeout_ms);
         if (n == SRSRAN_ERROR_TIMEOUT && q->log_trx_timeout) {
           fprintf(stderr, "Error: timeout writing samples to ringbuffer after %dms\n", q->trx_timeout_ms);
@@ -161,7 +161,7 @@ int rf_zmq_rx_open(rf_zmq_rx_t* q, rf_zmq_opts_t opts, void* zmq_ctx, char* sock
       }
 
       if (zmq_setsockopt(q->sock, ZMQ_SNDTIMEO, &timeout, sizeof(timeout)) == -1) {
-        fprintf(stderr, "Error: setting receive timeout on rx socket\n");
+        fprintf(stderr, "Error: setting send timeout on rx socket\n");
         goto clean_exit;
       }
 
@@ -262,12 +262,17 @@ bool rf_zmq_rx_match_freq(rf_zmq_rx_t* q, uint32_t freq_hz)
 void rf_zmq_rx_close(rf_zmq_rx_t* q)
 {
   rf_zmq_info(q->id, "Closing ...\n");
+
+  pthread_mutex_lock(&q->mutex);
   q->running = false;
+  pthread_mutex_unlock(&q->mutex);
 
   if (q->thread) {
     pthread_join(q->thread, NULL);
     pthread_detach(q->thread);
   }
+
+  pthread_mutex_destroy(&q->mutex);
 
   srsran_ringbuffer_free(&q->ringbuffer);
 
@@ -290,4 +295,18 @@ void rf_zmq_rx_close(rf_zmq_rx_t* q)
     q->socket_monitor = NULL;
   }
 #endif // ZMQ_MONITOR
+}
+
+bool rf_zmq_rx_is_running(rf_zmq_rx_t* q)
+{
+  if (!q) {
+    return false;
+  }
+
+  bool ret = false;
+  pthread_mutex_lock(&q->mutex);
+  ret = q->running;
+  pthread_mutex_unlock(&q->mutex);
+
+  return ret;
 }

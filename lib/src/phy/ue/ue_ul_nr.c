@@ -77,10 +77,11 @@ int srsran_ue_ul_nr_set_carrier(srsran_ue_ul_nr_t* q, const srsran_carrier_nr_t*
 
   q->carrier = *carrier;
 
-  srsran_ofdm_cfg_t fft_cfg = {};
-  fft_cfg.nof_prb           = carrier->nof_prb;
-  fft_cfg.symbol_sz         = srsran_min_symbol_sz_rb(carrier->nof_prb);
-  fft_cfg.keep_dc           = true;
+  srsran_ofdm_cfg_t fft_cfg     = {};
+  fft_cfg.nof_prb               = carrier->nof_prb;
+  fft_cfg.symbol_sz             = srsran_min_symbol_sz_rb(carrier->nof_prb);
+  fft_cfg.keep_dc               = true;
+  fft_cfg.phase_compensation_hz = carrier->ul_center_frequency_hz;
   if (srsran_ofdm_tx_init_cfg(&q->ifft, &fft_cfg) < SRSRAN_SUCCESS) {
     ERROR("Initiating OFDM");
     return SRSRAN_ERROR;
@@ -102,6 +103,15 @@ int srsran_ue_ul_nr_set_carrier(srsran_ue_ul_nr_t* q, const srsran_carrier_nr_t*
   }
 
   return SRSRAN_SUCCESS;
+}
+
+void srsran_ue_ul_nr_set_freq_offset(srsran_ue_ul_nr_t* q, float freq_offset_hz)
+{
+  if (q == NULL) {
+    return;
+  }
+
+  q->freq_offset_hz = -freq_offset_hz;
 }
 
 int srsran_ue_ul_nr_encode_pusch(srsran_ue_ul_nr_t*            q,
@@ -139,6 +149,12 @@ int srsran_ue_ul_nr_encode_pusch(srsran_ue_ul_nr_t*            q,
     srsran_vec_sc_prod_cfc(q->ifft.cfg.out_buffer, 0.99f / max_peak, q->ifft.cfg.out_buffer, q->ifft.sf_sz);
   }
 
+  // Apply frequency offset
+  if (isnormal(q->freq_offset_hz)) {
+    srsran_vec_apply_cfo(
+        q->ifft.cfg.out_buffer, -q->freq_offset_hz / (1000.0f * q->ifft.sf_sz), q->ifft.cfg.out_buffer, q->ifft.sf_sz);
+  }
+
   return SRSRAN_SUCCESS;
 }
 
@@ -159,7 +175,7 @@ static int ue_ul_nr_encode_pucch_format1(srsran_ue_ul_nr_t*                  q,
   uint8_t b[SRSRAN_PUCCH_NR_FORMAT1_MAX_NOF_BITS] = {};
 
   // Set ACK bits
-  uint32_t nof_bits = SRSRAN_MIN(SRSRAN_PUCCH_NR_FORMAT1_MAX_NOF_BITS, uci_data->cfg.o_ack);
+  uint32_t nof_bits = SRSRAN_MIN(SRSRAN_PUCCH_NR_FORMAT1_MAX_NOF_BITS, uci_data->cfg.ack.count);
   for (uint32_t i = 0; i < nof_bits; i++) {
     b[i] = uci_data->value.ack[i];
   }
@@ -228,6 +244,19 @@ int srsran_ue_ul_nr_encode_pucch(srsran_ue_ul_nr_t*                  q,
   // Generate signal
   srsran_ofdm_tx_sf(&q->ifft);
 
+  // Normalise to peak
+  uint32_t max_idx  = srsran_vec_max_abs_ci(q->ifft.cfg.out_buffer, q->ifft.sf_sz);
+  float    max_peak = cabsf(q->ifft.cfg.out_buffer[max_idx]);
+  if (isnormal(max_peak)) {
+    srsran_vec_sc_prod_cfc(q->ifft.cfg.out_buffer, 0.99f / max_peak, q->ifft.cfg.out_buffer, q->ifft.sf_sz);
+  }
+
+  // Apply frequency offset
+  if (isnormal(q->freq_offset_hz)) {
+    srsran_vec_apply_cfo(
+        q->ifft.cfg.out_buffer, -q->freq_offset_hz / (1000.0f * q->ifft.sf_sz), q->ifft.cfg.out_buffer, q->ifft.sf_sz);
+  }
+
   return SRSRAN_SUCCESS;
 }
 
@@ -258,6 +287,8 @@ int srsran_ue_ul_nr_pusch_info(const srsran_ue_ul_nr_t*     q,
   // Append PDSCH info
   len += srsran_pusch_nr_tx_info(&q->pusch, cfg, &cfg->grant, uci_value, &str[len], str_len - len);
 
+  len = srsran_print_check(str, str_len, len, " cfo=%.0f", q->freq_offset_hz);
+
   return len;
 }
 
@@ -269,7 +300,7 @@ int srsran_ue_ul_nr_pucch_info(const srsran_pucch_nr_resource_t* resource,
   int len = 0;
 
   // Append PDSCH info
-  len += srsran_pucch_nr_tx_info(resource, uci_data, &str[len], str_len - len);
+  len += srsran_pucch_nr_info(resource, uci_data, &str[len], str_len - len);
 
   return len;
 }

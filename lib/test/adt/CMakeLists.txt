@@ -69,3 +69,11 @@ add_test(fsm_test fsm_test)
 add_executable(optional_test optional_test.cc)
 target_link_libraries(optional_test srsran_common)
 add_test(optional_test optional_test)
+
+add_executable(cached_alloc_test cached_alloc_test.cc)
+target_link_libraries(cached_alloc_test srsran_common)
+add_test(cached_alloc_test cached_alloc_test)
+
+add_executable(optional_array_test optional_array_test.cc)
+target_link_libraries(optional_array_test srsran_common)
+add_test(optional_array_test optional_array_test)

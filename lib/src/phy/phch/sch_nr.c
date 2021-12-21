@@ -74,6 +74,43 @@ uint32_t sch_nr_n_prb_lbrm(uint32_t nof_prb)
   return 273;
 }
 
+static int sch_nr_cbsegm(srsran_basegraph_t bg, uint32_t tbs, srsran_cbsegm_t* cbsegm)
+{
+  if (bg == BG1) {
+    if (srsran_cbsegm_ldpc_bg1(cbsegm, tbs) != SRSRAN_SUCCESS) {
+      ERROR("Error: calculating LDPC BG1 code block segmentation for tbs=%d", tbs);
+      return SRSRAN_ERROR;
+    }
+  } else {
+    if (srsran_cbsegm_ldpc_bg2(cbsegm, tbs) != SRSRAN_SUCCESS) {
+      ERROR("Error: calculating LDPC BG1 code block segmentation for tbs=%d", tbs);
+      return SRSRAN_ERROR;
+    }
+  }
+
+  return SRSRAN_SUCCESS;
+}
+
+static int sch_nr_Nref(uint32_t N_rb, srsran_mcs_table_t mcs_table, uint32_t max_mimo_layers)
+{
+  uint32_t           N_re_lbrm = SRSRAN_MAX_NRE_NR * sch_nr_n_prb_lbrm(N_rb);
+  double             TCR_lbrm  = 948.0 / 1024.0;
+  uint32_t           Qm_lbrm   = (mcs_table == srsran_mcs_table_256qam) ? 8 : 6;
+  uint32_t           TBS_LRBM  = srsran_ra_nr_tbs(N_re_lbrm, 1.0, TCR_lbrm, Qm_lbrm, SRSRAN_MIN(4, max_mimo_layers));
+  double             R         = 2.0 / 3.0;
+  srsran_basegraph_t bg        = srsran_sch_nr_select_basegraph(TBS_LRBM, R);
+
+  // Compute segmentation
+  srsran_cbsegm_t cbsegm = {};
+  int             r      = sch_nr_cbsegm(bg, TBS_LRBM, &cbsegm);
+  if (r < SRSRAN_SUCCESS) {
+    ERROR("Error computing TB segmentation");
+    return SRSRAN_ERROR;
+  }
+
+  return (int)ceil((double)TBS_LRBM / (double)(cbsegm.C * R));
+}
+
 int srsran_sch_nr_fill_tb_info(const srsran_carrier_nr_t* carrier,
                                const srsran_sch_cfg_t*    sch_cfg,
                                const srsran_sch_tb_t*     tb,
@@ -88,16 +125,9 @@ int srsran_sch_nr_fill_tb_info(const srsran_carrier_nr_t* carrier,
 
   // Compute code block segmentation
   srsran_cbsegm_t cbsegm = {};
-  if (bg == BG1) {
-    if (srsran_cbsegm_ldpc_bg1(&cbsegm, tb->tbs) != SRSRAN_SUCCESS) {
-      ERROR("Error: calculating LDPC BG1 code block segmentation for tbs=%d", tb->tbs);
-      return SRSRAN_ERROR;
-    }
-  } else {
-    if (srsran_cbsegm_ldpc_bg2(&cbsegm, tb->tbs) != SRSRAN_SUCCESS) {
-      ERROR("Error: calculating LDPC BG1 code block segmentation for tbs=%d", tb->tbs);
-      return SRSRAN_ERROR;
-    }
+  if (sch_nr_cbsegm(bg, tb->tbs, &cbsegm) < SRSRAN_SUCCESS) {
+    ERROR("Error calculation TB segmentation");
+    return SRSRAN_ERROR;
   }
 
   if (cbsegm.Z > MAX_LIFTSIZE) {
@@ -120,13 +150,15 @@ int srsran_sch_nr_fill_tb_info(const srsran_carrier_nr_t* carrier,
   cfg->Nl   = tb->N_L;
 
   // Calculate Nref
-  uint32_t N_re_lbrm       = SRSRAN_MAX_NRE_NR * sch_nr_n_prb_lbrm(carrier->nof_prb);
-  double   TCR_lbrm        = 948.0 / 1024.0;
-  uint32_t Qm_lbrm         = (sch_cfg->mcs_table == srsran_mcs_table_256qam) ? 8 : 6;
-  uint32_t max_mimo_layers = SRSRAN_MAX(carrier->max_mimo_layers, 4);
-  uint32_t TBS_LRBM        = srsran_ra_nr_tbs(N_re_lbrm, 1.0, TCR_lbrm, Qm_lbrm, max_mimo_layers);
-  double   R               = 2.0 / 3.0;
-  cfg->Nref                = (uint32_t)ceil((double)TBS_LRBM / (double)(cbsegm.C * R));
+  if (sch_cfg->limited_buffer_rm) {
+    int Nref = sch_nr_Nref(carrier->nof_prb, sch_cfg->mcs_table, 4);
+    if (Nref < SRSRAN_SUCCESS) {
+      ERROR("Error computing N_ref");
+    }
+    cfg->Nref = (uint32_t)Nref;
+  } else {
+    cfg->Nref = SRSRAN_LDPC_MAX_LEN_ENCODED_CB;
+  }
 
   // Calculate number of code blocks after applying CBGTI... not implemented, activate all CB
   for (uint32_t r = 0; r < cbsegm.C; r++) {
@@ -431,7 +463,7 @@ static inline int sch_nr_encode(srsran_sch_nr_t*        q,
 
   // Calculate TB CRC
   uint32_t checksum_tb = srsran_crc_checksum_byte(crc_tb, data, tb->tbs);
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("tb=");
     srsran_vec_fprint_byte(stdout, data, tb->tbs / 8);
   }
@@ -466,7 +498,7 @@ static inline int sch_nr_encode(srsran_sch_nr_t*        q,
         srsran_bit_unpack_vector(input_ptr, q->temp_cb, (int)cb_len);
       }
 
-      if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+      if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
         DEBUG("cb%d=", r);
         srsran_vec_fprint_byte(stdout, input_ptr, cb_len / 8);
       }
@@ -487,7 +519,7 @@ static inline int sch_nr_encode(srsran_sch_nr_t*        q,
       // Encode code block
       srsran_ldpc_encoder_encode(encoder, q->temp_cb, rm_buffer, cfg.Kr);
 
-      if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+      if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
         DEBUG("encoded=");
         srsran_vec_fprint_b(stdout, rm_buffer, encoder->liftN - 2 * encoder->ls);
       }
@@ -528,6 +560,18 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
   // Pointer protection
   if (!q || !sch_cfg || !tb || !e_bits || !res) {
     return SRSRAN_ERROR_INVALID_INPUTS;
+  }
+
+  // Protect softbuffer access
+  if (!tb->softbuffer.rx) {
+    ERROR("Missing softbuffer!");
+    return SRSRAN_ERROR;
+  }
+
+  // Protect PDU access
+  if (!res->payload) {
+    ERROR("Missing payload pointer!");
+    return SRSRAN_ERROR;
   }
 
   int8_t*  input_ptr    = e_bits;
@@ -627,22 +671,13 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
     nof_iter_sum += n_iter_cb;
 
     // Check if CB is all zeros
-    uint32_t cb_len    = cfg.Kp - cfg.L_cb;
-    bool     all_zeros = true;
-    for (uint32_t i = 0; i < cb_len && all_zeros; i++) {
-      all_zeros = (q->temp_cb[i] == 0);
-    }
+    uint32_t cb_len = cfg.Kp - cfg.L_cb;
 
-    tb->softbuffer.rx->cb_crc[r] = (ret != 0) && (!all_zeros);
-    SCH_INFO_RX("CB %d/%d iter=%d CRC=%s all_zeros=%s",
-                r,
-                cfg.C,
-                n_iter_cb,
-                tb->softbuffer.rx->cb_crc[r] ? "OK" : "KO",
-                all_zeros ? "yes" : "no");
+    tb->softbuffer.rx->cb_crc[r] = (ret != 0);
+    SCH_INFO_RX("CB %d/%d iter=%d CRC=%s", r, cfg.C, n_iter_cb, tb->softbuffer.rx->cb_crc[r] ? "OK" : "KO");
 
     // CB Debug trace
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
       DEBUG("CB %d/%d:", r, cfg.C);
       srsran_vec_fprint_hex(stdout, q->temp_cb, cb_len);
     }
@@ -655,6 +690,8 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
 
     input_ptr += E;
   }
+  // Set average number of iterations
+  res->avg_iter = (float)nof_iter_sum / (float)cfg.C;
 
   // Set average number of iterations
   if (cfg.C > 0) {
@@ -662,7 +699,6 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
   } else {
     res->avg_iter = NAN;
   }
-
 
   // Not all CB are decoded, skip TB union and CRC check
   if (cb_ok != cfg.C) {
@@ -704,7 +740,7 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
     SCH_INFO_RX("TB: TBS=%d; CRC={%06x, %06x}", tb->tbs, checksum1, checksum2);
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_DEBUG && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
     DEBUG("Decode: ");
     srsran_vec_fprint_byte(stdout, res->payload, tb->tbs / 8);
   }
@@ -760,7 +796,7 @@ int srsran_sch_nr_tb_info(const srsran_sch_tb_t* tb, const srsran_sch_tb_res_nr_
                              tb->cw_idx,
                              srsran_mod_string(tb->mod),
                              tb->tbs / 8,
-                             tb->R,
+                             tb->R_prime,
                              tb->rv);
 
     if (res != NULL) {

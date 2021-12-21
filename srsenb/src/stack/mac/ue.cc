@@ -71,93 +71,67 @@ void ue_cc_softbuffers::clear()
   }
 }
 
-cc_used_buffers_map::cc_used_buffers_map(srsran::pdu_queue& shared_pdu_queue_) :
-  shared_pdu_queue(&shared_pdu_queue_), logger(&srslog::fetch_basic_logger("MAC"))
-{}
+cc_used_buffers_map::cc_used_buffers_map() : logger(&srslog::fetch_basic_logger("MAC")) {}
 
 cc_used_buffers_map::~cc_used_buffers_map()
 {
   clear();
 }
 
-bool cc_used_buffers_map::push_pdu(tti_point tti, uint32_t len)
+srsran::unique_byte_buffer_t cc_used_buffers_map::release_pdu(tti_point tti)
 {
+  std::unique_lock<std::mutex> lock(mutex);
   if (not has_tti(tti)) {
-    return false;
+    return nullptr;
   }
-  uint8_t* buffer = pdu_map[tti.to_uint()];
-  if (len > 0) {
-    shared_pdu_queue->push(buffer, len);
-  } else {
-    shared_pdu_queue->deallocate(buffer);
-    logger->error("Error pushing PDU: null length");
-  }
+
+  // Extract PDU from PDU map
+  srsran::unique_byte_buffer_t pdu = std::move(pdu_map[tti.to_uint()]);
+
   // clear entry in map
   pdu_map.erase(tti.to_uint());
-  return len > 0;
+  return pdu;
 }
 
 uint8_t* cc_used_buffers_map::request_pdu(tti_point tti, uint32_t len)
 {
+  std::unique_lock<std::mutex> lock(mutex);
   if (not pdu_map.has_space(tti.to_uint())) {
     logger->error("UE buffers: could not allocate buffer for tti=%d", tti.to_uint());
     return nullptr;
   }
 
-  uint8_t* pdu = shared_pdu_queue->request(len);
+  srsran::unique_byte_buffer_t pdu = srsran::make_byte_buffer();
   if (pdu == nullptr) {
-    logger->error("UE buffers: Requesting buffer from pool");
+    logger->error("UE buffers: Requesting buffer from byte buffer pool");
     return nullptr;
   }
+  srsran_assert(len < pdu->get_tailroom(), "Requested UL pdu doesn't fit in byte_buffer");
+  pdu->N_bytes = len;
 
-  bool inserted = pdu_map.insert(tti.to_uint(), pdu);
-  srsran_assert(inserted, "Failure to allocate new buffer");
-  return pdu;
+  auto inserted_elem = pdu_map.insert(tti.to_uint(), std::move(pdu));
+  srsran_assert(inserted_elem.has_value(), "Failure to allocate new buffer in mac::ue");
+  return inserted_elem.value()->second->data();
 }
 
 void cc_used_buffers_map::clear_old_pdus(tti_point current_tti)
 {
-  static const uint32_t old_tti_threshold = SRSRAN_FDD_NOF_HARQ + 4;
+  std::unique_lock<std::mutex> lock(mutex);
+  static const uint32_t        old_tti_threshold = SRSRAN_FDD_NOF_HARQ + 4;
 
   tti_point max_tti{current_tti - old_tti_threshold};
   for (auto& pdu_pair : pdu_map) {
     tti_point t(pdu_pair.first);
     if (t < max_tti) {
       logger->warning("UE buffers: Removing old buffer tti=%d, interval=%d", t.to_uint(), current_tti - t);
-      remove_pdu(t);
+      pdu_map.erase(t.to_uint());
     }
   }
 }
 
-void cc_used_buffers_map::remove_pdu(tti_point tti)
-{
-  uint8_t* buffer = pdu_map[tti.to_uint()];
-  // return pdus back to the queue
-  shared_pdu_queue->deallocate(buffer);
-  // clear entry in map
-  pdu_map.erase(tti.to_uint());
-}
-
-bool cc_used_buffers_map::try_deallocate_pdu(tti_point tti)
-{
-  if (has_tti(tti)) {
-    remove_pdu(tti);
-    return true;
-  }
-  return false;
-}
-
-void cc_used_buffers_map::clear()
-{
-  for (auto& buffer : pdu_map) {
-    shared_pdu_queue->deallocate(buffer.second);
-  }
-  pdu_map.clear();
-}
-
 uint8_t*& cc_used_buffers_map::operator[](tti_point tti)
 {
-  return pdu_map[tti.to_uint()];
+  return pdu_map[tti.to_uint()]->msg;
 }
 
 bool cc_used_buffers_map::has_tti(tti_point tti) const
@@ -167,7 +141,7 @@ bool cc_used_buffers_map::has_tti(tti_point tti) const
 
 ////////////////
 
-cc_buffer_handler::cc_buffer_handler(srsran::pdu_queue& shared_pdu_queue_) : rx_used_buffers(shared_pdu_queue_)
+cc_buffer_handler::cc_buffer_handler()
 {
   for (auto& harq_buffers : tx_payload_buffer) {
     for (srsran::unique_byte_buffer_t& tb_buffer : harq_buffers) {
@@ -211,7 +185,7 @@ void cc_buffer_handler::reset()
 }
 
 ue::ue(uint16_t                                 rnti_,
-       uint32_t                                 nof_prb_,
+       uint32_t                                 enb_cc_idx,
        sched_interface*                         sched_,
        rrc_interface_mac*                       rrc_,
        rlc_interface_mac*                       rlc_,
@@ -228,30 +202,22 @@ ue::ue(uint16_t                                 rnti_,
   mac_msg_dl(20, logger_),
   mch_mac_msg_dl(10, logger_),
   mac_msg_ul(20, logger_),
-  pdus(logger_),
   ta_fsm(this),
-  softbuffer_pool(softbuffer_pool_)
+  softbuffer_pool(softbuffer_pool_),
+  cc_buffers(nof_cells_)
 {
-  for (size_t i = 0; i < nof_cells_; ++i) {
-    cc_buffers.emplace_back(pdus);
-  }
-  pdus.init(this);
-
   // Allocate buffer for PCell
-  cc_buffers[0].allocate_cc(softbuffer_pool->make());
+  cc_buffers[enb_cc_idx].allocate_cc(softbuffer_pool->make());
 }
 
-ue::~ue()
-{
-  std::unique_lock<std::mutex> lock(rx_buffers_mutex);
-  for (auto& cc : cc_buffers) {
-    cc.get_rx_used_buffers().clear();
-  }
-}
+ue::~ue() {}
 
 void ue::reset()
 {
-  ue_metrics   = {};
+  {
+    std::lock_guard<std::mutex> lock(metrics_mutex);
+    ue_metrics = {};
+  }
   nof_failures = 0;
 
   for (auto& cc : cc_buffers) {
@@ -269,52 +235,48 @@ void ue::start_pcap(srsran::mac_pcap* pcap_)
   pcap = pcap_;
 }
 
-srsran_softbuffer_rx_t* ue::get_rx_softbuffer(const uint32_t ue_cc_idx, const uint32_t tti)
+void ue::ue_cfg(const sched_interface::ue_cfg_t& ue_cfg)
 {
-  if ((size_t)ue_cc_idx >= cc_buffers.size()) {
-    ERROR("UE CC Index (%d/%zd) out-of-range", ue_cc_idx, cc_buffers.size());
+  for (const auto& ue_cc : ue_cfg.supported_cc_list) {
+    // Allocate and initialize Rx/Tx softbuffers for new carriers (exclude PCell)
+    if (ue_cc.active and cc_buffers[ue_cc.enb_cc_idx].empty()) {
+      cc_buffers[ue_cc.enb_cc_idx].allocate_cc(softbuffer_pool->make());
+    }
+  }
+}
+
+srsran_softbuffer_rx_t* ue::get_rx_softbuffer(uint32_t enb_cc_idx, uint32_t tti)
+{
+  if ((size_t)enb_cc_idx >= cc_buffers.size() or cc_buffers[enb_cc_idx].empty()) {
+    ERROR("eNB CC Index (%d/%zd) out-of-range", enb_cc_idx, cc_buffers.size());
     return nullptr;
   }
 
-  return &cc_buffers[ue_cc_idx].get_rx_softbuffer(tti);
+  return &cc_buffers[enb_cc_idx].get_rx_softbuffer(tti);
 }
 
-srsran_softbuffer_tx_t*
-ue::get_tx_softbuffer(const uint32_t ue_cc_idx, const uint32_t harq_process, const uint32_t tb_idx)
+srsran_softbuffer_tx_t* ue::get_tx_softbuffer(uint32_t enb_cc_idx, uint32_t harq_process, uint32_t tb_idx)
 {
-  if ((size_t)ue_cc_idx >= cc_buffers.size()) {
-    ERROR("UE CC Index (%d/%zd) out-of-range", ue_cc_idx, cc_buffers.size());
+  if ((size_t)enb_cc_idx >= cc_buffers.size() or cc_buffers[enb_cc_idx].empty()) {
+    ERROR("eNB CC Index (%d/%zd) out-of-range", enb_cc_idx, cc_buffers.size());
     return nullptr;
   }
 
-  return &cc_buffers[ue_cc_idx].get_tx_softbuffer(harq_process, tb_idx);
+  return &cc_buffers[enb_cc_idx].get_tx_softbuffer(harq_process, tb_idx);
 }
 
-uint8_t* ue::request_buffer(uint32_t tti, uint32_t ue_cc_idx, const uint32_t len)
+uint8_t* ue::request_buffer(uint32_t tti, uint32_t enb_cc_idx, uint32_t len)
 {
-  std::unique_lock<std::mutex> lock(rx_buffers_mutex);
-  uint8_t*                     pdu = nullptr;
-  if (len > 0) {
-    pdu = cc_buffers[ue_cc_idx].get_rx_used_buffers().request_pdu(tti_point(tti), len);
-  } else {
-    logger.error("UE buffers: Requesting buffer for zero bytes");
-  }
-  return pdu;
+  srsran_assert(len > 0, "UE buffers: Requesting buffer for zero bytes");
+  return cc_buffers[enb_cc_idx].get_rx_used_buffers().request_pdu(tti_point(tti), len);
 }
 
 void ue::clear_old_buffers(uint32_t tti)
 {
-  std::unique_lock<std::mutex> lock(rx_buffers_mutex);
-
   // remove old buffers
   for (auto& cc : cc_buffers) {
     cc.get_rx_used_buffers().clear_old_pdus(tti_point{tti});
   }
-}
-
-bool ue::process_pdus()
-{
-  return pdus.process_pdus();
 }
 
 void ue::set_tti(uint32_t tti)
@@ -338,11 +300,11 @@ uint32_t ue::set_ta(int ta_)
   return nof_cmd;
 }
 
-void ue::process_pdu(uint8_t* pdu, uint32_t nof_bytes, srsran::pdu_queue::channel_t channel)
+void ue::process_pdu(srsran::unique_byte_buffer_t pdu, uint32_t ue_cc_idx, uint32_t grant_nof_prbs)
 {
   // Unpack ULSCH MAC PDU
-  mac_msg_ul.init_rx(nof_bytes, true);
-  mac_msg_ul.parse_packet(pdu);
+  mac_msg_ul.init_rx(pdu->size(), true);
+  mac_msg_ul.parse_packet(pdu->data());
 
   if (logger.info.enabled()) {
     fmt::memory_buffer str_buffer;
@@ -350,15 +312,13 @@ void ue::process_pdu(uint8_t* pdu, uint32_t nof_bytes, srsran::pdu_queue::channe
     logger.info("0x%x %s", rnti, srsran::to_c_str(str_buffer));
   }
 
-  if (pcap) {
-    pcap->write_ul_crnti(pdu, nof_bytes, rnti, true, last_tti, UL_CC_IDX);
+  if (pcap != nullptr) {
+    pcap->write_ul_crnti(pdu->data(), pdu->size(), rnti, true, last_tti, ue_cc_idx);
   }
 
-  if (pcap_net) {
-    pcap_net->write_ul_crnti(pdu, nof_bytes, rnti, true, last_tti, UL_CC_IDX);
+  if (pcap_net != nullptr) {
+    pcap_net->write_ul_crnti(pdu->data(), pdu->size(), rnti, true, last_tti, ue_cc_idx);
   }
-
-  pdus.deallocate(pdu);
 
   uint32_t lcid_most_data = 0;
   int      most_data      = -99;
@@ -395,7 +355,7 @@ void ue::process_pdu(uint8_t* pdu, uint32_t nof_bytes, srsran::pdu_queue::channe
       // Indicate DRB activity in UL to RRC
       if (mac_msg_ul.get()->get_sdu_lcid() > 2) {
         rrc->set_activity_user(rnti);
-        logger.debug("UL activity rnti=0x%x, n_bytes=%d", rnti, nof_bytes);
+        logger.debug("UL activity rnti=0x%x, n_bytes=%d", rnti, pdu->size());
       }
 
       if ((int)mac_msg_ul.get()->get_payload_size() > most_data) {
@@ -426,7 +386,7 @@ void ue::process_pdu(uint8_t* pdu, uint32_t nof_bytes, srsran::pdu_queue::channe
     assert(mac_msg_ul.get());
     if (!mac_msg_ul.get()->is_sdu()) {
       // Process MAC Control Element
-      bsr_received |= process_ce(mac_msg_ul.get());
+      bsr_received |= process_ce(mac_msg_ul.get(), grant_nof_prbs);
     }
   }
 
@@ -440,24 +400,12 @@ void ue::process_pdu(uint8_t* pdu, uint32_t nof_bytes, srsran::pdu_queue::channe
   logger.debug("MAC PDU processed");
 }
 
-void ue::deallocate_pdu(uint32_t tti, uint32_t ue_cc_idx)
+srsran::unique_byte_buffer_t ue::release_pdu(uint32_t tti, uint32_t enb_cc_idx)
 {
-  std::unique_lock<std::mutex> lock(rx_buffers_mutex);
-  if (not cc_buffers[ue_cc_idx].get_rx_used_buffers().try_deallocate_pdu(tti_point(tti))) {
-    logger.warning(
-        "UE buffers: Null RX PDU pointer in deallocate_pdu for rnti=0x%x tti=%d cc_idx=%d", rnti, tti, ue_cc_idx);
-  }
+  return cc_buffers[enb_cc_idx].get_rx_used_buffers().release_pdu(tti_point(tti));
 }
 
-void ue::push_pdu(uint32_t tti, uint32_t ue_cc_idx, uint32_t len)
-{
-  std::unique_lock<std::mutex> lock(rx_buffers_mutex);
-  if (not cc_buffers[ue_cc_idx].get_rx_used_buffers().push_pdu(tti_point(tti), len)) {
-    logger.warning("UE buffers: Failed to push RX PDU for rnti=0x%x tti=%d cc_idx=%d", rnti, tti, ue_cc_idx);
-  }
-}
-
-bool ue::process_ce(srsran::sch_subh* subh)
+bool ue::process_ce(srsran::sch_subh* subh, uint32_t grant_nof_prbs)
 {
   uint32_t buff_size_idx[4]   = {};
   uint32_t buff_size_bytes[4] = {};
@@ -468,7 +416,8 @@ bool ue::process_ce(srsran::sch_subh* subh)
   switch (subh->ul_sch_ce_type()) {
     case srsran::ul_sch_lcid::PHR_REPORT:
       phr = subh->get_phr();
-      sched->ul_phr(rnti, (int)phr);
+      srsran_assert(grant_nof_prbs > 0, "Invalid nof prbs=%d provided for PHR handling", grant_nof_prbs);
+      sched->ul_phr(rnti, (int)phr, grant_nof_prbs);
       metrics_phr(phr);
       break;
     case srsran::ul_sch_lcid::CRNTI:
@@ -511,7 +460,7 @@ bool ue::process_ce(srsran::sch_subh* subh)
   return is_bsr;
 }
 
-int ue::read_pdu(uint32_t lcid, uint8_t* payload, uint32_t requested_bytes)
+uint32_t ue::read_pdu(uint32_t lcid, uint8_t* payload, uint32_t requested_bytes)
 {
   return rlc->read_pdu(rnti, lcid, payload, requested_bytes);
 }
@@ -573,15 +522,15 @@ void ue::allocate_ce(srsran::sch_pdu* pdu, uint32_t lcid)
       break;
     case srsran::dl_sch_lcid::SCELL_ACTIVATION:
       if (pdu->new_subh()) {
-        std::array<bool, SRSRAN_MAX_CARRIERS> active_scell_list = sched->get_scell_activation_mask(rnti);
+        std::array<int, SRSRAN_MAX_CARRIERS>  active_ccs = sched->get_enb_ue_activ_cc_map(rnti);
+        std::array<bool, SRSRAN_MAX_CARRIERS> active_scell_list{};
+        for (int ue_cc_idx : active_ccs) {
+          if (ue_cc_idx > 0) {
+            active_scell_list[ue_cc_idx] = true;
+          }
+        }
         if (pdu->get()->set_scell_activation_cmd(active_scell_list)) {
           phy->set_activation_deactivation_scell(rnti, active_scell_list);
-          // Allocate and initialize Rx/Tx softbuffers for new carriers (exclude PCell)
-          for (size_t i = 0; i < std::min(active_scell_list.size(), cc_buffers.size()); ++i) {
-            if (active_scell_list[i] and cc_buffers[i].empty()) {
-              cc_buffers[i].allocate_cc(softbuffer_pool->make());
-            }
-          }
         } else {
           logger.error("CE:    Setting SCell Activation CE");
         }
@@ -595,7 +544,7 @@ void ue::allocate_ce(srsran::sch_pdu* pdu, uint32_t lcid)
   }
 }
 
-uint8_t* ue::generate_pdu(uint32_t                              ue_cc_idx,
+uint8_t* ue::generate_pdu(uint32_t                              enb_cc_idx,
                           uint32_t                              harq_pid,
                           uint32_t                              tb_idx,
                           const sched_interface::dl_sched_pdu_t pdu[sched_interface::MAX_RLC_PDU_LIST],
@@ -604,38 +553,34 @@ uint8_t* ue::generate_pdu(uint32_t                              ue_cc_idx,
 {
   std::lock_guard<std::mutex> lock(mutex);
   uint8_t*                    ret = nullptr;
-  if (rlc) {
-    if (ue_cc_idx < SRSRAN_MAX_CARRIERS && harq_pid < SRSRAN_FDD_NOF_HARQ && tb_idx < SRSRAN_MAX_TB) {
-      srsran::byte_buffer_t* buffer = cc_buffers[ue_cc_idx].get_tx_payload_buffer(harq_pid, tb_idx);
-      buffer->clear();
-      mac_msg_dl.init_tx(buffer, grant_size, false);
-      for (uint32_t i = 0; i < nof_pdu_elems; i++) {
-        if (pdu[i].lcid <= (uint32_t)srsran::ul_sch_lcid::PHR_REPORT) {
-          allocate_sdu(&mac_msg_dl, pdu[i].lcid, pdu[i].nbytes);
-        } else {
-          allocate_ce(&mac_msg_dl, pdu[i].lcid);
-        }
+  if (enb_cc_idx < SRSRAN_MAX_CARRIERS && harq_pid < SRSRAN_FDD_NOF_HARQ && tb_idx < SRSRAN_MAX_TB) {
+    srsran::byte_buffer_t* buffer = cc_buffers[enb_cc_idx].get_tx_payload_buffer(harq_pid, tb_idx);
+    buffer->clear();
+    mac_msg_dl.init_tx(buffer, grant_size, false);
+    for (uint32_t i = 0; i < nof_pdu_elems; i++) {
+      if (pdu[i].lcid <= (uint32_t)srsran::ul_sch_lcid::PHR_REPORT) {
+        allocate_sdu(&mac_msg_dl, pdu[i].lcid, pdu[i].nbytes);
+      } else {
+        allocate_ce(&mac_msg_dl, pdu[i].lcid);
       }
-      ret = mac_msg_dl.write_packet(logger);
-      if (logger.info.enabled()) {
-        fmt::memory_buffer str_buffer;
-        mac_msg_dl.to_string(str_buffer);
-        logger.info("0x%x %s", rnti, srsran::to_c_str(str_buffer));
-      }
-    } else {
-      logger.error(
-          "Invalid parameters calling generate_pdu: cc_idx=%d, harq_pid=%d, tb_idx=%d", ue_cc_idx, harq_pid, tb_idx);
+    }
+    ret = mac_msg_dl.write_packet(logger);
+    if (logger.info.enabled()) {
+      fmt::memory_buffer str_buffer;
+      mac_msg_dl.to_string(str_buffer);
+      logger.info("0x%x %s", rnti, srsran::to_c_str(str_buffer));
     }
   } else {
-    std::cout << "Error ue not configured (must call config() first" << std::endl;
+    logger.error(
+        "Invalid parameters calling generate_pdu: cc_idx=%d, harq_pid=%d, tb_idx=%d", enb_cc_idx, harq_pid, tb_idx);
   }
   return ret;
 }
 
-uint8_t* ue::generate_mch_pdu(uint32_t                      harq_pid,
-                              sched_interface::dl_pdu_mch_t sched_,
-                              uint32_t                      nof_pdu_elems,
-                              uint32_t                      grant_size)
+uint8_t* ue::generate_mch_pdu(uint32_t                             harq_pid,
+                              const sched_interface::dl_pdu_mch_t& sched_,
+                              uint32_t                             nof_pdu_elems,
+                              uint32_t                             grant_size)
 {
   std::lock_guard<std::mutex> lock(mutex);
   uint8_t*                    ret    = nullptr;
@@ -663,9 +608,13 @@ uint8_t* ue::generate_mch_pdu(uint32_t                      harq_pid,
 /******* METRICS interface ***************/
 void ue::metrics_read(mac_ue_metrics_t* metrics_)
 {
+  uint32_t ul_buffer = sched->get_ul_buffer(rnti);
+  uint32_t dl_buffer = sched->get_dl_buffer(rnti);
+
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   ue_metrics.rnti      = rnti;
-  ue_metrics.ul_buffer = sched->get_ul_buffer(rnti);
-  ue_metrics.dl_buffer = sched->get_dl_buffer(rnti);
+  ue_metrics.ul_buffer = ul_buffer;
+  ue_metrics.dl_buffer = dl_buffer;
 
   // set PCell sector id
   std::array<int, SRSRAN_MAX_CARRIERS> cc_list = sched->get_enb_ue_cc_map(rnti);
@@ -681,12 +630,14 @@ void ue::metrics_read(mac_ue_metrics_t* metrics_)
 
 void ue::metrics_phr(float phr)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   ue_metrics.phr = SRSRAN_VEC_CMA(phr, ue_metrics.phr, phr_counter);
   phr_counter++;
 }
 
 void ue::metrics_dl_ri(uint32_t dl_ri)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   if (ue_metrics.dl_ri == 0.0f) {
     ue_metrics.dl_ri = (float)dl_ri + 1.0f;
   } else {
@@ -697,18 +648,21 @@ void ue::metrics_dl_ri(uint32_t dl_ri)
 
 void ue::metrics_dl_pmi(uint32_t dl_ri)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   ue_metrics.dl_pmi = SRSRAN_VEC_CMA((float)dl_ri, ue_metrics.dl_pmi, dl_pmi_counter);
   dl_pmi_counter++;
 }
 
 void ue::metrics_dl_cqi(uint32_t dl_cqi)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   ue_metrics.dl_cqi = SRSRAN_VEC_CMA((float)dl_cqi, ue_metrics.dl_cqi, dl_cqi_counter);
   dl_cqi_counter++;
 }
 
 void ue::metrics_rx(bool crc, uint32_t tbs)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   if (crc) {
     ue_metrics.rx_brate += tbs * 8;
   } else {
@@ -719,6 +673,7 @@ void ue::metrics_rx(bool crc, uint32_t tbs)
 
 void ue::metrics_tx(bool crc, uint32_t tbs)
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   if (crc) {
     ue_metrics.tx_brate += tbs * 8;
   } else {
@@ -729,6 +684,7 @@ void ue::metrics_tx(bool crc, uint32_t tbs)
 
 void ue::metrics_cnt()
 {
+  std::lock_guard<std::mutex> lock(metrics_mutex);
   ue_metrics.nof_tti++;
 }
 
@@ -739,6 +695,11 @@ void ue::tic()
   if (nof_ta_count) {
     sched->dl_mac_buffer_state(rnti, (uint32_t)srsran::dl_sch_lcid::TA_CMD, nof_ta_count);
   }
+}
+
+void ue::trigger_padding(int lcid)
+{
+  sched->ul_bsr(rnti, lcid, 20e6);
 }
 
 } // namespace srsenb
