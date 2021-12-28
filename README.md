@@ -22,7 +22,7 @@ or collected automatically using
 [OpenTestPoint LTE Probe](https://github.com/adjacentlink/opentestpoint-probe-lte).
 
 srsRAN-emane is released under the AGPLv3 license. The current stable
-version is 21.04, the first release based on srsRAN 21.04
+version is 21.10, the first release based on srsRAN 21.10.
 
 ---
 ## Build Instructions
@@ -37,8 +37,8 @@ The srsRAN suite includes:
 
 3. Build and install srsRAN-emane:
    * [Centos 7](#centos-7)
-   * [Fedora 33](#fedora-33)
-   * [Ubuntu 18.04 and 20.04](#ubuntu-1804-and-2004)
+   * [Fedora 35](#fedora-35)
+   * [Ubuntu 20.04](#ubuntu-2004)
 
 ### Centos 7
 
@@ -53,7 +53,7 @@ make package
 sudo yum install srsran-emane-*-x86_64.rpm
 ```
 
-### Fedora 33
+### Fedora 35
 
 ```
 sudo dnf install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
@@ -66,7 +66,7 @@ make package
 sudo dnf install srsran-emane-*-x86_64.rpm
 ```
 
-### Ubuntu 18.04 and 20.04
+### Ubuntu 20.04
 
 ```
 sudo apt-get install cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
