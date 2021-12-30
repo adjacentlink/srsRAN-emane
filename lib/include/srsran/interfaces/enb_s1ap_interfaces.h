@@ -37,7 +37,10 @@ struct s1ap_args_t {
   std::string gtp_bind_addr;
   std::string gtp_advertise_addr;
   std::string s1c_bind_addr;
+  uint16_t    s1c_bind_port;
   std::string enb_name;
+  uint32_t    ts1_reloc_prep_timeout;
+  uint32_t    ts1_reloc_overall_timeout;
 };
 
 // S1AP interface for RRC
@@ -68,8 +71,9 @@ public:
   virtual bool user_release(uint16_t rnti, asn1::s1ap::cause_radio_network_e cause_radio) = 0;
   virtual bool is_mme_connected()                                                         = 0;
 
-  /// TS 36.413, 8.3.1 - Initial Context Setup
-  virtual void ue_ctxt_setup_complete(uint16_t rnti) = 0;
+  // Notify S1AP of RRC reconfiguration successful finish.
+  // Many S1AP procedures use this notification to indicate successful end (e.g InitialContextSetupRequest)
+  virtual void notify_rrc_reconf_complete(uint16_t rnti) = 0;
 
   /**
    * Command the s1ap to transmit a HandoverRequired message to MME.

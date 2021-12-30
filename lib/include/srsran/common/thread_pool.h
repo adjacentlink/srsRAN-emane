@@ -32,6 +32,7 @@
 #include "srsran/adt/circular_buffer.h"
 #include "srsran/adt/move_callback.h"
 #include "srsran/srslog/srslog.h"
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -54,6 +55,7 @@ public:
     worker();
     ~worker() = default;
     void     setup(uint32_t id, thread_pool* parent, uint32_t prio = 0, uint32_t mask = 255);
+    void     stop();
     uint32_t get_id();
     void     release();
 
@@ -61,8 +63,9 @@ public:
     virtual void work_imp() = 0;
 
   private:
-    uint32_t     my_id     = 0;
-    thread_pool* my_parent = nullptr;
+    uint32_t          my_id     = 0;
+    thread_pool*      my_parent = nullptr;
+    std::atomic<bool> running   = {true};
 
     void run_thread();
     void wait_to_start();
@@ -70,22 +73,24 @@ public:
     bool is_stopped() const;
   };
 
-  thread_pool(uint32_t nof_workers);
-  void     init_worker(uint32_t id, worker*, uint32_t prio = 0, uint32_t mask = 255);
-  void     stop();
-  worker*  wait_worker_id(uint32_t id);
-  worker*  wait_worker(uint32_t tti);
-  worker*  wait_worker_nb(uint32_t tti);
-  void     start_worker(worker*);
-  void     start_worker(uint32_t id);
-  worker*  get_worker(uint32_t id);
-  uint32_t get_nof_workers();
+  thread_pool(uint32_t nof_workers_, std::string id_ = "");
+  void        init_worker(uint32_t id, worker*, uint32_t prio = 0, uint32_t mask = 255);
+  void        stop();
+  worker*     wait_worker_id(uint32_t id);
+  worker*     wait_worker(uint32_t tti);
+  worker*     wait_worker_nb(uint32_t tti);
+  void        start_worker(worker*);
+  void        start_worker(uint32_t id);
+  worker*     get_worker(uint32_t id);
+  uint32_t    get_nof_workers();
+  std::string get_id();
 
 private:
   bool find_finished_worker(uint32_t tti, uint32_t* id);
 
   typedef enum { STOP, IDLE, START_WORK, WORKER_READY, WORKING } worker_status;
 
+  std::string                          id; // id is prepended to every worker
   std::vector<worker*>                 workers     = {};
   uint32_t                             nof_workers = 0;
   uint32_t                             max_workers = 0;
@@ -146,6 +151,40 @@ private:
   mutable std::mutex                      queue_mutex;
   std::condition_variable                 cv_empty;
   bool                                    running = false;
+};
+
+/// Class used to create a single worker with an input task queue with a single reader
+class task_worker : public thread
+{
+  using task_t = srsran::move_callback<void(), default_move_callback_buffer_size, true>;
+
+public:
+  task_worker(std::string thread_name_,
+              uint32_t    queue_size,
+              bool        start_deferred = false,
+              int32_t     prio_          = -1,
+              uint32_t    mask_          = 255);
+  task_worker(const task_worker&) = delete;
+  task_worker(task_worker&&)      = delete;
+  task_worker& operator=(const task_worker&) = delete;
+  task_worker& operator=(task_worker&&) = delete;
+  ~task_worker();
+
+  void stop();
+  void start(int32_t prio_ = -1, uint32_t mask_ = 255);
+
+  void     push_task(task_t&& task);
+  uint32_t nof_pending_tasks() const;
+
+private:
+  void run_thread() override;
+
+  // args
+  int32_t               prio = -1;
+  uint32_t              mask = 255;
+  srslog::basic_logger& logger;
+
+  srsran::dyn_blocking_queue<task_t> pending_tasks;
 };
 
 srsran::task_thread_pool& get_background_workers();

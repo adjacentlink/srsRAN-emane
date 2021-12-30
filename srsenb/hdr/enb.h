@@ -40,6 +40,8 @@
 #include "srsenb/hdr/stack/enb_stack_base.h"
 #include "srsenb/hdr/stack/rrc/rrc_config.h"
 
+#include "srsenb/hdr/stack/gnb_stack_nr.h"
+#include "srsenb/hdr/stack/mac/sched_interface.h"
 #include "srsran/common/bcd_helpers.h"
 #include "srsran/common/buffer_pool.h"
 #include "srsran/common/interfaces_common.h"
@@ -47,7 +49,8 @@
 #include "srsran/common/security.h"
 #include "srsran/interfaces/enb_command_interface.h"
 #include "srsran/interfaces/enb_metrics_interface.h"
-#include "srsran/interfaces/sched_interface.h"
+#include "srsran/interfaces/enb_time_interface.h"
+#include "srsran/interfaces/enb_x2_interfaces.h"
 #include "srsran/interfaces/ue_interfaces.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/system/sys_metrics_processor.h"
@@ -73,7 +76,7 @@ struct enb_args_t {
 struct enb_files_t {
   std::string sib_config;
   std::string rr_config;
-  std::string drb_config;
+  std::string rb_config;
 };
 
 struct log_args_t {
@@ -96,6 +99,7 @@ struct general_args_t {
   std::string metrics_csv_filename;
   bool        report_json_enable;
   std::string report_json_filename;
+  bool        report_json_asn1_oct;
   bool        alarms_log_enable;
   std::string alarms_filename;
   bool        print_buffer_state;
@@ -106,6 +110,8 @@ struct general_args_t {
   std::string eea_pref_list;
   uint32_t    max_mac_dl_kos;
   uint32_t    max_mac_ul_kos;
+  uint32_t    gtpu_indirect_tunnel_timeout;
+  uint32_t    rlf_release_timer_ms;
 };
 
 typedef struct {
@@ -121,7 +127,8 @@ struct all_args_t {
   general_args_t    general;
   phy_args_t        phy;
   stack_args_t      stack;
-  runtime_args_t runtime;
+  gnb_stack_args_t  nr_stack;
+  runtime_args_t    runtime;
   EMANELTE::MHAL::mhal_config_t mhal;
 };
 
@@ -131,7 +138,7 @@ struct rrc_cfg_t;
   Main eNB class
 *******************************************************************************/
 
-class enb : public enb_metrics_interface, enb_command_interface
+class enb : public enb_metrics_interface, enb_command_interface, enb_time_interface
 {
 public:
   enb(srslog::sink& log_sink);
@@ -152,24 +159,31 @@ public:
   // eNodeB command interface
   void cmd_cell_gain(uint32_t cell_id, float gain) override;
 
+  void toggle_padding() override;
+
+  void tti_clock() override;
+
 private:
   const static int ENB_POOL_SIZE = 1024 * 10;
 
-  int parse_args(const all_args_t& args_, rrc_cfg_t& rrc_cfg);
+  int parse_args(const all_args_t& args_, rrc_cfg_t& rrc_cfg_, rrc_nr_cfg_t& rrc_cfg_nr_);
 
   srslog::sink&         log_sink;
   srslog::basic_logger& enb_log;
 
-  all_args_t args    = {};
-  bool       started = false;
+  all_args_t        args    = {};
+  std::atomic<bool> started = {false};
 
-  phy_cfg_t phy_cfg = {};
-  rrc_cfg_t rrc_cfg = {};
+  phy_cfg_t    phy_cfg    = {};
+  rrc_cfg_t    rrc_cfg    = {};
+  rrc_nr_cfg_t rrc_nr_cfg = {};
 
   // eNB components
-  std::unique_ptr<enb_stack_base>     stack = nullptr;
-  std::unique_ptr<srsran::radio_base> radio = nullptr;
-  std::unique_ptr<enb_phy_base>       phy   = nullptr;
+  std::unique_ptr<x2_interface>       x2;
+  std::unique_ptr<enb_stack_base>     eutra_stack = nullptr;
+  std::unique_ptr<enb_stack_base>     nr_stack    = nullptr;
+  std::unique_ptr<srsran::radio_base> radio       = nullptr;
+  std::unique_ptr<enb_phy_base>       phy         = nullptr;
 
   // System metrics processor.
   srsran::sys_metrics_processor sys_proc;

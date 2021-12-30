@@ -50,6 +50,12 @@ void bsr_proc::init(sr_proc* sr_, rlc_interface_mac* rlc_, srsran::ext_task_sche
 
 void bsr_proc::print_state()
 {
+  if (!logger.info.enabled()) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex);
+
   char str[128];
   str[0] = '\0';
   int n  = 0;
@@ -75,6 +81,8 @@ void bsr_proc::set_trigger(bsr_trigger_type_t new_trigger)
 
 void bsr_proc::reset()
 {
+  std::lock_guard<std::mutex> lock(mutex);
+
   timer_periodic.stop();
   timer_retx.stop();
 
@@ -122,6 +130,8 @@ void bsr_proc::timer_expired(uint32_t timer_id)
 
 uint32_t bsr_proc::get_buffer_state()
 {
+  std::lock_guard<std::mutex> lock(mutex);
+
   uint32_t buffer = 0;
   for (int i = 0; i < NOF_LCG; i++) {
     buffer += get_buffer_state_lcg(i);

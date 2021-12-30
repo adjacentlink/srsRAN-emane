@@ -22,16 +22,15 @@
 #ifndef SRSENB_SCHEDULER_UE_H
 #define SRSENB_SCHEDULER_UE_H
 
-#include "sched_common.h"
-#include "srsran/srslog/srslog.h"
-#include <map>
-#include <vector>
-
+#include "sched_lte_common.h"
 #include "sched_ue_ctrl/sched_lch.h"
 #include "sched_ue_ctrl/sched_ue_cell.h"
 #include "sched_ue_ctrl/tpc.h"
+#include "srsenb/hdr/common/common_enb.h"
+#include "srsran/srslog/srslog.h"
 #include <bitset>
-#include <deque>
+#include <map>
+#include <vector>
 
 namespace srsenb {
 
@@ -42,8 +41,7 @@ typedef enum { UCI_PUSCH_NONE = 0, UCI_PUSCH_CQI, UCI_PUSCH_ACK, UCI_PUSCH_ACK_C
  */
 class sched_ue
 {
-  using ue_cfg_t     = sched_interface::ue_cfg_t;
-  using bearer_cfg_t = sched_interface::ue_bearer_cfg_t;
+  using ue_cfg_t = sched_interface::ue_cfg_t;
 
 public:
   sched_ue(uint16_t rnti, const std::vector<sched_cell_params_t>& cell_list_params_, const ue_cfg_t& cfg);
@@ -58,18 +56,19 @@ public:
   void phy_config_enabled(tti_point tti_rx, bool enabled);
   void set_cfg(const ue_cfg_t& cfg);
 
-  void set_bearer_cfg(uint32_t lc_id, const bearer_cfg_t& cfg);
+  void set_bearer_cfg(uint32_t lc_id, const mac_lc_ch_cfg_t& cfg);
   void rem_bearer(uint32_t lc_id);
 
   void dl_buffer_state(uint8_t lc_id, uint32_t tx_queue, uint32_t retx_queue);
   void ul_buffer_state(uint8_t lcg_id, uint32_t bsr);
-  void ul_phr(int phr);
+  void ul_phr(int phr, uint32_t grant_nof_prb);
   void mac_buffer_state(uint32_t ce_code, uint32_t nof_cmds);
 
   void set_ul_snr(tti_point tti_rx, uint32_t enb_cc_idx, float snr, uint32_t ul_ch_code);
   void set_dl_ri(tti_point tti_rx, uint32_t enb_cc_idx, uint32_t ri);
   void set_dl_pmi(tti_point tti_rx, uint32_t enb_cc_idx, uint32_t ri);
   void set_dl_cqi(tti_point tti_rx, uint32_t enb_cc_idx, uint32_t cqi);
+  void set_dl_sb_cqi(tti_point tti_rx, uint32_t enb_cc_idx, uint32_t sb_idx, uint32_t cqi);
   int  set_ack_info(tti_point tti_rx, uint32_t enb_cc_idx, uint32_t tb_idx, bool ack);
   void set_ul_crc(tti_point tti_rx, uint32_t enb_cc_idx, bool crc_res);
 
@@ -92,10 +91,11 @@ public:
 
   /// Get total pending bytes to be transmitted in DL.
   /// The amount of CEs to transmit depends on whether enb_cc_idx is UE's PCell
-  uint32_t     get_pending_dl_bytes(uint32_t enb_cc_idx);
-  rbg_interval get_required_dl_rbgs(uint32_t enb_cc_idx);
-  uint32_t     get_pending_dl_rlc_data() const;
-  uint32_t     get_expected_dl_bitrate(uint32_t enb_cc_idx, int nof_rbgs = -1) const;
+  uint32_t                   get_pending_dl_bytes(uint32_t enb_cc_idx);
+  srsran::interval<uint32_t> get_requested_dl_bytes(uint32_t enb_cc_idx);
+  rbg_interval               get_required_dl_rbgs(uint32_t enb_cc_idx);
+  uint32_t                   get_pending_dl_rlc_data() const;
+  uint32_t                   get_expected_dl_bitrate(uint32_t enb_cc_idx, int nof_rbgs = -1) const;
 
   uint32_t get_pending_ul_data_total(tti_point tti_tx_ul, int this_enb_cc_idx);
   uint32_t get_pending_ul_new_data(tti_point tti_tx_ul, int this_enb_cc_idx);
@@ -147,10 +147,9 @@ public:
 
   bool pdsch_enabled(tti_point tti_rx, uint32_t enb_cc_idx) const;
   bool pusch_enabled(tti_point tti_rx, uint32_t enb_cc_idx, bool needs_pdcch) const;
+  bool phich_enabled(tti_point tti_rx, uint32_t enb_cc_idx) const;
 
 private:
-  srsran::interval<uint32_t> get_requested_dl_bytes(uint32_t enb_cc_idx);
-
   bool is_sr_triggered();
 
   tbs_info allocate_new_dl_mac_pdu(sched_interface::dl_sched_data_t* data,
@@ -163,7 +162,7 @@ private:
 
   tbs_info compute_mcs_and_tbs(uint32_t               enb_cc_idx,
                                tti_point              tti_tx_dl,
-                               uint32_t               nof_alloc_prbs,
+                               const rbgmask_t&       rbgs,
                                uint32_t               cfi,
                                const srsran_dci_dl_t& dci);
 
@@ -220,7 +219,7 @@ private:
   std::vector<sched_ue_cell> cells; ///< List of eNB cells that may be configured/activated/deactivated for the UE
 };
 
-using sched_ue_list = std::map<uint16_t, std::unique_ptr<sched_ue> >;
+using sched_ue_list = rnti_map_t<std::unique_ptr<sched_ue> >;
 
 } // namespace srsenb
 

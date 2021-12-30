@@ -28,17 +28,7 @@
 #include <complex.h>
 #include <getopt.h>
 
-static srsran_carrier_nr_t carrier = {
-    1,                               // pci
-    0,                               // absolute_frequency_ssb
-    0,                               // absolute_frequency_point_a
-    0,                               // offset_to_carrier
-    srsran_subcarrier_spacing_15kHz, // scs
-    SRSRAN_MAX_PRB_NR,               // nof_prb
-    0,                               // start
-    1                                // max_mimo_layers
-};
-
+static srsran_carrier_nr_t carrier      = SRSRAN_DEFAULT_CARRIER_NR;
 static uint32_t            n_prb        = 0;  // Set to 0 for steering
 static uint32_t            mcs          = 30; // Set to 30 for steering
 static srsran_sch_cfg_nr_t pusch_cfg    = {};
@@ -83,7 +73,7 @@ int parse_args(int argc, char** argv)
         nof_csi_bits = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);
@@ -175,15 +165,11 @@ int main(int argc, char** argv)
     goto clean_exit;
   }
 
-  // Load number of DMRS CDM groups without data
-  if (srsran_ra_ul_nr_nof_dmrs_cdm_groups_without_data_format_0_0(&pusch_cfg, &pusch_cfg.grant) < SRSRAN_SUCCESS) {
-    ERROR("Error loading number of DMRS CDM groups without data");
-    goto clean_exit;
-  }
-
-  pusch_cfg.grant.nof_layers = carrier.max_mimo_layers;
-  pusch_cfg.grant.dci_format = srsran_dci_format_nr_1_0;
-  pusch_cfg.grant.rnti       = rnti;
+  // Set PDSCH grant without considering any procedure
+  pusch_cfg.grant.nof_dmrs_cdm_groups_without_data = 1; // No need for MIMO
+  pusch_cfg.grant.nof_layers                       = carrier.max_mimo_layers;
+  pusch_cfg.grant.dci_format                       = srsran_dci_format_nr_1_0;
+  pusch_cfg.grant.rnti                             = rnti;
 
   uint32_t n_prb_start = 1;
   uint32_t n_prb_end   = carrier.nof_prb + 1;
@@ -238,7 +224,7 @@ int main(int argc, char** argv)
 
       // Generate HARQ ACK bits
       if (nof_ack_bits > 0) {
-        pusch_cfg.uci.o_ack = nof_ack_bits;
+        pusch_cfg.uci.ack.count = nof_ack_bits;
         for (uint32_t i = 0; i < nof_ack_bits; i++) {
           data_tx.uci.ack[i] = (uint8_t)srsran_random_uniform_int_dist(rand_gen, 0, 1);
         }
@@ -248,10 +234,10 @@ int main(int argc, char** argv)
       uint8_t csi_report_tx[SRSRAN_UCI_NR_MAX_CSI1_BITS] = {};
       uint8_t csi_report_rx[SRSRAN_UCI_NR_MAX_CSI1_BITS] = {};
       if (nof_csi_bits > 0) {
-        pusch_cfg.uci.csi[0].quantity = SRSRAN_CSI_REPORT_QUANTITY_NONE;
-        pusch_cfg.uci.csi[0].K_csi_rs = nof_csi_bits;
-        pusch_cfg.uci.nof_csi         = 1;
-        data_tx.uci.csi[0].none       = csi_report_tx;
+        pusch_cfg.uci.csi[0].cfg.quantity = SRSRAN_CSI_REPORT_QUANTITY_NONE;
+        pusch_cfg.uci.csi[0].K_csi_rs     = nof_csi_bits;
+        pusch_cfg.uci.nof_csi             = 1;
+        data_tx.uci.csi[0].none           = csi_report_tx;
         for (uint32_t i = 0; i < nof_csi_bits; i++) {
           csi_report_tx[i] = (uint8_t)srsran_random_uniform_int_dist(rand_gen, 0, 1);
         }
@@ -290,25 +276,47 @@ int main(int argc, char** argv)
         goto clean_exit;
       }
 
-      float    mse    = 0.0f;
+      // Check symbols Mean Square Error (MSE)
       uint32_t nof_re = srsran_ra_dl_nr_slot_nof_re(&pusch_cfg, &pusch_cfg.grant);
-      for (uint32_t i = 0; i < pusch_cfg.grant.nof_layers; i++) {
-        for (uint32_t j = 0; j < nof_re; j++) {
-          mse += cabsf(pusch_tx.d[i][j] - pusch_rx.d[i][j]);
-        }
-      }
       if (nof_re * pusch_cfg.grant.nof_layers > 0) {
-        mse = mse / (nof_re * pusch_cfg.grant.nof_layers);
-      }
-      if (mse > 0.001) {
-        ERROR("MSE error (%f) is too high", mse);
+        float mse = 0.0f;
         for (uint32_t i = 0; i < pusch_cfg.grant.nof_layers; i++) {
-          printf("d_tx[%d]=", i);
-          srsran_vec_fprint_c(stdout, pusch_tx.d[i], nof_re);
-          printf("d_rx[%d]=", i);
-          srsran_vec_fprint_c(stdout, pusch_rx.d[i], nof_re);
+          for (uint32_t j = 0; j < nof_re; j++) {
+            mse += cabsf(pusch_tx.d[i][j] - pusch_rx.d[i][j]);
+          }
         }
-        goto clean_exit;
+        mse = mse / (nof_re * pusch_cfg.grant.nof_layers);
+        if (mse > 0.001) {
+          ERROR("MSE error (%f) is too high", mse);
+          for (uint32_t i = 0; i < pusch_cfg.grant.nof_layers; i++) {
+            printf("d_tx[%d]=", i);
+            srsran_vec_fprint_c(stdout, pusch_tx.d[i], nof_re);
+            printf("d_rx[%d]=", i);
+            srsran_vec_fprint_c(stdout, pusch_rx.d[i], nof_re);
+          }
+          goto clean_exit;
+        }
+      }
+
+      // Check Received SCH LLR match
+      if (pusch_rx.G_ulsch > 0) {
+        for (uint32_t i = 0; i < pusch_rx.G_ulsch; i++) {
+          uint8_t rx_bit = (((int8_t*)pusch_rx.g_ulsch)[i]) < 0 ? 1 : 0;
+          if (rx_bit == 0) {
+            pusch_rx.g_ulsch[i] = pusch_tx.g_ulsch[i];
+          } else {
+            pusch_rx.g_ulsch[i] = rx_bit;
+          }
+        }
+        if (memcmp(pusch_tx.g_ulsch, pusch_rx.g_ulsch, pusch_tx.G_ulsch) != 0) {
+          printf("g_ulsch_tx=");
+          srsran_vec_fprint_byte(stdout, pusch_tx.g_ulsch, pusch_tx.G_ulsch);
+          printf("g_ulsch_rx=");
+          srsran_vec_fprint_byte(stdout, pusch_rx.g_ulsch, pusch_tx.G_ulsch);
+          //            srsran_vec_fprint_bs(stdout, (int8_t*)pusch_rx.g_ulsch, pusch_rx.G_ulsch);
+
+          goto clean_exit;
+        }
       }
 
       // Validate UL-SCH CRC check
@@ -359,7 +367,7 @@ int main(int argc, char** argv)
         }
       }
 
-      if (srsran_verbose >= SRSRAN_VERBOSE_INFO) {
+      if (get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO) {
         char str[512];
         srsran_pusch_nr_rx_info(&pusch_rx, &pusch_cfg, &pusch_cfg.grant, &data_rx, str, (uint32_t)sizeof(str));
 

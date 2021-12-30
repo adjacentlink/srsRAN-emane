@@ -46,13 +46,13 @@ public:
   void stop(){};
 
 private:
+  void set_metrics_helper(uint32_t num_ue, const mac_metrics_t& mac, const std::vector<phy_metrics_t>& phy, bool is_nr);
   std::string float_to_string(float f, int digits, int field_width = 6);
-  std::string int_to_hex_string(int value, int field_width);
   std::string float_to_eng_string(float f, int digits);
 
-  bool                   do_print;
-  uint8_t                n_reports;
-  enb_metrics_interface* enb;
+  std::atomic<bool>      do_print  = {false};
+  uint8_t                n_reports = 0;
+  enb_metrics_interface* enb       = nullptr;
 };
 
 } // namespace srsenb

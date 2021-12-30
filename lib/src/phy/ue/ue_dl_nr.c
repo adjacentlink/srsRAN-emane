@@ -168,12 +168,14 @@ int srsran_ue_dl_nr_set_carrier(srsran_ue_dl_nr_t* q, const srsran_carrier_nr_t*
 
   if (carrier->nof_prb != q->carrier.nof_prb) {
     for (uint32_t i = 0; i < q->nof_rx_antennas; i++) {
-      srsran_ofdm_cfg_t cfg = {};
-      cfg.nof_prb           = carrier->nof_prb;
-      cfg.symbol_sz         = srsran_min_symbol_sz_rb(carrier->nof_prb);
-      cfg.cp                = SRSRAN_CP_NORM;
-      cfg.keep_dc           = true;
-      cfg.rx_window_offset  = UE_DL_NR_FFT_WINDOW_OFFSET;
+      srsran_ofdm_cfg_t cfg     = {};
+      cfg.nof_prb               = carrier->nof_prb;
+      cfg.symbol_sz             = srsran_min_symbol_sz_rb(carrier->nof_prb);
+      cfg.cp                    = SRSRAN_CP_NORM;
+      cfg.keep_dc               = true;
+      cfg.rx_window_offset      = UE_DL_NR_FFT_WINDOW_OFFSET;
+      cfg.phase_compensation_hz = carrier->dl_center_frequency_hz;
+
       srsran_ofdm_rx_init_cfg(&q->fft[i], &cfg);
     }
   }
@@ -382,7 +384,7 @@ static int ue_dl_nr_find_dci_ss(srsran_ue_dl_nr_t*           q,
       // Calculate possible PDCCH DCI candidates
       uint32_t candidates[SRSRAN_SEARCH_SPACE_MAX_NOF_CANDIDATES_NR] = {};
       int      nof_candidates                                        = srsran_pdcch_nr_locations_coreset(
-          coreset, search_space, rnti, L, SRSRAN_SLOT_NR_MOD(q->carrier.scs, slot_cfg->idx), candidates);
+                                                      coreset, search_space, rnti, L, SRSRAN_SLOT_NR_MOD(q->carrier.scs, slot_cfg->idx), candidates);
       if (nof_candidates < SRSRAN_SUCCESS) {
         ERROR("Error calculating DCI candidate location");
         return SRSRAN_ERROR;
@@ -396,6 +398,7 @@ static int ue_dl_nr_find_dci_ss(srsran_ue_dl_nr_t*           q,
         ctx.location.ncce    = candidates[ncce_idx];
         ctx.ss_type          = search_space->type;
         ctx.coreset_id       = search_space->coreset_id;
+        ctx.coreset_start_rb = srsran_coreset_start_rb(&q->cfg.coreset[search_space->coreset_id]);
         ctx.rnti_type        = rnti_type;
         ctx.rnti             = rnti;
         ctx.format           = dci_format;
@@ -573,7 +576,7 @@ int srsran_ue_dl_nr_decode_pdsch(srsran_ue_dl_nr_t*         q,
     return SRSRAN_ERROR;
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     char str[512];
     srsran_ue_dl_nr_pdsch_info(q, cfg, res, str, sizeof(str));
     INFO("PDSCH: %s", str);
@@ -582,268 +585,43 @@ int srsran_ue_dl_nr_decode_pdsch(srsran_ue_dl_nr_t*         q,
   return SRSRAN_SUCCESS;
 }
 
-int srsran_ue_dl_nr_pdsch_info(const srsran_ue_dl_nr_t*     q,
-                               const srsran_sch_cfg_nr_t*   cfg,
-                               const srsran_pdsch_res_nr_t* res,
-                               char*                        str,
-                               uint32_t                     str_len)
+uint32_t srsran_ue_dl_nr_pdsch_info(const srsran_ue_dl_nr_t*    q,
+                                    const srsran_sch_cfg_nr_t*  cfg,
+                                    const srsran_pdsch_res_nr_t res[SRSRAN_MAX_CODEWORDS],
+                                    char*                       str,
+                                    uint32_t                    str_len)
 {
-  int len = 0;
+  uint32_t len = 0;
 
   // Append PDSCH info
   len += srsran_pdsch_nr_rx_info(&q->pdsch, cfg, &cfg->grant, res, &str[len], str_len - len);
 
   // Append channel estimator info
-  len = srsran_print_check(str, str_len, len, "SNR=%+.1f", q->chest.snr_db);
+  len += srsran_csi_meas_info_short(&q->dmrs_pdsch.csi, &str[len], str_len - len);
 
   return len;
 }
 
-// Implements TS 38.213 Table 9.1.3-1: Value of counter DAI in DCI format 1_0 and of counter DAI or total DAI DCI format
-// 1_1
-static uint32_t ue_dl_nr_V_DL_DAI(uint32_t dai)
+int srsran_ue_dl_nr_csi_measure_trs(const srsran_ue_dl_nr_t*       q,
+                                    const srsran_slot_cfg_t*       slot_cfg,
+                                    const srsran_csi_rs_nzp_set_t* csi_rs_nzp_set,
+                                    srsran_csi_trs_measurements_t* measurement)
 {
-  return dai + 1;
-}
-
-static int ue_dl_nr_gen_ack_type2(const srsran_ue_dl_nr_harq_ack_cfg_t* cfg,
-                                  const srsran_pdsch_ack_nr_t*          ack_info,
-                                  srsran_uci_data_nr_t*                 uci_data)
-{
-  bool harq_ack_spatial_bundling =
-      ack_info->use_pusch ? cfg->harq_ack_spatial_bundling_pusch : cfg->harq_ack_spatial_bundling_pucch;
-  uint8_t* o_ack = uci_data->value.ack;
-
-  uint32_t m = 0; // PDCCH with DCI format 1_0 or DCI format 1_1 monitoring occasion index: lower index corresponds to
-                  // earlier PDCCH with DCI format 1_0 or DCI format 1_1 monitoring occasion
-  uint32_t j       = 0;
-  uint32_t V_temp  = 0;
-  uint32_t V_temp2 = 0;
-
-  uint32_t N_DL_cells = ack_info->nof_cc; // number of serving cells configured by higher layers for the UE
-
-  // The following code follows the exact pseudo-code provided in TS 38.213 9.1.3.1 Type-2 HARQ-ACK codebook ...
-  while (m < SRSRAN_UCI_NR_MAX_M) {
-    uint32_t c = 0; // serving cell index: lower indexes correspond to lower RRC indexes of corresponding cell
-    while (c < N_DL_cells) {
-      // Get ACK information of serving cell c for the PDCH monitoring occasion m
-      const srsran_pdsch_ack_m_nr_t* ack = &ack_info->cc[c].m[m];
-
-      // Get DAI counter value
-      uint32_t V_DL_CDAI = ue_dl_nr_V_DL_DAI(ack->resource.v_dai_dl);
-      uint32_t V_DL_TDAI = ack->resource.dci_format_1_1 ? ue_dl_nr_V_DL_DAI(ack->resource.v_dai_dl) : UINT32_MAX;
-
-      // Get ACK values
-      uint32_t ack_tb0 = ack->value[0];
-      uint32_t ack_tb1 = ack->value[1];
-
-      // For a PDCCH monitoring occasion with DCI format 1_0 or DCI format 1_1 in the active DL BWP of a serving cell,
-      // when a UE receives a PDSCH with one transport block and the value of maxNrofCodeWordsScheduledByDCI is 2, the
-      // HARQ-ACK information is associated with the first transport block and the UE generates a NACK for the second
-      // transport block if harq-ACK-SpatialBundlingPUCCH is not provided and generates HARQ-ACK information with
-      // value of ACK for the second transport block if harq-ACK-SpatialBundlingPUCCH is provided.
-      if (cfg->max_cw_sched_dci_is_2 && ack->second_tb_present) {
-        ack_tb1 = harq_ack_spatial_bundling ? 1 : 0;
-      }
-
-      // if PDCCH monitoring occasion m is before an active DL BWP change on serving cell c or an active UL
-      // BWP change on the PCell and an active DL BWP change is not triggered by a DCI format 1_1 in PDCCH
-      // monitoring occasion m
-      if (ack->dl_bwp_changed || ack->ul_bwp_changed) {
-        c = c + 1;
-      } else {
-        if (ack->present) {
-          // Load ACK resource data into UCI info
-          uci_data->cfg.pucch.resource_id = ack_info->cc[c].m[m].resource.pucch_resource_id;
-          uci_data->cfg.pucch.rnti        = ack_info->cc[c].m[m].resource.rnti;
-
-          if (V_DL_CDAI <= V_temp) {
-            j = j + 1;
-          }
-
-          V_temp = V_DL_CDAI;
-
-          if (V_DL_TDAI == UINT32_MAX) {
-            V_temp2 = V_DL_CDAI;
-          } else {
-            V_temp2 = V_DL_TDAI;
-          }
-
-          // if harq-ACK-SpatialBundlingPUCCH is not provided and m is a monitoring occasion for PDCCH with DCI format
-          // 1_0 or DCI format 1_1 and the UE is configured by maxNrofCodeWordsScheduledByDCI with reception of two
-          // transport blocks for at least one configured DL BWP of at least one serving cell,
-          if (!harq_ack_spatial_bundling && cfg->max_cw_sched_dci_is_2) {
-            o_ack[8 * j + 2 * (V_DL_CDAI - 1) + 0] = ack_tb0;
-            o_ack[8 * j + 2 * (V_DL_CDAI - 1) + 1] = ack_tb1;
-          }
-          // elseif harq-ACK-SpatialBundlingPUCCH is provided to the UE and m is a monitoring occasion for
-          // PDCCH with DCI format 1_1 and the UE is configured by maxNrofCodeWordsScheduledByDCI with
-          // reception of two transport blocks in at least one configured DL BWP of a serving cell,
-          else if (harq_ack_spatial_bundling && ack->resource.dci_format_1_1 && cfg->max_cw_sched_dci_is_2) {
-            o_ack[4 * j + (V_DL_CDAI - 1)] = ack_tb0 & ack_tb1;
-          }
-          // else
-          else {
-            o_ack[4 * j + (V_DL_CDAI - 1)] = ack_tb0;
-          }
-        }
-        c = c + 1;
-      }
-    }
-    m = m + 1;
-  }
-  if (V_temp2 < V_temp) {
-    j = j + 1;
-  }
-
-  // if harq-ACK-SpatialBundlingPUCCH is not provided to the UE and the UE is configured by
-  // maxNrofCodeWordsScheduledByDCI with reception of two transport blocks for at least one configured DL BWP of a
-  // serving cell,
-  if (!harq_ack_spatial_bundling && cfg->max_cw_sched_dci_is_2) {
-    uci_data->cfg.o_ack = 2 * (4 * j + V_temp2);
-  } else {
-    uci_data->cfg.o_ack = 4 * j + V_temp2;
-  }
-
-  // Implement here SPS PDSCH reception
-  // ...
-
-  return SRSRAN_SUCCESS;
-}
-
-int ue_dl_nr_pdsch_k1(const srsran_ue_dl_nr_harq_ack_cfg_t* cfg, const srsran_dci_dl_nr_t* dci_dl)
-{
-  // For DCI format 1_0, the PDSCH-to-HARQ_feedback timing indicator field values map to {1, 2, 3, 4, 5, 6, 7, 8}
-  if (dci_dl->ctx.format == srsran_dci_format_nr_1_0) {
-    return (int)dci_dl->harq_feedback + 1;
-  }
-
-  // For DCI format 1_1, if present, the PDSCH-to-HARQ_feedback timing indicator field values map to values for a set of
-  // number of slots provided by dl-DataToUL-ACK as defined in Table 9.2.3-1.
-  if (dci_dl->harq_feedback >= SRSRAN_MAX_NOF_DL_DATA_TO_UL || dci_dl->harq_feedback >= cfg->nof_dl_data_to_ul_ack) {
-    ERROR("Out-of-range PDSCH-to-HARQ feedback index (%d, max %d)", dci_dl->harq_feedback, cfg->nof_dl_data_to_ul_ack);
-    return SRSRAN_ERROR;
-  }
-
-  return (int)cfg->dl_data_to_ul_ack[dci_dl->harq_feedback];
-}
-
-int srsran_ue_dl_nr_pdsch_ack_resource(const srsran_ue_dl_nr_harq_ack_cfg_t* cfg,
-                                       const srsran_dci_dl_nr_t*             dci_dl,
-                                       srsran_pdsch_ack_resource_nr_t*       pdsch_ack_resource)
-{
-  if (cfg == NULL || dci_dl == NULL || pdsch_ack_resource == NULL) {
+  if (q == NULL || slot_cfg == NULL || csi_rs_nzp_set == NULL || measurement == NULL) {
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
 
-  // Calculate Data to UL ACK timing k1
-  int k1 = ue_dl_nr_pdsch_k1(cfg, dci_dl);
-  if (k1 < SRSRAN_ERROR) {
-    ERROR("Error calculating K1");
-    return SRSRAN_ERROR;
-  }
-
-  // Fill PDSCH resource
-  pdsch_ack_resource->dci_format_1_1    = (dci_dl->ctx.format == srsran_dci_format_nr_1_1);
-  pdsch_ack_resource->k1                = k1;
-  pdsch_ack_resource->v_dai_dl          = dci_dl->dai;
-  pdsch_ack_resource->rnti              = dci_dl->ctx.rnti;
-  pdsch_ack_resource->pucch_resource_id = dci_dl->pucch_resource;
-
-  return SRSRAN_SUCCESS;
+  return srsran_csi_rs_nzp_measure_trs(&q->carrier, slot_cfg, csi_rs_nzp_set, q->sf_symbols[0], measurement);
 }
 
-int srsran_ue_dl_nr_gen_ack(const srsran_ue_dl_nr_harq_ack_cfg_t* cfg,
-                            const srsran_pdsch_ack_nr_t*          ack_info,
-                            srsran_uci_data_nr_t*                 uci_data)
+int srsran_ue_dl_nr_csi_measure_channel(const srsran_ue_dl_nr_t*           q,
+                                        const srsran_slot_cfg_t*           slot_cfg,
+                                        const srsran_csi_rs_nzp_set_t*     csi_rs_nzp_set,
+                                        srsran_csi_channel_measurements_t* measurement)
 {
-  // Check inputs
-  if (cfg == NULL || ack_info == NULL || uci_data == NULL) {
+  if (q == NULL || slot_cfg == NULL || csi_rs_nzp_set == NULL || measurement == NULL) {
     return SRSRAN_ERROR_INVALID_INPUTS;
   }
 
-  // According TS 38.213 9.1.2 Type-1 HARQ-ACK codebook determination
-  if (cfg->harq_ack_codebook == srsran_pdsch_harq_ack_codebook_semi_static) {
-    // This clause applies if the UE is configured with pdsch-HARQ-ACK-Codebook = semi-static.
-    ERROR("Type-1 HARQ-ACK codebook determination is NOT implemented");
-    return SRSRAN_ERROR;
-  }
-
-  // According TS 38.213 9.1.3 Type-2 HARQ-ACK codebook determination
-  if (cfg->harq_ack_codebook == srsran_pdsch_harq_ack_codebook_dynamic) {
-    // This clause applies if the UE is configured with pdsch-HARQ-ACK-Codebook = dynamic.
-    return ue_dl_nr_gen_ack_type2(cfg, ack_info, uci_data);
-  }
-
-  ERROR("No HARQ-ACK codebook determination is NOT implemented");
-  return SRSRAN_ERROR;
-}
-
-int srsran_ue_dl_nr_ack_insert_m(srsran_pdsch_ack_nr_t* ack_info, srsran_pdsch_ack_m_nr_t* m)
-{
-  // Check inputs
-  if (ack_info == NULL || m == NULL) {
-    return SRSRAN_ERROR_INVALID_INPUTS;
-  }
-
-  // Protect SCell index and extract information
-  if (m->resource.scell_idx >= SRSRAN_MAX_CARRIERS) {
-    ERROR("Serving cell index (%d) exceeds maximum", m->resource.scell_idx);
-    return SRSRAN_ERROR;
-  }
-  srsran_pdsch_ack_cc_nr_t* cc = &ack_info->cc[m->resource.scell_idx];
-
-  // Find insertion index
-  uint32_t idx = cc->M; // Append at the end by default
-  for (uint32_t i = 0; i < cc->M; i++) {
-    if (cc->m[i].resource.k1 < m->resource.k1) {
-      idx = i;
-      break;
-    }
-  }
-
-  // Increment count
-  cc->M += 1;
-
-  // Make space for insertion
-  for (uint32_t i = cc->M - 1; i > idx; i--) {
-    cc->m[i] = cc->m[i - 1];
-  }
-
-  // Actual insertion
-  cc->m[idx] = *m;
-
-  return SRSRAN_SUCCESS;
-}
-
-uint32_t srsran_ue_dl_nr_ack_info(const srsran_pdsch_ack_nr_t* ack_info, char* str, uint32_t str_len)
-{
-  uint32_t len = 0;
-
-  if (ack_info == NULL || str == NULL) {
-    return 0;
-  }
-
-  // Print base info
-  len = srsran_print_check(
-      str, str_len, len, "use_pusch=%c nof_cc=%d\n", ack_info->use_pusch ? 'y' : 'n', ack_info->nof_cc);
-
-  // Iterate all carriers
-  for (uint32_t cc = 0; cc < ack_info->nof_cc; cc++) {
-    len = srsran_print_check(str, str_len, len, "  CC %d: M=%d\n", cc, ack_info->cc[cc].M);
-    for (uint32_t m = 0; m < ack_info->cc[cc].M; m++) {
-      if (ack_info->cc[cc].m[m].present) {
-        len = srsran_print_check(str,
-                                 str_len,
-                                 len,
-                                 "    m %d: k1=%d dai=%d ack=%d\n",
-                                 m,
-                                 ack_info->cc[cc].m[m].resource.k1,
-                                 ack_info->cc[cc].m[m].resource.v_dai_dl,
-                                 ack_info->cc[cc].m[m].value[0]);
-      }
-    }
-  }
-
-  return len;
+  return srsran_csi_rs_nzp_measure_channel(&q->carrier, slot_cfg, csi_rs_nzp_set, q->sf_symbols[0], measurement);
 }

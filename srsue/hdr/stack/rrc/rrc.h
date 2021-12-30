@@ -23,8 +23,9 @@
 #define SRSUE_RRC_H
 
 #include "rrc_cell.h"
-#include "rrc_common.h"
+#include "rrc_config.h"
 #include "rrc_metrics.h"
+#include "rrc_rlf_report.h"
 #include "srsran/asn1/rrc_utils.h"
 #include "srsran/common/bcd_helpers.h"
 #include "srsran/common/block_queue.h"
@@ -34,33 +35,12 @@
 #include "srsran/common/security.h"
 #include "srsran/common/stack_procedure.h"
 #include "srsran/interfaces/ue_interfaces.h"
+#include "srsran/rrc/rrc_common.h"
 #include "srsran/srslog/srslog.h"
 
 #include <map>
 #include <math.h>
 #include <queue>
-
-#define SRSRAN_RRC_N_BANDS 43
-typedef struct {
-  std::string                             ue_category_str;
-  uint32_t                                ue_category;
-  int                                     ue_category_ul;
-  int                                     ue_category_dl;
-  uint32_t                                release;
-  uint32_t                                feature_group;
-  std::array<uint8_t, SRSRAN_RRC_N_BANDS> supported_bands;
-  uint32_t                                nof_supported_bands;
-  bool                                    support_ca;
-  int                                     mbms_service_id;
-  uint32_t                                mbms_service_port;
-} rrc_args_t;
-
-#define SRSRAN_UE_CATEGORY_DEFAULT "4"
-#define SRSRAN_UE_CATEGORY_MIN 1
-#define SRSRAN_UE_CATEGORY_MAX 21
-#define SRSRAN_RELEASE_MIN 8
-#define SRSRAN_RELEASE_MAX 15
-#define SRSRAN_RELEASE_DEFAULT (SRSRAN_RELEASE_MAX)
 
 using srsran::byte_buffer_t;
 
@@ -156,6 +136,7 @@ public:
   void write_pdu_bcch_dlsch(srsran::unique_byte_buffer_t pdu);
   void write_pdu_pcch(srsran::unique_byte_buffer_t pdu);
   void write_pdu_mch(uint32_t lcid, srsran::unique_byte_buffer_t pdu);
+  void notify_pdcp_integrity_error(uint32_t lcid);
 
   bool srbs_flushed(); //< Check if data on SRBs still needs to be sent
 
@@ -201,8 +182,6 @@ private:
   srsran::s_tmsi_t ue_identity;
   bool             ue_identity_configured = false;
 
-  bool drb_up = false;
-
   // PHY controller state machine
   std::unique_ptr<phy_controller> phy_ctrl;
 
@@ -227,6 +206,9 @@ private:
   static const std::string rb_id_str[];
 
   const char* get_rb_name(uint32_t lcid) { return srsran::is_lte_rb(lcid) ? rb_id_str[lcid].c_str() : "invalid RB"; }
+
+  // Var-RLF-Report class
+  rrc_rlf_report var_rlf_report;
 
   // Measurements private subclass
   class rrc_meas;
@@ -291,6 +273,7 @@ private:
   class si_acquire_proc;
   class serving_cell_config_proc;
   class cell_selection_proc;
+  class connection_setup_proc;
   class connection_request_proc;
   class connection_reconf_no_ho_proc;
   class plmn_search_proc;
@@ -306,6 +289,7 @@ private:
   srsran::proc_t<go_idle_proc>                                               idle_setter;
   srsran::proc_t<process_pcch_proc>                                          pcch_processor;
   srsran::proc_t<connection_request_proc>                                    conn_req_proc;
+  srsran::proc_t<connection_setup_proc>                                      conn_setup_proc;
   srsran::proc_t<plmn_search_proc>                                           plmn_searcher;
   srsran::proc_t<cell_reselection_proc>                                      cell_reselector;
   srsran::proc_t<connection_reest_proc>                                      connection_reest;
@@ -325,6 +309,7 @@ private:
 
   // RLC interface
   void max_retx_attempted();
+  void protocol_failure();
 
   // RRC NR interface
   void nr_scg_failure_information(const srsran::scg_failure_cause_t cause);
@@ -382,11 +367,14 @@ private:
   void     handle_con_reest(const asn1::rrc::rrc_conn_reest_s& setup);
   void     handle_rrc_con_reconfig(uint32_t lcid, const asn1::rrc::rrc_conn_recfg_s& reconfig);
   void     handle_ue_capability_enquiry(const asn1::rrc::ue_cap_enquiry_s& enquiry);
+  void     handle_ue_info_request(const ue_info_request_r9_s& request);
   void     add_srb(const asn1::rrc::srb_to_add_mod_s& srb_cnfg);
   void     add_drb(const asn1::rrc::drb_to_add_mod_s& drb_cnfg);
   void     release_drb(uint32_t drb_id);
+  uint32_t get_lcid_for_drb_id(const uint32_t& drb_id);
   uint32_t get_lcid_for_eps_bearer(const uint32_t& eps_bearer_id);
   uint32_t get_drb_id_for_eps_bearer(const uint32_t& eps_bearer_id);
+  uint32_t get_eps_bearer_id_for_drb_id(const uint32_t& drb_id);
   void     add_mrb(uint32_t lcid, uint32_t port);
 
   // Helpers for setting default values

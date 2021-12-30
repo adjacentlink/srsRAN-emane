@@ -30,6 +30,7 @@
 #include "srsran/common/thread_pool.h"
 #include "srsran/common/threads.h"
 #include "srsran/interfaces/enb_metrics_interface.h"
+#include "srsran/interfaces/phy_common_interface.h"
 #include "srsran/interfaces/radio_interfaces.h"
 #include "srsran/phy/channel/channel.h"
 #include "srsran/radio/radio.h"
@@ -40,7 +41,7 @@
 
 namespace srsenb {
 
-class phy_common
+class phy_common : public srsran::phy_common_interface
 {
 public:
   phy_common() = default;
@@ -65,34 +66,47 @@ public:
    * @param tx_time timestamp to transmit samples
    * @param is_nr flag is true if it is called from NR
    */
-  void worker_end(void* tx_sem_id, srsran::rf_buffer_t& buffer, srsran::rf_timestamp_t& tx_time, bool is_nr = false);
+  void worker_end(const worker_context_t& w_ctx, const bool& tx_enable, srsran::rf_buffer_t& buffer) override;
 
   // Common objects
   phy_args_t params = {};
 
-  uint32_t get_nof_carriers_lte() { return static_cast<uint32_t>(cell_list_lte.size()); };
-  uint32_t get_nof_carriers_nr() { return static_cast<uint32_t>(cell_list_nr.size()); };
-  uint32_t get_nof_carriers() { return static_cast<uint32_t>(cell_list_lte.size() + cell_list_nr.size()); };
+  uint32_t get_nof_carriers_lte() { return static_cast<uint32_t>(cell_list_lte.size()); }
+  uint32_t get_nof_carriers_nr() { return static_cast<uint32_t>(cell_list_nr.size()); }
+  uint32_t get_nof_carriers() { return static_cast<uint32_t>(cell_list_lte.size() + cell_list_nr.size()); }
   uint32_t get_nof_prb(uint32_t cc_idx)
   {
     uint32_t ret = 0;
 
-    if (cc_idx < cell_list_lte.size()) {
-      ret = cell_list_lte[cc_idx].cell.nof_prb;
+    if (cc_idx >= get_nof_carriers()) {
+      // invalid CC index
+      return ret;
     }
 
+    if (cc_idx < cell_list_lte.size()) {
+      ret = cell_list_lte[cc_idx].cell.nof_prb;
+    } else if (cc_idx >= cell_list_lte.size()) {
+      // offset CC index by all LTE carriers
+      cc_idx -= cell_list_lte.size();
+      if (cc_idx < cell_list_nr.size()) {
+        ret = cell_list_nr[cc_idx].carrier.nof_prb;
+      }
+    }
     return ret;
-  };
+  }
   uint32_t get_nof_ports(uint32_t cc_idx)
   {
     uint32_t ret = 0;
 
     if (cc_idx < cell_list_lte.size()) {
       ret = cell_list_lte[cc_idx].cell.nof_ports;
+    } else if (cc_idx == 1 && !cell_list_nr.empty()) {
+      // one RF port for basic NSA config
+      ret = 1;
     }
 
     return ret;
-  };
+  }
   uint32_t get_nof_rf_channels()
   {
     uint32_t count = 0;
@@ -121,7 +135,7 @@ public:
     }
 
     return ret;
-  };
+  }
   double get_dl_freq_hz(uint32_t cc_idx)
   {
     double ret = 0.0;
@@ -136,7 +150,7 @@ public:
     }
 
     return ret;
-  };
+  }
   uint32_t get_rf_port(uint32_t cc_idx)
   {
     uint32_t ret = 0;
@@ -151,7 +165,7 @@ public:
     }
 
     return ret;
-  };
+  }
   srsran_cell_t get_cell(uint32_t cc_idx)
   {
     srsran_cell_t c = {};
@@ -159,16 +173,7 @@ public:
       c = cell_list_lte[cc_idx].cell;
     }
     return c;
-  };
-  srsran_carrier_nr_t get_cell_nr(uint32_t cc_idx)
-  {
-    srsran_carrier_nr_t c = {};
-    if (cc_idx < cell_list_nr.size()) {
-      c = cell_list_nr[cc_idx].carrier;
-    }
-
-    return c;
-  };
+  }
 
   void set_cell_gain(uint32_t cell_id, float gain_db)
   {
@@ -178,6 +183,7 @@ public:
 
     // Check if the lte cell was found;
     if (it_lte != cell_list_lte.end()) {
+      std::lock_guard<std::mutex> lock(cell_gain_mutex);
       it_lte->gain_db = gain_db;
       return;
     }
@@ -188,6 +194,7 @@ public:
 
     // Check if the nr cell was found;
     if (it_nr != cell_list_nr.end()) {
+      std::lock_guard<std::mutex> lock(cell_gain_mutex);
       it_nr->gain_db = gain_db;
       return;
     }
@@ -197,6 +204,7 @@ public:
 
   float get_cell_gain(uint32_t cc_idx)
   {
+    std::lock_guard<std::mutex> lock(cell_gain_mutex);
     if (cc_idx < cell_list_lte.size()) {
       return cell_list_lte.at(cc_idx).gain_db;
     }
@@ -228,7 +236,7 @@ public:
   void set_mch_period_stop(uint32_t stop);
 
   // Getters and setters for ul grants which need to be shared between workers
-  const stack_interface_phy_lte::ul_sched_list_t& get_ul_grants(uint32_t tti);
+  const stack_interface_phy_lte::ul_sched_list_t get_ul_grants(uint32_t tti);
   void set_ul_grants(uint32_t tti, const stack_interface_phy_lte::ul_sched_list_t& ul_grants);
   void clear_grants(uint16_t rnti);
 
@@ -239,6 +247,7 @@ private:
 
   phy_cell_cfg_list_t    cell_list_lte;
   phy_cell_cfg_list_nr_t cell_list_nr;
+  std::mutex             cell_gain_mutex;
 
   bool                    have_mtch_stop   = false;
   pthread_mutex_t         mtch_mutex       = {};
@@ -249,10 +258,9 @@ private:
   uint8_t                 mch_table[40]    = {};
   uint8_t                 mcch_table[10]   = {};
   uint32_t                mch_period_stop  = 0;
+  srsran::rf_buffer_t     tx_buffer        = {};
   bool                    is_mch_subframe(srsran_mbsfn_cfg_t* cfg, uint32_t phy_tti);
   bool                    is_mcch_subframe(srsran_mbsfn_cfg_t* cfg, uint32_t phy_tti);
-  srsran::rf_buffer_t     nr_tx_buffer;
-  bool                    nr_tx_buffer_ready = false;
 };
 
 } // namespace srsenb

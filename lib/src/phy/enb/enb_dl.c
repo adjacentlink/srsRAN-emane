@@ -50,21 +50,14 @@ int srsran_enb_dl_init(srsran_enb_dl_t* q, cf_t* out_buffer[SRSRAN_MAX_PORTS], u
         goto clean_exit;
       }
     }
+    for (int i = 0; i < SRSRAN_MAX_PORTS; i++) {
+      q->out_buffer[i] = out_buffer[i];
+    }
 
     srsran_ofdm_cfg_t ofdm_cfg = {};
     ofdm_cfg.nof_prb           = max_prb;
-    ofdm_cfg.cp                = SRSRAN_CP_NORM;
+    ofdm_cfg.cp                = SRSRAN_CP_EXT;
     ofdm_cfg.normalize         = false;
-    for (int i = 0; i < SRSRAN_MAX_PORTS; i++) {
-      ofdm_cfg.in_buffer  = q->sf_symbols[i];
-      ofdm_cfg.out_buffer = out_buffer[i];
-      ofdm_cfg.sf_type    = SRSRAN_SF_NORM;
-      if (srsran_ofdm_tx_init_cfg(&q->ifft[i], &ofdm_cfg)) {
-        ERROR("Error initiating FFT (%d)", i);
-        goto clean_exit;
-      }
-    }
-
     ofdm_cfg.in_buffer  = q->sf_symbols[0];
     ofdm_cfg.out_buffer = out_buffer[0];
     ofdm_cfg.sf_type    = SRSRAN_SF_MBSFN;
@@ -159,6 +152,19 @@ int srsran_enb_dl_set_cell(srsran_enb_dl_t* q, srsran_cell_t cell)
         srsran_regs_free(&q->regs);
       }
       q->cell = cell;
+      srsran_ofdm_cfg_t ofdm_cfg = {};
+      ofdm_cfg.nof_prb           = q->cell.nof_prb;
+      ofdm_cfg.cp                = cell.cp;
+      ofdm_cfg.normalize         = false;
+      for (int i = 0; i < SRSRAN_MAX_PORTS; i++) {
+        ofdm_cfg.in_buffer  = q->sf_symbols[i];
+        ofdm_cfg.out_buffer = q->out_buffer[i];
+        ofdm_cfg.sf_type    = SRSRAN_SF_NORM;
+        if (srsran_ofdm_tx_init_cfg(&q->ifft[i], &ofdm_cfg)) {
+          ERROR("Error initiating FFT (%d)", i);
+          return SRSRAN_ERROR;
+        }
+      }
       if (srsran_regs_init(&q->regs, q->cell)) {
         ERROR("Error resizing REGs");
         return SRSRAN_ERROR;
@@ -359,11 +365,11 @@ void srsran_enb_dl_put_phich(srsran_enb_dl_t* q, srsran_phich_grant_t* grant, bo
   srsran_phich_encode(&q->phich, &q->dl_sf, resource, ack, q->sf_symbols);
 }
 
-bool srsran_enb_dl_location_is_common_ncce(srsran_enb_dl_t* q, uint32_t ncce)
+bool srsran_enb_dl_location_is_common_ncce(srsran_enb_dl_t* q, const srsran_dci_location_t* loc)
 {
   if (SRSRAN_CFI_ISVALID(q->dl_sf.cfi)) {
-    return srsran_location_find_ncce(
-        q->common_locations[SRSRAN_CFI_IDX(q->dl_sf.cfi)], q->nof_common_locations[SRSRAN_CFI_IDX(q->dl_sf.cfi)], ncce);
+    return srsran_location_find_location(
+        q->common_locations[SRSRAN_CFI_IDX(q->dl_sf.cfi)], q->nof_common_locations[SRSRAN_CFI_IDX(q->dl_sf.cfi)], loc);
   } else {
     return false;
   }
@@ -444,7 +450,15 @@ bool srsran_enb_dl_gen_cqi_periodic(const srsran_cell_t*   cell,
     cqi_cfg->ri_len = srsran_ri_nof_bits(cell);
     cqi_enabled     = true;
   } else if (srsran_cqi_periodic_send(&dl_cfg->cqi_report, tti, cell->frame_type)) {
-    cqi_cfg->type = SRSRAN_CQI_TYPE_WIDEBAND;
+    if (dl_cfg->cqi_report.format_is_subband &&
+        srsran_cqi_periodic_is_subband(&dl_cfg->cqi_report, tti, cell->nof_prb, cell->frame_type)) {
+      // 36.213 table 7.2.2-1, periodic CQI supports UE-selected only
+      cqi_cfg->type                 = SRSRAN_CQI_TYPE_SUBBAND_UE;
+      cqi_cfg->L                    = srsran_cqi_hl_get_L(cell->nof_prb);
+      cqi_cfg->subband_label_2_bits = cqi_cfg->L > 1;
+    } else {
+      cqi_cfg->type = SRSRAN_CQI_TYPE_WIDEBAND;
+    }
     if (dl_cfg->tm == SRSRAN_TM4) {
       cqi_cfg->pmi_present     = true;
       cqi_cfg->rank_is_not_one = last_ri > 0;

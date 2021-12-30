@@ -461,7 +461,8 @@ int srsran_pucch_nr_format1_decode(srsran_pucch_nr_t*                  q,
                                    srsran_chest_ul_res_t*              chest_res,
                                    cf_t*                               slot_symbols,
                                    uint8_t                             b[SRSRAN_PUCCH_NR_FORMAT1_MAX_NOF_BITS],
-                                   uint32_t                            nof_bits)
+                                   uint32_t                            nof_bits,
+                                   float*                              norm_corr)
 {
   uint32_t m_cs = 0;
 
@@ -480,8 +481,9 @@ int srsran_pucch_nr_format1_decode(srsran_pucch_nr_t*                  q,
     return SRSRAN_ERROR;
   }
 
-  // Received symbol d
-  cf_t d = 0;
+  // Accumulates received symbol d and average power
+  cf_t  d       = 0;
+  float pwr_acc = 0.0f;
 
   // Get group sequence
   uint32_t u = 0;
@@ -525,16 +527,33 @@ int srsran_pucch_nr_format1_decode(srsran_pucch_nr_t*                  q,
     srsran_vec_sc_prod_ccc(r_uv, w_i_m, z, SRSRAN_NRE);
 
     // Compute d = sum(x * conj(w(i) * r_uv(n))) = sum(w(i) * d' * r_uv(n) * conj(w(i) * r_uv(n))) = d'
-    d += srsran_vec_dot_prod_conj_ccc(x, z, SRSRAN_NRE);
+    d += srsran_vec_dot_prod_conj_ccc(x, z, SRSRAN_NRE) / SRSRAN_NRE;
+
+    // Compute and accumulate average symbol power
+    pwr_acc += srsran_vec_avg_power_cf(x, SRSRAN_NRE);
   }
 
   // Demodulate d
   float llr[SRSRAN_PUCCH_NR_FORMAT1_MAX_NOF_BITS];
   srsran_demod_soft_demodulate((nof_bits == 1) ? SRSRAN_MOD_BPSK : SRSRAN_MOD_QPSK, &d, llr, 1);
 
-  // Hard decision
+  // Hard decision based on the LLRs sign
   for (uint32_t i = 0; i < nof_bits; i++) {
     b[i] = llr[i] > 0.0f ? 1 : 0;
+  }
+
+  // Calculate normalised correlation, it uses the absolute value of d and accumulated average power
+  if (norm_corr != NULL) {
+    // Get the number of payload symbols. As the one of every 2 symbols carry DMRS, the payload symbols is half of the
+    // total symbols rounding down
+    float nsymb = (float)SRSRAN_FLOOR(resource->nof_symbols, 2);
+
+    // Avoid zero, INF or NAN division, set correlation to 0 in this case
+    if (isnormal(pwr_acc) && isnormal(nsymb)) {
+      *norm_corr = cabsf(d) / sqrtf(pwr_acc * nsymb);
+    } else {
+      *norm_corr = 0.0f;
+    }
   }
 
   return SRSRAN_SUCCESS;
@@ -562,7 +581,7 @@ static int pucch_nr_format2_encode(srsran_pucch_nr_t*                  q,
     return SRSRAN_ERROR;
   }
 
-  // Calculate number of encoded symbols
+  // Calculate number of encoded bits
   int e = srsran_uci_nr_pucch_format_2_3_4_E(resource);
   if (e < SRSRAN_SUCCESS) {
     ERROR("Error selecting E");
@@ -607,8 +626,13 @@ static int pucch_nr_format2_decode(srsran_pucch_nr_t*                  q,
     return SRSRAN_ERROR;
   }
 
-  // Calculate number of encoded symbols
-  uint32_t E = srsran_uci_nr_pucch_format_2_3_4_E(resource);
+  // Calculate number of encoded bits
+  int e = srsran_uci_nr_pucch_format_2_3_4_E(resource);
+  if (e < SRSRAN_SUCCESS) {
+    ERROR("Error selecting E");
+    return SRSRAN_ERROR;
+  }
+  uint32_t E = (uint32_t)e;
 
   // Undo mapping to physical resources
   uint32_t l_start = resource->start_symbol_idx;
@@ -628,7 +652,7 @@ static int pucch_nr_format2_decode(srsran_pucch_nr_t*                  q,
     }
   }
 
-  if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO && !handler_registered) {
+  if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO && !is_handler_registered()) {
     INFO("d=");
     srsran_vec_fprint_c(stdout, q->d, resource->nof_symbols * resource->nof_prb * (SRSRAN_NRE - 4));
     INFO("ce=");
@@ -636,13 +660,13 @@ static int pucch_nr_format2_decode(srsran_pucch_nr_t*                  q,
   }
 
   // Equalise
-  if (srsran_predecoding_single(q->d, q->ce, q->d, NULL, E, 1.0f, chest_res->noise_estimate) < SRSRAN_SUCCESS) {
+  if (srsran_predecoding_single(q->d, q->ce, q->d, NULL, E / 2, 1.0f, chest_res->noise_estimate) < SRSRAN_SUCCESS) {
     ERROR("Error Pre-decoding");
     return SRSRAN_ERROR;
   }
 
   // Soft-demodulate
-  if (srsran_demod_soft_demodulate_b(SRSRAN_MOD_QPSK, q->d, llr, E) < SRSRAN_SUCCESS) {
+  if (srsran_demod_soft_demodulate_b(SRSRAN_MOD_QPSK, q->d, llr, E / 2) < SRSRAN_SUCCESS) {
     ERROR("Error soft-demodulate");
     return SRSRAN_ERROR;
   }
@@ -771,10 +795,10 @@ static uint32_t pucch_nr_resource_info(const srsran_pucch_nr_resource_t* r, char
   return len;
 }
 
-uint32_t srsran_pucch_nr_tx_info(const srsran_pucch_nr_resource_t* resource,
-                                 const srsran_uci_data_nr_t*       uci_data,
-                                 char*                             str,
-                                 uint32_t                          str_len)
+uint32_t srsran_pucch_nr_info(const srsran_pucch_nr_resource_t* resource,
+                              const srsran_uci_data_nr_t*       uci_data,
+                              char*                             str,
+                              uint32_t                          str_len)
 {
   uint32_t len = 0;
 

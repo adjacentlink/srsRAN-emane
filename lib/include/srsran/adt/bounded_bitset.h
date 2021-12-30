@@ -22,8 +22,8 @@
 #ifndef SRSRAN_DYN_BITSET_H
 #define SRSRAN_DYN_BITSET_H
 
-#include "srsran/common/srsran_assert.h"
 #include "srsran/srslog/bundled/fmt/format.h"
+#include "srsran/support/srsran_assert.h"
 #include <cstdint>
 #include <inttypes.h>
 #include <string>
@@ -370,6 +370,14 @@ public:
   {
     srsran_assert(nof_words_() == 1, "ERROR: cannot convert bitset of size=%zd to uint64_t", size());
     return get_word_(0);
+  }
+
+  void from_uint64(uint64_t v)
+  {
+    srsran_assert(nof_words_() == 1, "ERROR: cannot convert bitset of size=%zd to uint64_t", size());
+    srsran_assert(
+        v < (1U << size()), "ERROR: Provided mask=0x%" PRIx64 " does not fit in bitset of size=%zd", v, size());
+    buffer[0] = v;
   }
 
   template <typename OutputIt>

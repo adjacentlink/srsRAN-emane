@@ -37,6 +37,12 @@ class mac_pcap_base : protected srsran::thread
 {
 public:
   mac_pcap_base();
+
+  mac_pcap_base(const mac_pcap_base& other) = delete;
+  mac_pcap_base& operator=(const mac_pcap_base& other) = delete;
+  mac_pcap_base(mac_pcap_base&& other)                 = delete;
+  mac_pcap_base& operator=(mac_pcap_base&& other) = delete;
+
   ~mac_pcap_base();
   void             enable(bool enable);
   virtual uint32_t close() = 0;
@@ -45,7 +51,7 @@ public:
 
   // EUTRA
   void
-       write_ul_crnti(uint8_t* pdu, uint32_t pdu_len_bytes, uint16_t crnti, uint32_t reTX, uint32_t tti, uint8_t cc_idx);
+  write_ul_crnti(uint8_t* pdu, uint32_t pdu_len_bytes, uint16_t crnti, uint32_t reTX, uint32_t tti, uint8_t cc_idx);
   void write_dl_crnti(uint8_t* pdu, uint32_t pdu_len_bytes, uint16_t crnti, bool crc_ok, uint32_t tti, uint8_t cc_idx);
   void write_dl_ranti(uint8_t* pdu, uint32_t pdu_len_bytes, uint16_t ranti, bool crc_ok, uint32_t tti, uint8_t cc_idx);
 
@@ -102,11 +108,11 @@ protected:
   virtual void write_pdu(pcap_pdu_t& pdu) = 0;
   void         run_thread() final;
 
-  std::mutex                             mutex;
-  srslog::basic_logger&                  logger;
-  bool                                   running = false;
-  static_blocking_queue<pcap_pdu_t, 512> queue;
-  uint16_t                               ue_id = 0;
+  std::mutex                              mutex;
+  srslog::basic_logger&                   logger;
+  std::atomic<bool>                       running = {false};
+  static_blocking_queue<pcap_pdu_t, 1024> queue;
+  uint16_t                                ue_id = 0;
 
 private:
   void pack_and_queue(uint8_t* payload,

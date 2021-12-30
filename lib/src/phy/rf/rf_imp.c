@@ -23,7 +23,7 @@
 
 #include "rf_dev.h"
 #include "srsran/phy/rf/rf.h"
-#include "srsran/srsran.h"
+#include "srsran/phy/utils/debug.h"
 
 int rf_get_available_devices(char** devnames, int max_strlen)
 {
@@ -37,12 +37,12 @@ int rf_get_available_devices(char** devnames, int max_strlen)
 
 int srsran_rf_set_rx_gain_th(srsran_rf_t* rf, double gain)
 {
+  pthread_mutex_lock(&rf->mutex);
   if (gain > rf->cur_rx_gain + 2 || gain < rf->cur_rx_gain - 2) {
-    pthread_mutex_lock(&rf->mutex);
     rf->new_rx_gain = gain;
     pthread_cond_signal(&rf->cond);
-    pthread_mutex_unlock(&rf->mutex);
   }
+  pthread_mutex_unlock(&rf->mutex);
   return SRSRAN_SUCCESS;
 }
 
@@ -102,32 +102,50 @@ const char* srsran_rf_get_devname(srsran_rf_t* rf)
 int srsran_rf_open_devname(srsran_rf_t* rf, const char* devname, char* args, uint32_t nof_channels)
 {
   rf->thread_gain_run = false;
-  /* Try to open the device if name is provided */
-  if (devname) {
-    if (devname[0] != '\0') {
-      int i = 0;
-      while (available_devices[i] != NULL) {
-        if (!strcasecmp(available_devices[i]->name, devname)) {
-          rf->dev = available_devices[i];
-          return available_devices[i]->srsran_rf_open_multi(args, &rf->handler, nof_channels);
-        }
-        i++;
+
+  bool no_rf_devs_detected = true;
+  printf("Available RF device list:");
+  for (unsigned int i = 0; available_devices[i]; i++) {
+    no_rf_devs_detected = false;
+    printf(" %s ", available_devices[i]->name);
+  }
+  printf("%s\n", no_rf_devs_detected ? " <none>" : "");
+
+  // Try to open the device if name is provided
+  if (devname && devname[0] != '\0') {
+    int i = 0;
+    while (available_devices[i] != NULL) {
+      if (!strcasecmp(available_devices[i]->name, devname)) {
+        rf->dev = available_devices[i];
+        return available_devices[i]->srsran_rf_open_multi(args, &rf->handler, nof_channels);
       }
-      printf("Device %s not found. Switching to auto mode\n", devname);
+      i++;
     }
+
+    ERROR("RF device '%s' not found. Please check the available srsRAN CMAKE options to verify if this device is being "
+          "detected in your system",
+          devname);
+    // provided device not found, abort
+    return SRSRAN_ERROR;
   }
 
-  /* If in auto mode or provided device not found, try to open in order of apperance in available_devices[] array */
+  // auto-mode, try to open in order of apperance in available_devices[] array
   int i = 0;
   while (available_devices[i] != NULL) {
+    printf("Trying to open RF device '%s'\n", available_devices[i]->name);
     if (!available_devices[i]->srsran_rf_open_multi(args, &rf->handler, nof_channels)) {
       rf->dev = available_devices[i];
-      return 0;
+      printf("RF device '%s' successfully opened\n", available_devices[i]->name);
+      return SRSRAN_SUCCESS;
     }
+    printf("Unable to open RF device '%s'\n", available_devices[i]->name);
     i++;
   }
-  ERROR("No compatible RF frontend found");
-  return -1;
+
+  ERROR(
+      "Failed to open a RF frontend device. Please check the available srsRAN CMAKE options to verify what RF frontend "
+      "devices have been detected in your system");
+  return SRSRAN_ERROR;
 }
 
 const char* srsran_rf_name(srsran_rf_t* rf)
@@ -183,9 +201,13 @@ int srsran_rf_open_multi(srsran_rf_t* h, char* args, uint32_t nof_channels)
 int srsran_rf_close(srsran_rf_t* rf)
 {
   // Stop gain thread
+  pthread_mutex_lock(&rf->mutex);
   if (rf->thread_gain_run) {
     rf->thread_gain_run = false;
-    pthread_cond_signal(&rf->cond);
+  }
+  pthread_mutex_unlock(&rf->mutex);
+  pthread_cond_signal(&rf->cond);
+  if (rf->thread_gain) {
     pthread_join(rf->thread_gain, NULL);
   }
 

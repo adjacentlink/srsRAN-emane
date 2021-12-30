@@ -22,11 +22,11 @@
 #ifndef SRSRAN_RRC_NR_UTILS_H
 #define SRSRAN_RRC_NR_UTILS_H
 
+#include "srsenb/hdr/stack/mac/sched_interface.h"
+#include "srsran/common/phy_cfg_nr.h"
 #include "srsran/interfaces/mac_interface_types.h"
 #include "srsran/interfaces/pdcp_interface_types.h"
 #include "srsran/interfaces/rlc_interface_types.h"
-#include "srsran/interfaces/rrc_interface_types.h"
-#include "srsran/interfaces/sched_interface.h"
 
 /************************
  * Forward declarations
@@ -64,6 +64,10 @@ struct zp_csi_rs_res_s;
 struct nzp_csi_rs_res_s;
 struct pdsch_serving_cell_cfg_s;
 struct freq_info_dl_s;
+struct serving_cell_cfg_common_s;
+struct serving_cell_cfg_s;
+struct pdcch_cfg_common_s;
+struct pdcch_cfg_s;
 
 } // namespace rrc_nr
 } // namespace asn1
@@ -81,9 +85,9 @@ void      to_asn1(asn1::rrc_nr::plmn_id_s* asn1_type, const plmn_id_t& cfg);
 bool make_phy_rach_cfg(const asn1::rrc_nr::rach_cfg_common_s& asn1_type, srsran_prach_cfg_t* prach_cfg);
 
 bool make_phy_tdd_cfg(const asn1::rrc_nr::tdd_ul_dl_cfg_common_s& tdd_ul_dl_cfg_common,
-                      srsran_tdd_config_nr_t*                     srsran_tdd_config_nr);
+                      srsran_duplex_config_nr_t*                  srsran_duplex_config_nr);
 bool make_phy_harq_ack_cfg(const asn1::rrc_nr::phys_cell_group_cfg_s& phys_cell_group_cfg,
-                           srsran_ue_dl_nr_harq_ack_cfg_t*            srsran_ue_dl_nr_harq_ack_cfg);
+                           srsran_harq_ack_cfg_hl_t*                  srsran_ue_dl_nr_harq_ack_cfg);
 bool make_phy_coreset_cfg(const asn1::rrc_nr::ctrl_res_set_s& ctrl_res_set, srsran_coreset_t* srsran_coreset);
 bool make_phy_search_space_cfg(const asn1::rrc_nr::search_space_s& search_space,
                                srsran_search_space_t*              srsran_search_space);
@@ -97,6 +101,9 @@ bool make_phy_max_code_rate(const asn1::rrc_nr::pucch_format_cfg_s& pucch_format
 bool make_phy_res_config(const asn1::rrc_nr::pucch_res_s& pucch_res,
                          uint32_t                         format_2_max_code_rate,
                          srsran_pucch_nr_resource_t*      srsran_pucch_nr_resource);
+bool make_phy_res_config(const srsran_pucch_nr_resource_t& in_pucch_res,
+                         asn1::rrc_nr::pucch_res_s&        out_pucch_res,
+                         uint32_t                          pucch_res_id);
 bool make_phy_sr_resource(const asn1::rrc_nr::sched_request_res_cfg_s& sched_request_res_cfg,
                           srsran_pucch_nr_sr_resource_t*               srsran_pucch_nr_sr_resource);
 bool make_phy_pusch_alloc_type(const asn1::rrc_nr::pusch_cfg_s& pusch_cfg,
@@ -115,6 +122,16 @@ bool make_phy_zp_csi_rs_resource(const asn1::rrc_nr::zp_csi_rs_res_s& zp_csi_rs_
 bool make_phy_nzp_csi_rs_resource(const asn1::rrc_nr::nzp_csi_rs_res_s& nzp_csi_rs_res,
                                   srsran_csi_rs_nzp_resource_t*         csi_rs_nzp_resource);
 bool make_phy_carrier_cfg(const asn1::rrc_nr::freq_info_dl_s& freq_info_dl, srsran_carrier_nr_t* carrier_nr);
+bool make_phy_ssb_cfg(const srsran_carrier_nr_t&                     carrier,
+                      const asn1::rrc_nr::serving_cell_cfg_common_s& serv_cell_cfg,
+                      phy_cfg_nr_t::ssb_cfg_t*                       ssb);
+bool make_pdsch_cfg_from_serv_cell(const asn1::rrc_nr::serving_cell_cfg_s& serv_cell, srsran_sch_hl_cfg_nr_t* sch_hl);
+bool make_csi_cfg_from_serv_cell(const asn1::rrc_nr::serving_cell_cfg_s& serv_cell, srsran_csi_hl_cfg_t* csi_hl);
+bool make_duplex_cfg_from_serv_cell(const asn1::rrc_nr::serving_cell_cfg_common_s& serv_cell,
+                                    srsran_duplex_config_nr_t*                     duplex_cfg);
+bool fill_phy_pdcch_cfg_common(const asn1::rrc_nr::pdcch_cfg_common_s& pdcch_cfg, srsran_pdcch_cfg_nr_t* pdcch);
+bool fill_phy_pdcch_cfg(const asn1::rrc_nr::pdcch_cfg_s& pdcch_cfg, srsran_pdcch_cfg_nr_t* pdcch);
+
 /***************************
  *      MAC Config
  **************************/
@@ -126,7 +143,7 @@ bool                     make_mac_dl_harq_cfg_nr_t(const asn1::rrc_nr::pdsch_ser
 /***************************
  *      RLC Config
  **************************/
-rlc_config_t make_rlc_config_t(const asn1::rrc_nr::rlc_cfg_c& asn1_type);
+int make_rlc_config_t(const asn1::rrc_nr::rlc_cfg_c& asn1_type, rlc_config_t* rlc_config_out);
 
 /***************************
  *      PDCP Config

@@ -57,7 +57,6 @@ public:
   int  init(const mac_nr_args_t& args_, phy_interface_mac_nr* phy_, rlc_interface_mac* rlc_, rrc_interface_mac* rrc_);
   void stop();
 
-  void reset();
   void run_tti(const uint32_t tti);
 
   void start_pcap(srsran::mac_pcap* pcap_);
@@ -84,6 +83,7 @@ public:
   void get_metrics(mac_metrics_t* metrics);
 
   /// Interface for RRC (RRC -> MAC)
+  void reset();
   int  setup_lcid(const srsran::logical_channel_config_t& config);
   int  set_config(const srsran::bsr_cfg_nr_t& bsr_cfg);
   int  set_config(const srsran::sr_cfg_nr_t& sr_cfg);
@@ -107,6 +107,7 @@ public:
 
   /// Interface for MUX
   srsran::mac_sch_subpdu_nr::lcg_bsr_t generate_sbsr();
+  void                                 set_padding_bytes(uint32_t nof_bytes);
 
   void msg3_flush() { mux.msg3_flush(); }
   bool msg3_is_transmitted() { return mux.msg3_is_transmitted(); }
@@ -115,7 +116,8 @@ public:
   bool msg3_is_empty() { return mux.msg3_is_empty(); }
 
   /// RRC
-  void rrc_ra_problem() { rrc->ra_problem(); }
+  void rrc_ra_problem();
+  void rrc_ra_completed();
 
   /// stack interface
   void process_pdus();
@@ -156,8 +158,7 @@ private:
 
   std::atomic<bool> started = {false};
 
-  uint16_t c_rnti        = SRSRAN_INVALID_RNTI;
-  uint64_t contention_id = 0;
+  ue_rnti rntis; // thread-safe helper to store RNTIs, contention ID, etc
 
   std::array<mac_metrics_t, SRSRAN_MAX_CARRIERS> metrics = {};
 

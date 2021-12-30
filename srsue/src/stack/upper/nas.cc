@@ -35,6 +35,10 @@
 #include "srsue/hdr/stack/upper/nas.h"
 #include "srsue/hdr/stack/upper/nas_idle_procedures.h"
 
+#define LTE_MAC_OFFSET 1
+#define LTE_SEQ_OFFSET 5
+#define LTE_NAS_BEARER 0
+
 using namespace srsran;
 
 namespace srsue {
@@ -43,7 +47,8 @@ namespace srsue {
  *   NAS
  ********************************************************************/
 
-nas::nas(srsran::task_sched_handle task_sched_) :
+nas::nas(srslog::basic_logger& logger_, srsran::task_sched_handle task_sched_) :
+  nas_base(logger_, LTE_MAC_OFFSET, LTE_SEQ_OFFSET, LTE_NAS_BEARER),
   plmn_searcher(this),
   task_sched(task_sched_),
   t3402(task_sched_.get_unique_timer()),
@@ -51,11 +56,10 @@ nas::nas(srsran::task_sched_handle task_sched_) :
   t3411(task_sched_.get_unique_timer()),
   t3421(task_sched_.get_unique_timer()),
   reattach_timer(task_sched_.get_unique_timer()),
-  airplane_mode_sim_timer(task_sched_.get_unique_timer()),
-  logger(srslog::fetch_basic_logger("NAS"))
+  airplane_mode_sim_timer(task_sched_.get_unique_timer())
 {}
 
-void nas::init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_nas* gw_, const nas_args_t& cfg_)
+int nas::init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_nas* gw_, const nas_args_t& cfg_)
 {
   usim = usim_;
   rrc  = rrc_;
@@ -67,38 +71,30 @@ void nas::init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_
   }
 
   // parse and sanity check EIA list
-  std::vector<uint8_t> cap_list;
-  srsran::string_parse_list(cfg_.eia, ',', cap_list);
-  if (cap_list.empty()) {
-    logger.error("Empty EIA list. Select at least one EIA algorithm.");
-  }
-  for (std::vector<uint8_t>::const_iterator it = cap_list.begin(); it != cap_list.end(); ++it) {
-    if (*it != 0 && *it < 4) {
-      eia_caps[*it] = true;
-    } else {
-      logger.error("EIA%d is not a valid EIA algorithm.", *it);
-    }
+  if (parse_security_algorithm_list(cfg_.eia, eia_caps) != SRSRAN_SUCCESS) {
+    logger.warning("Failed to parse integrity protection algorithm list: Defaulting to EIA1-128, EIA2-128, EIA3-128");
+    eia_caps[0] = false;
+    eia_caps[1] = true;
+    eia_caps[2] = true;
+    eia_caps[3] = true;
   }
 
   // parse and sanity check EEA list
-  srsran::string_parse_list(cfg_.eea, ',', cap_list);
-  if (cap_list.empty()) {
-    logger.error("Empty EEA list. Select at least one EEA algorithm.");
-  }
-  for (std::vector<uint8_t>::const_iterator it = cap_list.begin(); it != cap_list.end(); ++it) {
-    if (*it < 4) {
-      eea_caps[*it] = true;
-    } else {
-      logger.error("EEA%d is not a valid EEA algorithm.", *it);
-    }
+  if (parse_security_algorithm_list(cfg_.eea, eea_caps) != SRSRAN_SUCCESS) {
+    logger.warning("Failed to parse encryption algorithm list: Defaulting to EEA0, EEA1-128, EEA2-128, EEA3-128");
+    eea_caps[0] = true;
+    eea_caps[1] = true;
+    eea_caps[2] = true;
+    eea_caps[3] = true;
   }
 
   cfg = cfg_;
 
-  if ((read_ctxt_file(&ctxt))) {
-    usim->generate_nas_keys(ctxt.k_asme, k_nas_enc, k_nas_int, ctxt.cipher_algo, ctxt.integ_algo);
-    logger.debug(k_nas_enc, 32, "NAS encryption key - k_nas_enc");
-    logger.debug(k_nas_int, 32, "NAS integrity key - k_nas_int");
+  if ((read_ctxt_file(&ctxt, &ctxt_base))) {
+    usim->generate_nas_keys(
+        ctxt.k_asme, ctxt_base.k_nas_enc, ctxt_base.k_nas_int, ctxt_base.cipher_algo, ctxt_base.integ_algo);
+    logger.debug(ctxt_base.k_nas_enc, 32, "NAS encryption key - k_nas_enc");
+    logger.debug(ctxt_base.k_nas_int, 32, "NAS integrity key - k_nas_int");
   }
 
   // Configure timers
@@ -114,6 +110,7 @@ void nas::init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_
   }
 
   running = true;
+  return SRSRAN_SUCCESS;
 }
 
 nas::~nas() {}
@@ -121,7 +118,7 @@ nas::~nas() {}
 void nas::stop()
 {
   running = false;
-  write_ctxt_file(ctxt);
+  write_ctxt_file(ctxt, ctxt_base);
 }
 
 void nas::get_metrics(nas_metrics_t* m)
@@ -169,32 +166,36 @@ void nas::run_tti()
   }
 }
 
-/*******************************************************************************
- * FSM Helperse
- ******************************************************************************/
-void nas::enter_emm_null()
+// Helper method to inform GW about remove default EPS bearer
+void nas::clear_eps_bearer()
 {
   // Deactivate EPS bearer according to Sec. 5.5.2.2.2
   logger.debug("Clearing EPS bearer context");
+  for (const auto& bearer : eps_bearer) {
+    gw->deactivate_eps_bearer(bearer.second.eps_bearer_id);
+  }
   eps_bearer.clear();
+}
+
+/*******************************************************************************
+ * FSM Helpers
+ ******************************************************************************/
+void nas::enter_emm_null()
+{
+  clear_eps_bearer();
   state.set_null();
 }
 
 void nas::enter_emm_deregistered_initiated()
 {
-  // Deactivate EPS bearer according to Sec. 5.5.2.2.2
-  logger.debug("Clearing EPS bearer context");
-  eps_bearer.clear();
+  clear_eps_bearer();
   state.set_deregistered_initiated();
 }
 
 void nas::enter_emm_deregistered(emm_state_t::deregistered_substate_t substate)
 {
   // TODO Start cell selection.
-
-  // Deactivate EPS bearer according to Sec. 5.5.2.2.2
-  logger.debug("Clearing EPS bearer context");
-  eps_bearer.clear();
+  clear_eps_bearer();
   state.set_deregistered(substate);
 }
 
@@ -233,6 +234,9 @@ void nas::timer_expired(uint32_t timeout_id)
     logger.warning("Reattach timer expired: trying to attach again");
     start_attach_request(srsran::establishment_cause_t::mo_sig);
   } else if (timeout_id == airplane_mode_sim_timer.id()) {
+    logger.debug("Airplane mode simulation timer expired after %dms, airplane mode is currently %s.",
+                 airplane_mode_sim_timer.time_elapsed(),
+                 airplane_mode_state == DISABLED ? "disabled" : "enabled");
     if (airplane_mode_state == DISABLED) {
       // Enabling air-plane mode
       send_detach_request(true);
@@ -690,193 +694,6 @@ void nas::select_plmn()
   }
 }
 
-/*******************************************************************************
- * Security
- ******************************************************************************/
-
-void nas::integrity_generate(uint8_t* key_128,
-                             uint32_t count,
-                             uint8_t  direction,
-                             uint8_t* msg,
-                             uint32_t msg_len,
-                             uint8_t* mac)
-{
-  switch (ctxt.integ_algo) {
-    case INTEGRITY_ALGORITHM_ID_EIA0:
-      break;
-    case INTEGRITY_ALGORITHM_ID_128_EIA1:
-      security_128_eia1(key_128,
-                        count,
-                        0, // Bearer always 0 for NAS
-                        direction,
-                        msg,
-                        msg_len,
-                        mac);
-      break;
-    case INTEGRITY_ALGORITHM_ID_128_EIA2:
-      security_128_eia2(key_128,
-                        count,
-                        0, // Bearer always 0 for NAS
-                        direction,
-                        msg,
-                        msg_len,
-                        mac);
-      break;
-    case INTEGRITY_ALGORITHM_ID_128_EIA3:
-      security_128_eia3(key_128,
-                        count,
-                        0, // Bearer always 0 for NAS
-                        direction,
-                        msg,
-                        msg_len,
-                        mac);
-      break;
-    default:
-      break;
-  }
-}
-
-// This function depends to a valid k_nas_int.
-// This key is generated in the security mode command.
-bool nas::integrity_check(byte_buffer_t* pdu)
-{
-  if (pdu == nullptr) {
-    logger.error("Invalid PDU");
-    return false;
-  }
-
-  if (pdu->N_bytes > 5) {
-    uint8_t  exp_mac[4] = {0};
-    uint8_t* mac        = &pdu->msg[1];
-
-    // generate expected MAC
-    uint32_t count_est = (ctxt.rx_count & 0x00FFFF00u) | pdu->msg[5];
-    integrity_generate(
-        &k_nas_int[16], count_est, SECURITY_DIRECTION_DOWNLINK, &pdu->msg[5], pdu->N_bytes - 5, &exp_mac[0]);
-
-    // Check if expected mac equals the sent mac
-    for (int i = 0; i < 4; i++) {
-      if (exp_mac[i] != mac[i]) {
-        logger.warning("Integrity check failure. Local: count=%d, [%02x %02x %02x %02x], "
-                       "Received: count=%d, [%02x %02x %02x %02x]",
-                       count_est,
-                       exp_mac[0],
-                       exp_mac[1],
-                       exp_mac[2],
-                       exp_mac[3],
-                       pdu->msg[5],
-                       mac[0],
-                       mac[1],
-                       mac[2],
-                       mac[3]);
-        return false;
-      }
-    }
-    logger.info("Integrity check ok. Local: count=%d, Received: count=%d  [%02x %02x %02x %02x]",
-                count_est,
-                pdu->msg[5],
-                mac[0],
-                mac[1],
-                mac[2],
-                mac[3]);
-
-    // Updated local count (according to TS 24.301 Sec. 4.4.3.3)
-    if (pdu->msg[5] != ctxt.rx_count) {
-      logger.info("Update local count to received value %d", pdu->msg[5]);
-      ctxt.rx_count = count_est;
-    }
-    return true;
-  } else {
-    logger.error("Invalid integrity check PDU size (%d)", pdu->N_bytes);
-    return false;
-  }
-}
-
-void nas::cipher_encrypt(byte_buffer_t* pdu)
-{
-  byte_buffer_t pdu_tmp;
-  switch (ctxt.cipher_algo) {
-    case CIPHERING_ALGORITHM_ID_EEA0:
-      break;
-    case CIPHERING_ALGORITHM_ID_128_EEA1:
-      security_128_eea1(&k_nas_enc[16],
-                        pdu->msg[5],
-                        0, // Bearer always 0 for NAS
-                        SECURITY_DIRECTION_UPLINK,
-                        &pdu->msg[6],
-                        pdu->N_bytes - 6,
-                        &pdu_tmp.msg[6]);
-      memcpy(&pdu->msg[6], &pdu_tmp.msg[6], pdu->N_bytes - 6);
-      break;
-    case CIPHERING_ALGORITHM_ID_128_EEA2:
-      security_128_eea2(&k_nas_enc[16],
-                        pdu->msg[5],
-                        0, // Bearer always 0 for NAS
-                        SECURITY_DIRECTION_UPLINK,
-                        &pdu->msg[6],
-                        pdu->N_bytes - 6,
-                        &pdu_tmp.msg[6]);
-      memcpy(&pdu->msg[6], &pdu_tmp.msg[6], pdu->N_bytes - 6);
-      break;
-    case CIPHERING_ALGORITHM_ID_128_EEA3:
-      security_128_eea3(&k_nas_enc[16],
-                        pdu->msg[5],
-                        0, // Bearer always 0 for NAS
-                        SECURITY_DIRECTION_UPLINK,
-                        &pdu->msg[6],
-                        pdu->N_bytes - 6,
-                        &pdu_tmp.msg[6]);
-      memcpy(&pdu->msg[6], &pdu_tmp.msg[6], pdu->N_bytes - 6);
-      break;
-    default:
-      logger.error("Ciphering algorithm not known");
-      break;
-  }
-}
-
-void nas::cipher_decrypt(byte_buffer_t* pdu)
-{
-  byte_buffer_t tmp_pdu;
-  switch (ctxt.cipher_algo) {
-    case CIPHERING_ALGORITHM_ID_EEA0:
-      break;
-    case CIPHERING_ALGORITHM_ID_128_EEA1:
-      security_128_eea1(&k_nas_enc[16],
-                        pdu->msg[5],
-                        0, // Bearer always 0 for NAS
-                        SECURITY_DIRECTION_DOWNLINK,
-                        &pdu->msg[6],
-                        pdu->N_bytes - 6,
-                        &tmp_pdu.msg[6]);
-      memcpy(&pdu->msg[6], &tmp_pdu.msg[6], pdu->N_bytes - 6);
-      break;
-    case CIPHERING_ALGORITHM_ID_128_EEA2:
-      security_128_eea2(&k_nas_enc[16],
-                        pdu->msg[5],
-                        0, // Bearer always 0 for NAS
-                        SECURITY_DIRECTION_DOWNLINK,
-                        &pdu->msg[6],
-                        pdu->N_bytes - 6,
-                        &tmp_pdu.msg[6]);
-      logger.debug(tmp_pdu.msg, pdu->N_bytes, "Decrypted");
-      memcpy(&pdu->msg[6], &tmp_pdu.msg[6], pdu->N_bytes - 6);
-      break;
-    case CIPHERING_ALGORITHM_ID_128_EEA3:
-      security_128_eea3(&k_nas_enc[16],
-                        pdu->msg[5],
-                        0, // Bearer always 0 for NAS
-                        SECURITY_DIRECTION_DOWNLINK,
-                        &pdu->msg[6],
-                        pdu->N_bytes - 6,
-                        &tmp_pdu.msg[6]);
-      logger.debug(tmp_pdu.msg, pdu->N_bytes, "Decrypted");
-      memcpy(&pdu->msg[6], &tmp_pdu.msg[6], pdu->N_bytes - 6);
-      break;
-    default:
-      logger.error("Ciphering algorithms not known");
-      break;
-  }
-}
 
 bool nas::check_cap_replay(LIBLTE_MME_UE_SECURITY_CAPABILITIES_STRUCT* caps)
 {
@@ -908,8 +725,12 @@ int nas::apply_security_config(srsran::unique_byte_buffer_t& pdu, uint8_t sec_hd
         cipher_encrypt(pdu.get());
       }
       if (sec_hdr_type >= LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY) {
-        integrity_generate(
-            &k_nas_int[16], ctxt.tx_count, SECURITY_DIRECTION_UPLINK, &pdu->msg[5], pdu->N_bytes - 5, &pdu->msg[1]);
+        integrity_generate(&ctxt_base.k_nas_int[16],
+                           ctxt_base.tx_count,
+                           SECURITY_DIRECTION_UPLINK,
+                           &pdu->msg[5],
+                           pdu->N_bytes - 5,
+                           &pdu->msg[1]);
       }
     } else {
       logger.error("Invalid PDU size %d", pdu->N_bytes);
@@ -1007,6 +828,14 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
     liblte_mme_unpack_activate_default_eps_bearer_context_request_msg(&attach_accept.esm_msg,
                                                                       &act_def_eps_bearer_context_req);
 
+    // make sure we don't already have a default EPS bearer activated
+    for (const auto& bearer : eps_bearer) {
+      if (bearer.second.type == DEFAULT_EPS_BEARER) {
+        logger.error("Only one default EPS bearer supported.");
+        return;
+      }
+    }
+
     if ((cfg.apn_protocol == "ipv4" && LIBLTE_MME_PDN_TYPE_IPV6 == act_def_eps_bearer_context_req.pdn_addr.pdn_type) ||
         (cfg.apn_protocol == "ipv6" && LIBLTE_MME_PDN_TYPE_IPV4 == act_def_eps_bearer_context_req.pdn_addr.pdn_type)) {
       logger.error("Failed to attach -- Mismatch between PDN protocol and PDN type in attach accept.");
@@ -1042,7 +871,6 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
       // Setup GW
       char* err_str = nullptr;
       if (gw->setup_if_addr(act_def_eps_bearer_context_req.eps_bearer_id,
-                            rrc->get_lcid_for_eps_bearer(act_def_eps_bearer_context_req.eps_bearer_id),
                             LIBLTE_MME_PDN_TYPE_IPV4,
                             ip_addr,
                             nullptr,
@@ -1075,7 +903,6 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
       // Setup GW
       char* err_str = nullptr;
       if (gw->setup_if_addr(act_def_eps_bearer_context_req.eps_bearer_id,
-                            rrc->get_lcid_for_eps_bearer(act_def_eps_bearer_context_req.eps_bearer_id),
                             LIBLTE_MME_PDN_TYPE_IPV6,
                             0,
                             ipv6_if_id,
@@ -1126,7 +953,6 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
 
       char* err_str = nullptr;
       if (gw->setup_if_addr(act_def_eps_bearer_context_req.eps_bearer_id,
-                            rrc->get_lcid_for_eps_bearer(act_def_eps_bearer_context_req.eps_bearer_id),
                             LIBLTE_MME_PDN_TYPE_IPV4V6,
                             ip_addr,
                             ipv6_if_id,
@@ -1198,7 +1024,7 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
     enter_emm_deregistered(emm_state_t::deregistered_substate_t::plmn_search);
   }
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 }
 
 void nas::parse_attach_reject(uint32_t lcid, unique_byte_buffer_t pdu)
@@ -1253,7 +1079,7 @@ void nas::parse_authentication_request(uint32_t lcid, unique_byte_buffer_t pdu, 
   logger.info("Received Authentication Request");
   liblte_mme_unpack_authentication_request_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &auth_req);
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   // Generate authentication response using RAND, AUTN & KSI-ASME
   uint16 mcc, mnc;
@@ -1268,6 +1094,7 @@ void nas::parse_authentication_request(uint32_t lcid, unique_byte_buffer_t pdu, 
   logger.debug(auth_req.autn, 16, "Authentication request AUTN");
   auth_result_t auth_result =
       usim->generate_authentication_response(auth_req.rand, auth_req.autn, mcc, mnc, res, &res_len, ctxt.k_asme);
+  logger.debug(res, res_len, "Authentication request RES");
   if (LIBLTE_MME_TYPE_OF_SECURITY_CONTEXT_FLAG_NATIVE == auth_req.nas_ksi.tsc_flag) {
     ctxt.ksi = auth_req.nas_ksi.nas_ksi;
   } else {
@@ -1308,7 +1135,7 @@ void nas::parse_identity_request(unique_byte_buffer_t pdu, const uint8_t sec_hdr
   liblte_mme_unpack_identity_request_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &id_req);
 
   logger.info("Received Identity Request. ID type: %d", id_req.id_type);
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   // do not respond if request is not protected (TS 24.301 Sec. 4.4.4.2)
   if (sec_hdr_type >= LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY ||
@@ -1365,27 +1192,31 @@ void nas::parse_security_mode_command(uint32_t lcid, unique_byte_buffer_t pdu)
 
   // Reset counters (as per 24.301 5.4.3.2), only needed for initial security mode command
   if (auth_request) {
-    ctxt.rx_count = 0;
-    ctxt.tx_count = 0;
+    ctxt_base.rx_count = 0;
+    ctxt_base.tx_count = 0;
     auth_request  = false;
   }
 
-  ctxt.cipher_algo = (CIPHERING_ALGORITHM_ID_ENUM)sec_mode_cmd.selected_nas_sec_algs.type_of_eea;
-  ctxt.integ_algo  = (INTEGRITY_ALGORITHM_ID_ENUM)sec_mode_cmd.selected_nas_sec_algs.type_of_eia;
+  ctxt_base.cipher_algo = (CIPHERING_ALGORITHM_ID_ENUM)sec_mode_cmd.selected_nas_sec_algs.type_of_eea;
+  ctxt_base.integ_algo  = (INTEGRITY_ALGORITHM_ID_ENUM)sec_mode_cmd.selected_nas_sec_algs.type_of_eia;
 
   // Check capabilities
-  if (!eea_caps[ctxt.cipher_algo] || !eia_caps[ctxt.integ_algo]) {
+  if (!eea_caps[ctxt_base.cipher_algo] || !eia_caps[ctxt_base.integ_algo]) {
     logger.warning("Sending Security Mode Reject due to security capabilities mismatch");
     send_security_mode_reject(LIBLTE_MME_EMM_CAUSE_UE_SECURITY_CAPABILITIES_MISMATCH);
     return;
   }
 
   // Generate NAS keys
-  usim->generate_nas_keys(ctxt.k_asme, k_nas_enc, k_nas_int, ctxt.cipher_algo, ctxt.integ_algo);
-  logger.info(k_nas_enc, 32, "NAS encryption key - k_nas_enc");
-  logger.info(k_nas_int, 32, "NAS integrity key - k_nas_int");
+  usim->generate_nas_keys(
+      ctxt.k_asme, ctxt_base.k_nas_enc, ctxt_base.k_nas_int, ctxt_base.cipher_algo, ctxt_base.integ_algo);
+  logger.info(ctxt_base.k_nas_enc, 32, "NAS encryption key - k_nas_enc");
+  logger.info(ctxt_base.k_nas_int, 32, "NAS integrity key - k_nas_int");
 
-  logger.debug("Generating integrity check. integ_algo:%d, count_dl:%d, lcid:%d", ctxt.integ_algo, ctxt.rx_count, lcid);
+  logger.debug("Generating integrity check. integ_algo:%d, count_dl:%d, lcid:%d",
+               ctxt_base.integ_algo,
+               ctxt_base.rx_count,
+               lcid);
 
   if (not integrity_check(pdu.get())) {
     logger.warning("Sending Security Mode Reject due to integrity check failure");
@@ -1393,7 +1224,7 @@ void nas::parse_security_mode_command(uint32_t lcid, unique_byte_buffer_t pdu)
     return;
   }
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   LIBLTE_MME_SECURITY_MODE_COMPLETE_MSG_STRUCT sec_mode_comp = {};
   if (sec_mode_cmd.imeisv_req_present && LIBLTE_MME_IMEISV_REQUESTED == sec_mode_cmd.imeisv_req) {
@@ -1413,7 +1244,7 @@ void nas::parse_security_mode_command(uint32_t lcid, unique_byte_buffer_t pdu)
   // Pack and send response
   pdu->clear();
   liblte_mme_pack_security_mode_complete_msg(
-      &sec_mode_comp, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+      &sec_mode_comp, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
   if (pcap != nullptr) {
     pcap->write_nas(pdu->msg, pdu->N_bytes);
   }
@@ -1424,9 +1255,9 @@ void nas::parse_security_mode_command(uint32_t lcid, unique_byte_buffer_t pdu)
   }
 
   logger.info(
-      "Sending Security Mode Complete nas_current_ctxt.tx_count=%d, RB=%s", ctxt.tx_count, rrc->get_rb_name(lcid));
+      "Sending Security Mode Complete ctxt_base.tx_count=%d, RB=%s", ctxt_base.tx_count, rrc->get_rb_name(lcid));
   rrc->write_sdu(std::move(pdu));
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 
   // switch security header for all following messages
   current_sec_hdr = LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY_AND_CIPHERED;
@@ -1465,7 +1296,7 @@ void nas::parse_esm_information_request(uint32_t lcid, unique_byte_buffer_t pdu)
   logger.info("ESM information request received for beaser=%d, transaction_id=%d",
               esm_info_req.eps_bearer_id,
               esm_info_req.proc_transaction_id);
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   // send response
   send_esm_information_response(esm_info_req.proc_transaction_id);
@@ -1478,14 +1309,14 @@ void nas::parse_emm_information(uint32_t lcid, unique_byte_buffer_t pdu)
   std::string str = emm_info_str(&emm_info);
   logger.info("Received EMM Information: %s", str.c_str());
   srsran::console("%s\n", str.c_str());
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 }
 
 void nas::parse_detach_request(uint32_t lcid, unique_byte_buffer_t pdu)
 {
   LIBLTE_MME_DETACH_REQUEST_MSG_STRUCT detach_request;
   liblte_mme_unpack_detach_request_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &detach_request);
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   logger.info("Received detach request (type=%d). NAS State: %s",
               detach_request.detach_type.type_of_detach,
@@ -1526,7 +1357,7 @@ void nas::parse_activate_dedicated_eps_bearer_context_request(uint32_t lcid, uni
       request.linked_eps_bearer_id,
       request.proc_transaction_id);
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
   LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT* tft = &request.tft;
   logger.info("Traffic Flow Template: TFT OP code 0x%x, Filter list size %d, Parameter list size %d",
               tft->tft_op_code,
@@ -1561,7 +1392,7 @@ void nas::parse_activate_dedicated_eps_bearer_context_request(uint32_t lcid, uni
   }
 
   // apply packet filters to GW
-  gw->apply_traffic_flow_template(request.eps_bearer_id, rrc->get_lcid_for_eps_bearer(request.eps_bearer_id), tft);
+  gw->apply_traffic_flow_template(request.eps_bearer_id, tft);
 
   send_activate_dedicated_eps_bearer_context_accept(request.proc_transaction_id, request.eps_bearer_id);
 }
@@ -1577,7 +1408,7 @@ void nas::parse_deactivate_eps_bearer_context_request(unique_byte_buffer_t pdu)
               request.proc_transaction_id,
               request.esm_cause);
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   // check if bearer exists
   if (eps_bearer.find(request.eps_bearer_id) == eps_bearer.end()) {
@@ -1589,6 +1420,9 @@ void nas::parse_deactivate_eps_bearer_context_request(unique_byte_buffer_t pdu)
   // remove bearer
   eps_bearer_map_t::iterator it = eps_bearer.find(request.eps_bearer_id);
   eps_bearer.erase(it);
+
+  // inform GW about removed EPS bearer
+  gw->deactivate_eps_bearer(request.eps_bearer_id);
 
   logger.info("Removed EPS bearer context (eps_bearer_id=%d)", request.eps_bearer_id);
 
@@ -1605,16 +1439,28 @@ void nas::parse_modify_eps_bearer_context_request(srsran::unique_byte_buffer_t p
               request.eps_bearer_id,
               request.proc_transaction_id);
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   // check if bearer exists
-  if (eps_bearer.find(request.eps_bearer_id) == eps_bearer.end()) {
+  const auto it = eps_bearer.find(request.eps_bearer_id);
+  if (it == eps_bearer.end()) {
     logger.error("EPS bearer doesn't exist (eps_bearer_id=%d)", request.eps_bearer_id);
     // fixme: send proper response
     return;
   }
 
-  // fixme: carry out modification
+  LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT* tft = &request.tft;
+  logger.info("Traffic Flow Template: TFT OP code 0x%x, Filter list size %d, Parameter list size %d",
+              tft->tft_op_code,
+              tft->packet_filter_list_size,
+              tft->parameter_list_size);
+
+  // modify/apply packet filters to GW
+  if (gw->apply_traffic_flow_template(request.eps_bearer_id, tft) != SRSRAN_SUCCESS) {
+    logger.error("Couldn't modify TFT");
+    return;
+  }
+
   logger.info("Modified EPS bearer context (eps_bearer_id=%d)", request.eps_bearer_id);
 
   send_modify_eps_bearer_context_accept(request.proc_transaction_id, request.eps_bearer_id);
@@ -1624,7 +1470,7 @@ void nas::parse_activate_test_mode(uint32_t lcid, unique_byte_buffer_t pdu)
 {
   logger.info("Received Activate test mode");
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   send_activate_test_mode_complete();
 }
@@ -1647,7 +1493,7 @@ void nas::parse_close_ue_test_loop(uint32_t lcid, unique_byte_buffer_t pdu)
       break;
   }
 
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   send_close_ue_test_loop_complete();
 }
@@ -1656,7 +1502,7 @@ void nas::parse_emm_status(uint32_t lcid, unique_byte_buffer_t pdu)
 {
   LIBLTE_MME_EMM_STATUS_MSG_STRUCT emm_status;
   liblte_mme_unpack_emm_status_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &emm_status);
-  ctxt.rx_count++;
+  ctxt_base.rx_count++;
 
   switch (emm_status.emm_cause) {
     case LIBLTE_MME_ESM_CAUSE_INVALID_EPS_BEARER_IDENTITY:
@@ -1750,7 +1596,7 @@ void nas::gen_attach_request(srsran::unique_byte_buffer_t& msg)
 
     // According to Sec 4.4.5, the attach request is always unciphered, even if a context exists
     liblte_mme_pack_attach_request_msg(
-        &attach_req, LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)msg.get());
+        &attach_req, LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)msg.get());
 
     if (apply_security_config(msg, LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY)) {
       logger.error("Error applying NAS security.");
@@ -1770,8 +1616,8 @@ void nas::gen_attach_request(srsran::unique_byte_buffer_t& msg)
   }
 
   if (have_ctxt) {
-    set_k_enb_count(ctxt.tx_count);
-    ctxt.tx_count++;
+    set_k_enb_count(ctxt_base.tx_count);
+    ctxt_base.tx_count++;
   }
 
   // stop T3411 and T3402
@@ -1803,11 +1649,11 @@ void nas::gen_service_request(srsran::unique_byte_buffer_t& msg)
   msg->msg[0] = (LIBLTE_MME_SECURITY_HDR_TYPE_SERVICE_REQUEST << 4u) | (LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT);
   msg->N_bytes++;
   msg->msg[1] = (ctxt.ksi & 0x07u) << 5u;
-  msg->msg[1] |= ctxt.tx_count & 0x1Fu;
+  msg->msg[1] |= ctxt_base.tx_count & 0x1Fu;
   msg->N_bytes++;
 
   uint8_t mac[4];
-  integrity_generate(&k_nas_int[16], ctxt.tx_count, SECURITY_DIRECTION_UPLINK, &msg->msg[0], 2, &mac[0]);
+  integrity_generate(&ctxt_base.k_nas_int[16], ctxt_base.tx_count, SECURITY_DIRECTION_UPLINK, &msg->msg[0], 2, &mac[0]);
   // Set the short MAC
   msg->msg[2] = mac[2];
   msg->N_bytes++;
@@ -1817,8 +1663,8 @@ void nas::gen_service_request(srsran::unique_byte_buffer_t& msg)
   if (pcap != nullptr) {
     pcap->write_nas(msg->msg, msg->N_bytes);
   }
-  set_k_enb_count(ctxt.tx_count);
-  ctxt.tx_count++;
+  set_k_enb_count(ctxt_base.tx_count);
+  ctxt_base.tx_count++;
 }
 
 void nas::gen_pdn_connectivity_request(LIBLTE_BYTE_MSG_STRUCT* msg)
@@ -1922,8 +1768,10 @@ void nas::send_detach_request(bool switch_off)
     detach_request.nas_ksi.tsc_flag = LIBLTE_MME_TYPE_OF_SECURITY_CONTEXT_FLAG_NATIVE;
     detach_request.nas_ksi.nas_ksi  = ctxt.ksi;
     logger.info("Sending detach request with GUTI"); // If sent as an Initial UE message, it cannot be ciphered
-    liblte_mme_pack_detach_request_msg(
-        &detach_request, LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+    liblte_mme_pack_detach_request_msg(&detach_request,
+                                       LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY,
+                                       ctxt_base.tx_count,
+                                       (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
 
     if (pcap != nullptr) {
       pcap->write_nas(pdu->msg, pdu->N_bytes);
@@ -1940,7 +1788,7 @@ void nas::send_detach_request(bool switch_off)
     usim->get_imsi_vec(detach_request.eps_mobile_id.imsi, 15);
     logger.info("Sending detach request with IMSI");
     liblte_mme_pack_detach_request_msg(
-        &detach_request, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+        &detach_request, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
 
     if (pcap != nullptr) {
       pcap->write_nas(pdu->msg, pdu->N_bytes);
@@ -1948,7 +1796,7 @@ void nas::send_detach_request(bool switch_off)
   }
 
   if (switch_off) {
-    enter_emm_deregistered_initiated();
+    enter_emm_deregistered(emm_state_t::deregistered_substate_t::null);
   } else {
     // we are expecting a response from the core
     state.set_deregistered_initiated();
@@ -1966,7 +1814,7 @@ void nas::send_detach_request(bool switch_off)
     }
   }
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_attach_complete(const uint8_t& transaction_id_, const uint8_t& eps_bearer_id)
@@ -1987,7 +1835,7 @@ void nas::send_attach_complete(const uint8_t& transaction_id_, const uint8_t& ep
     return;
   }
   liblte_mme_pack_attach_complete_msg(
-      &attach_complete, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+      &attach_complete, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
   // Write NAS pcap
   if (pcap != nullptr) {
     pcap->write_nas(pdu->msg, pdu->N_bytes);
@@ -2003,7 +1851,7 @@ void nas::send_attach_complete(const uint8_t& transaction_id_, const uint8_t& ep
 
   logger.info("Sending Attach Complete");
   rrc->write_sdu(std::move(pdu));
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_detach_accept()
@@ -2016,7 +1864,8 @@ void nas::send_detach_accept()
 
   LIBLTE_MME_DETACH_ACCEPT_MSG_STRUCT detach_accept;
   bzero(&detach_accept, sizeof(detach_accept));
-  liblte_mme_pack_detach_accept_msg(&detach_accept, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+  liblte_mme_pack_detach_accept_msg(
+      &detach_accept, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
 
   if (pcap != nullptr) {
     pcap->write_nas(pdu->msg, pdu->N_bytes);
@@ -2046,7 +1895,7 @@ void nas::send_authentication_response(const uint8_t* res, const size_t res_len)
   }
   auth_res.res_len = res_len;
   liblte_mme_pack_authentication_response_msg(
-      &auth_res, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+      &auth_res, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
 
   if (pcap != nullptr) {
     pcap->write_nas(pdu->msg, pdu->N_bytes);
@@ -2059,7 +1908,7 @@ void nas::send_authentication_response(const uint8_t* res, const size_t res_len)
 
   logger.info("Sending Authentication Response");
   rrc->write_sdu(std::move(pdu));
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_authentication_failure(const uint8_t cause, const uint8_t* auth_fail_param)
@@ -2118,7 +1967,8 @@ void nas::send_identity_response(const uint8 id_type)
     return;
   }
 
-  liblte_mme_pack_identity_response_msg(&id_resp, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
+  liblte_mme_pack_identity_response_msg(
+      &id_resp, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
 
   // add security if needed
   if (apply_security_config(pdu, current_sec_hdr)) {
@@ -2131,7 +1981,7 @@ void nas::send_identity_response(const uint8 id_type)
   }
 
   rrc->write_sdu(std::move(pdu));
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_service_request()
@@ -2146,11 +1996,11 @@ void nas::send_service_request()
   msg->msg[0] = (LIBLTE_MME_SECURITY_HDR_TYPE_SERVICE_REQUEST << 4u) | (LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT);
   msg->N_bytes++;
   msg->msg[1] = (ctxt.ksi & 0x07u) << 5u;
-  msg->msg[1] |= ctxt.tx_count & 0x1Fu;
+  msg->msg[1] |= ctxt_base.tx_count & 0x1Fu;
   msg->N_bytes++;
 
   uint8_t mac[4];
-  integrity_generate(&k_nas_int[16], ctxt.tx_count, SECURITY_DIRECTION_UPLINK, &msg->msg[0], 2, &mac[0]);
+  integrity_generate(&ctxt_base.k_nas_int[16], ctxt_base.tx_count, SECURITY_DIRECTION_UPLINK, &msg->msg[0], 2, &mac[0]);
   // Set the short MAC
   msg->msg[2] = mac[2];
   msg->N_bytes++;
@@ -2163,7 +2013,7 @@ void nas::send_service_request()
 
   logger.info("Sending service request");
   rrc->write_sdu(std::move(msg));
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_esm_information_response(const uint8 proc_transaction_id)
@@ -2263,7 +2113,7 @@ void nas::send_esm_information_response(const uint8 proc_transaction_id)
   }
 
   if (liblte_mme_pack_esm_information_response_msg(
-          &esm_info_resp, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
+          &esm_info_resp, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
     logger.error("Error packing ESM information response.");
     return;
   }
@@ -2280,7 +2130,7 @@ void nas::send_esm_information_response(const uint8 proc_transaction_id)
   logger.info(pdu->msg, pdu->N_bytes, "Sending ESM information response");
   rrc->write_sdu(std::move(pdu));
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
   chap_id++;
 }
 
@@ -2299,7 +2149,7 @@ void nas::send_activate_dedicated_eps_bearer_context_accept(const uint8_t& proc_
   accept.proc_transaction_id = proc_transaction_id;
 
   if (liblte_mme_pack_activate_dedicated_eps_bearer_context_accept_msg(
-          &accept, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
+          &accept, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
     logger.error("Error packing Activate Dedicated EPS Bearer context accept.");
     return;
   }
@@ -2320,7 +2170,7 @@ void nas::send_activate_dedicated_eps_bearer_context_accept(const uint8_t& proc_
               accept.proc_transaction_id);
   rrc->write_sdu(std::move(pdu));
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_deactivate_eps_bearer_context_accept(const uint8_t& proc_transaction_id, const uint8_t& eps_bearer_id)
@@ -2337,7 +2187,7 @@ void nas::send_deactivate_eps_bearer_context_accept(const uint8_t& proc_transact
   accept.proc_transaction_id = proc_transaction_id;
 
   if (liblte_mme_pack_deactivate_eps_bearer_context_accept_msg(
-          &accept, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
+          &accept, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
     logger.error("Error packing Activate EPS Bearer context accept.");
     return;
   }
@@ -2358,7 +2208,7 @@ void nas::send_deactivate_eps_bearer_context_accept(const uint8_t& proc_transact
               accept.proc_transaction_id);
   rrc->write_sdu(std::move(pdu));
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_modify_eps_bearer_context_accept(const uint8_t& proc_transaction_id, const uint8_t& eps_bearer_id)
@@ -2375,7 +2225,7 @@ void nas::send_modify_eps_bearer_context_accept(const uint8_t& proc_transaction_
   accept.proc_transaction_id = proc_transaction_id;
 
   if (liblte_mme_pack_modify_eps_bearer_context_accept_msg(
-          &accept, current_sec_hdr, ctxt.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
+          &accept, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get()) != LIBLTE_SUCCESS) {
     logger.error("Error packing Modify EPS Bearer context accept.");
     return;
   }
@@ -2396,7 +2246,7 @@ void nas::send_modify_eps_bearer_context_accept(const uint8_t& proc_transaction_
               accept.proc_transaction_id);
   rrc->write_sdu(std::move(pdu));
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_activate_test_mode_complete()
@@ -2408,7 +2258,7 @@ void nas::send_activate_test_mode_complete()
   }
 
   if (liblte_mme_pack_activate_test_mode_complete_msg(
-          (LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), current_sec_hdr, ctxt.tx_count)) {
+          (LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), current_sec_hdr, ctxt_base.tx_count)) {
     logger.error("Error packing activate test mode complete.");
     return;
   }
@@ -2425,7 +2275,7 @@ void nas::send_activate_test_mode_complete()
   logger.info(pdu->msg, pdu->N_bytes, "Sending Activate test mode complete");
   rrc->write_sdu(std::move(pdu));
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 void nas::send_close_ue_test_loop_complete()
@@ -2437,7 +2287,7 @@ void nas::send_close_ue_test_loop_complete()
   }
 
   if (liblte_mme_pack_close_ue_test_loop_complete_msg(
-          (LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), current_sec_hdr, ctxt.tx_count)) {
+          (LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), current_sec_hdr, ctxt_base.tx_count)) {
     logger.error("Error packing close UE test loop complete.");
     return;
   }
@@ -2454,17 +2304,17 @@ void nas::send_close_ue_test_loop_complete()
   logger.info(pdu->msg, pdu->N_bytes, "Sending Close UE test loop complete");
   rrc->write_sdu(std::move(pdu));
 
-  ctxt.tx_count++;
+  ctxt_base.tx_count++;
 }
 
 /*******************************************************************************
  * Security context persistence file
  ******************************************************************************/
 
-bool nas::read_ctxt_file(nas_sec_ctxt* ctxt_)
+bool nas::read_ctxt_file(nas_sec_ctxt* ctxt_, nas_sec_base_ctxt* ctxt_base_)
 {
   std::ifstream file;
-  if (ctxt_ == nullptr) {
+  if (ctxt_ == nullptr || ctxt_base_ == nullptr) {
     return false;
   }
 
@@ -2490,16 +2340,16 @@ bool nas::read_ctxt_file(nas_sec_ctxt* ctxt_)
     if (!readvar(file, "mme_code=", &ctxt_->guti.mme_code)) {
       return false;
     }
-    if (!readvar(file, "tx_count=", &ctxt_->tx_count)) {
+    if (!readvar(file, "tx_count=", &ctxt_base_->tx_count)) {
       return false;
     }
-    if (!readvar(file, "rx_count=", &ctxt_->rx_count)) {
+    if (!readvar(file, "rx_count=", &ctxt_base_->rx_count)) {
       return false;
     }
-    if (!readvar(file, "int_alg=", &ctxt_->integ_algo)) {
+    if (!readvar(file, "int_alg=", &ctxt_base_->integ_algo)) {
       return false;
     }
-    if (!readvar(file, "enc_alg=", &ctxt_->cipher_algo)) {
+    if (!readvar(file, "enc_alg=", &ctxt_base_->cipher_algo)) {
       return false;
     }
     if (!readvar(file, "ksi=", &ctxt_->ksi)) {
@@ -2522,10 +2372,10 @@ bool nas::read_ctxt_file(nas_sec_ctxt* ctxt_)
                 "ksi: %x, k_asme: %s, tx_count: %x, rx_count: %x, int_alg: %d, enc_alg: %d",
                 ctxt_->ksi,
                 hex_to_string(ctxt_->k_asme, 32).c_str(),
-                ctxt_->tx_count,
-                ctxt_->rx_count,
-                ctxt_->integ_algo,
-                ctxt_->cipher_algo);
+                ctxt_base_->tx_count,
+                ctxt_base_->rx_count,
+                ctxt_base_->integ_algo,
+                ctxt_base_->cipher_algo);
 
     have_guti       = true;
     have_ctxt       = true;
@@ -2541,7 +2391,7 @@ bool nas::read_ctxt_file(nas_sec_ctxt* ctxt_)
   return false;
 }
 
-bool nas::write_ctxt_file(nas_sec_ctxt ctxt_)
+bool nas::write_ctxt_file(nas_sec_ctxt ctxt_, nas_sec_base_ctxt ctxt_base_)
 {
   if (!have_guti || !have_ctxt) {
     return false;
@@ -2554,10 +2404,10 @@ bool nas::write_ctxt_file(nas_sec_ctxt ctxt_)
     file << "mnc=" << (int)ctxt_.guti.mnc << std::endl;
     file << "mme_group_id=" << (int)ctxt_.guti.mme_group_id << std::endl;
     file << "mme_code=" << (int)ctxt_.guti.mme_code << std::endl;
-    file << "tx_count=" << (int)ctxt_.tx_count << std::endl;
-    file << "rx_count=" << (int)ctxt_.rx_count << std::endl;
-    file << "int_alg=" << (int)ctxt_.integ_algo << std::endl;
-    file << "enc_alg=" << (int)ctxt_.cipher_algo << std::endl;
+    file << "tx_count=" << (int)ctxt_base_.tx_count << std::endl;
+    file << "rx_count=" << (int)ctxt_base_.rx_count << std::endl;
+    file << "int_alg=" << (int)ctxt_base_.integ_algo << std::endl;
+    file << "enc_alg=" << (int)ctxt_base_.cipher_algo << std::endl;
     file << "ksi=" << (int)ctxt_.ksi << std::endl;
 
     file << "k_asme=" << hex_to_string(ctxt_.k_asme, 32) << std::endl;
@@ -2573,10 +2423,10 @@ bool nas::write_ctxt_file(nas_sec_ctxt ctxt_)
                 "ksi: %x, k_asme: %s, tx_count: %x, rx_count: %x, int_alg: %d, enc_alg: %d",
                 ctxt_.ksi,
                 hex_to_string(ctxt_.k_asme, 32).c_str(),
-                ctxt_.tx_count,
-                ctxt_.rx_count,
-                ctxt_.integ_algo,
-                ctxt_.cipher_algo);
+                ctxt_base_.tx_count,
+                ctxt_base_.rx_count,
+                ctxt_base_.integ_algo,
+                ctxt_base_.cipher_algo);
     file.close();
     return true;
   }

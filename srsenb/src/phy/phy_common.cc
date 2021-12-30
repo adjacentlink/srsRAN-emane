@@ -73,6 +73,13 @@ bool phy_common::init(const phy_cell_cfg_list_t&    cell_list_,
   // Set UE PHY data-base stack and configuration
   ue_db.init(stack, params, cell_list_lte);
 
+  sleep(2); // ALINK added to help with mbsfn config race condition with rrc mbsfn config
+
+  if (mcch_configured) {
+    build_mch_table();
+    build_mcch_table();
+  }
+
   reset();
   return true;
 }
@@ -98,7 +105,7 @@ void phy_common::clear_grants(uint16_t rnti)
   }
 }
 
-const stack_interface_phy_lte::ul_sched_list_t& phy_common::get_ul_grants(uint32_t tti)
+const stack_interface_phy_lte::ul_sched_list_t phy_common::get_ul_grants(uint32_t tti)
 {
   std::lock_guard<std::mutex> lock(grant_mutex);
   return ul_grants[tti];
@@ -117,42 +124,53 @@ void phy_common::set_ul_grants(uint32_t tti, const stack_interface_phy_lte::ul_s
  * Each worker uses this function to indicate that all processing is done and data is ready for transmission or
  * there is no transmission at all (tx_enable). In that case, the end of burst message will be sent to the radio
  */
-void phy_common::worker_end(void* tx_sem_id, srsran::rf_buffer_t& buffer, srsran::rf_timestamp_t& tx_time, bool is_nr)
+void phy_common::worker_end(const worker_context_t& w_ctx, const bool& tx_enable, srsran::rf_buffer_t& buffer)
 {
   // Wait for the green light to transmit in the current TTI
-  semaphore.wait(tx_sem_id);
+  semaphore.wait(w_ctx.worker_ptr);
 
-  // If this is for NR, save Tx buffers...
-  if (is_nr) {
-    nr_tx_buffer       = buffer;
-    nr_tx_buffer_ready = true;
+  // For combine buffer with previous buffers
+  if (tx_enable) {
+    tx_buffer.set_nof_samples(buffer.get_nof_samples());
+    tx_buffer.set_combine(buffer);
+  }
+
+  // If the current worker is not the last one, skip transmission
+  if (not w_ctx.last) {
+    if (tx_enable) {
+      reset_last_worker();
+    }
+
+    // Release semaphore and let next worker to get in
     semaphore.release();
+
+    // Wait for the last worker to finish
+    if (tx_enable) {
+      wait_last_worker();
+    }
+
     return;
   }
 
-  // ... otherwise, append NR base-band from saved buffer if available
-  if (nr_tx_buffer_ready) {
-    uint32_t j = 0;
-    for (uint32_t i = 0; i < SRSRAN_MAX_CHANNELS; i++) {
-      if (buffer.get(i) == nullptr) {
-        buffer.set(i, nr_tx_buffer.get(j));
-        j++;
-      }
-    }
-    nr_tx_buffer_ready = false;
-  }
+  // Add current time alignment
+  srsran::rf_timestamp_t tx_time = w_ctx.tx_time; // get transmit time from the last worker
 
   // Run DL channel emulator if created
   if (dl_channel) {
-    dl_channel->run(buffer.to_cf_t(), buffer.to_cf_t(), buffer.get_nof_samples(), tx_time.get(0));
+    dl_channel->run(tx_buffer.to_cf_t(), tx_buffer.to_cf_t(), tx_buffer.get_nof_samples(), tx_time.get(0));
   }
 
 #ifndef PHY_ADAPTER_ENABLE
   // Always transmit on single radio
   radio->tx(buffer, tx_time);
+
+  // Reset transmit buffer
+  tx_buffer = {};
 #else
   phy_adapter::enb_dl_send_signal(tx_time.get(0).full_secs, tx_time.get(0).frac_secs);
 #endif
+  // Notify this is the last worker
+  last_worker();
 
   // Allow next TTI to transmit
   semaphore.release();
@@ -169,10 +187,7 @@ void phy_common::set_mch_period_stop(uint32_t stop)
 
 void phy_common::configure_mbsfn(srsran::phy_cfg_mbsfn_t* cfg)
 {
-  mbsfn = *cfg;
-
-  build_mch_table();
-  build_mcch_table();
+  mbsfn            = *cfg;
   sib13_configured = true;
   mcch_configured  = true;
 }
@@ -199,6 +214,7 @@ void phy_common::build_mch_table()
   for (uint32_t j = 0; j < 40; j++) {
     ss << (int)mch_table[j] << "|";
   }
+  fprintf(stderr, "XXX MCH  %s\n",ss.str().c_str());
 
   stack->set_sched_dl_tti_mask(mch_table, nof_sfs);
 }
@@ -214,6 +230,7 @@ void phy_common::build_mcch_table()
   for (uint32_t j = 0; j < 10; j++) {
     ss << (int)mcch_table[j] << "|";
   }
+  fprintf(stderr, "XXX MCCH %s\n",ss.str().c_str());
 }
 
 bool phy_common::is_mcch_subframe(srsran_mbsfn_cfg_t* cfg, uint32_t phy_tti)

@@ -25,6 +25,7 @@
 #include "mac_controller.h"
 #include "rrc.h"
 #include "srsran/adt/pool/batch_mem_pool.h"
+#include "srsran/asn1/rrc/uecap.h"
 #include "srsran/interfaces/enb_phy_interfaces.h"
 #include "srsran/interfaces/pdcp_interface_types.h"
 
@@ -34,6 +35,13 @@ class rrc::ue
 {
 public:
   class rrc_mobility;
+  class rrc_endc;
+  enum activity_timeout_type_t {
+    MSG3_RX_TIMEOUT = 0,   ///< Msg3 has its own timeout to quickly remove fake UEs from random PRACHs
+    UE_INACTIVITY_TIMEOUT, ///< UE inactivity timeout (usually bigger than reestablishment timeout)
+    MSG5_RX_TIMEOUT,       ///< UE timeout for receiving RRCConnectionSetupComplete / RRCReestablishmentComplete
+    nulltype
+  };
 
   ue(rrc* outer_rrc, uint16_t rnti, const sched_interface::ue_cfg_t& ue_cfg);
   ~ue();
@@ -41,21 +49,19 @@ public:
   bool is_connected();
   bool is_idle();
 
-  typedef enum {
-    MSG3_RX_TIMEOUT = 0,   ///< Msg3 has its own timeout to quickly remove fake UEs from random PRACHs
-    UE_INACTIVITY_TIMEOUT, ///< UE inactivity timeout (usually bigger than reestablishment timeout)
-    nulltype
-  } activity_timeout_type_t;
-
   std::string to_string(const activity_timeout_type_t& type);
-  void        set_activity_timeout(const activity_timeout_type_t type);
-  void        set_rlf_timeout();
-  void        set_activity();
+  void        set_activity_timeout(activity_timeout_type_t type);
+  void        set_activity(bool enabled = true);
   void        set_radiolink_dl_state(bool crc_res);
   void        set_radiolink_ul_state(bool crc_res);
   void        activity_timer_expired(const activity_timeout_type_t type);
-  void        rlf_timer_expired();
-  void        max_retx_reached();
+  void        rlf_timer_expired(uint32_t timeout_id);
+  void        max_rlc_retx_reached();
+  void        protocol_failure();
+  void        deactivate_bearers() { mac_ctrl.set_radio_bearer_state(mac_lc_ch_cfg_t::IDLE); }
+
+  // Init PUCCH resources for PCell
+  bool init_pucch();
 
   rrc_state_t get_state();
   void        get_metrics(rrc_ue_metrics_t& ue_metrics) const;
@@ -71,6 +77,7 @@ public:
     error_unknown_rnti,
     radio_conn_with_ue_lost,
     msg3_timeout,
+    fail_in_radio_interface_proc,
     unspecified
   };
 
@@ -83,7 +90,7 @@ public:
                               bool                         phy_cfg_updated = true,
                               srsran::const_byte_span      nas_pdu         = {});
   void send_security_mode_command();
-  void send_ue_cap_enquiry();
+  void send_ue_cap_enquiry(const std::vector<asn1::rrc::rat_type_opts::options>& rats);
   void send_ue_info_req();
 
   void parse_ul_dcch(uint32_t lcid, srsran::unique_byte_buffer_t pdu);
@@ -110,7 +117,7 @@ public:
   void handle_rrc_reconf_complete(asn1::rrc::rrc_conn_recfg_complete_s* msg, srsran::unique_byte_buffer_t pdu);
   void handle_security_mode_complete(asn1::rrc::security_mode_complete_s* msg);
   void handle_security_mode_failure(asn1::rrc::security_mode_fail_s* msg);
-  bool handle_ue_cap_info(asn1::rrc::ue_cap_info_s* msg);
+  int  handle_ue_cap_info(asn1::rrc::ue_cap_info_s* msg);
   void handle_ue_init_ctxt_setup_req(const asn1::s1ap::init_context_setup_request_s& msg);
   bool handle_ue_ctxt_mod_req(const asn1::s1ap::ue_context_mod_request_s& msg);
   void handle_ue_info_resp(const asn1::rrc::ue_info_resp_r9_s& msg, srsran::unique_byte_buffer_t pdu);
@@ -121,7 +128,6 @@ public:
   bool has_erab(uint32_t erab_id) const { return bearer_list.get_erabs().count(erab_id) > 0; }
   int  get_erab_addr_in(uint16_t erab_id, transp_addr_t& addr_in, uint32_t& teid_in) const;
 
-  bool setup_erabs(const asn1::s1ap::erab_to_be_setup_list_ctxt_su_req_l& e);
   bool release_erabs();
   int  release_erab(uint32_t erab_id);
   int  setup_erab(uint16_t                                           erab_id,
@@ -157,18 +163,24 @@ public:
 
   void save_ul_message(srsran::unique_byte_buffer_t pdu) { last_ul_msg = std::move(pdu); }
 
+  const ue_cell_ded_list& get_cell_list() const { return ue_cell_list; }
+
   uint16_t rnti   = 0;
   rrc*     parent = nullptr;
 
   bool                          connect_notified = false;
   unique_rnti_ptr<rrc_mobility> mobility_handler;
+  unique_rnti_ptr<rrc_endc>     endc_handler;
 
   bool is_csfb = false;
 
 private:
-  // args
-  srsran::timer_handler::unique_timer activity_timer;
-  srsran::timer_handler::unique_timer rlf_timer;
+  srsran::unique_timer activity_timer; // for basic DL/UL activity timeout
+
+  /// Radio link failure handling uses distinct timers for PHY (DL and UL) and RLC signaled RLF
+  srsran::unique_timer phy_dl_rlf_timer; // can be stopped through recovered DL activity
+  srsran::unique_timer phy_ul_rlf_timer; // can be stopped through recovered UL activity
+  srsran::unique_timer rlc_rlf_timer;    // can only be stoped through UE reestablishment
 
   /// cached ASN1 fields for RRC config update checking, and ease of context transfer during HO
   ue_var_cfg_t current_ue_cfg;
@@ -184,7 +196,6 @@ private:
   uint32_t                                     rlf_cnt              = 0;
   uint8_t                                      transaction_id       = 0;
   rrc_state_t                                  state                = RRC_STATE_IDLE;
-  uint16_t                                     old_reest_rnti       = SRSRAN_INVALID_RNTI;
   std::map<uint16_t, srsran::pdcp_lte_state_t> old_reest_pdcp_state = {};
   bool                                         rlf_info_pending     = false;
 

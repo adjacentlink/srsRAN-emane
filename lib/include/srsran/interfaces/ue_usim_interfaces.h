@@ -38,6 +38,12 @@ public:
   virtual bool          get_imsi_vec(uint8_t* imsi_, uint32_t n)                          = 0;
   virtual bool          get_imei_vec(uint8_t* imei_, uint32_t n)                          = 0;
   virtual bool          get_home_plmn_id(srsran::plmn_id_t* home_plmn_id)                 = 0;
+  // Get the home mcc as bytes array
+  virtual bool          get_home_mcc_bytes(uint8_t* mcc_, uint32_t n)                     = 0;
+  // Get the home mnc as byte array
+  virtual bool          get_home_mnc_bytes(uint8_t* mnc_, uint32_t n)                     = 0;
+  // Get the home msin in bytes array encoded as bcd
+  virtual bool          get_home_msin_bcd(uint8_t* msin_, uint32_t n)                     = 0;
   virtual auth_result_t generate_authentication_response(uint8_t* rand,
                                                          uint8_t* autn_enb,
                                                          uint16_t mcc,
@@ -45,11 +51,26 @@ public:
                                                          uint8_t* res,
                                                          int*     res_len,
                                                          uint8_t* k_asme)                 = 0;
-  virtual void          generate_nas_keys(uint8_t*                            k_asme,
-                                          uint8_t*                            k_nas_enc,
-                                          uint8_t*                            k_nas_int,
-                                          srsran::CIPHERING_ALGORITHM_ID_ENUM cipher_algo,
-                                          srsran::INTEGRITY_ALGORITHM_ID_ENUM integ_algo) = 0;
+
+  virtual auth_result_t generate_authentication_response_5g(uint8_t*    rand,
+                                                            uint8_t*    autn_enb,
+                                                            const char* serving_network_name,
+                                                            uint8_t*    abba,
+                                                            uint32_t    abba_len,
+                                                            uint8_t*    res_star,
+                                                            uint8_t*    k_amf) = 0;
+
+  virtual void generate_nas_keys(uint8_t*                            k_asme,
+                                 uint8_t*                            k_nas_enc,
+                                 uint8_t*                            k_nas_int,
+                                 srsran::CIPHERING_ALGORITHM_ID_ENUM cipher_algo,
+                                 srsran::INTEGRITY_ALGORITHM_ID_ENUM integ_algo) = 0;
+
+  virtual bool generate_nas_keys_5g(uint8_t*                            k_amf,
+                                    uint8_t*                            k_nas_enc,
+                                    uint8_t*                            k_nas_int,
+                                    srsran::CIPHERING_ALGORITHM_ID_ENUM cipher_algo,
+                                    srsran::INTEGRITY_ALGORITHM_ID_ENUM integ_algo) = 0;
 };
 
 // USIM interface for RRC

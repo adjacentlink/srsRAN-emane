@@ -33,15 +33,16 @@ if (RPATH)
   SET(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 endif (RPATH)
 
-
 add_executable(srsepc-emane main.cc)
 target_link_libraries(srsepc-emane  srsepc_mme
                                     srsepc_hss
                                     srsepc_sgw
                                     s1ap_asn1
-                                    srsran_upper
+                                    srsran_gtpu
+                                    srsran_asn1
                                     srsran_common
                                     srslog
+                                    support
                                     ${CMAKE_THREAD_LIBS_INIT}
                                     ${Boost_LIBRARIES}
                                     ${SEC_LIBRARIES}
@@ -50,9 +51,11 @@ target_link_libraries(srsepc-emane  srsepc_mme
                                     ${emanelte_LIBRARIES}
                                     ${ostatistic_LIBRARIES})
 
+
 add_executable(srsmbms-emane mbms-gw/main.cc )
 target_link_libraries(srsmbms-emane   srsepc_mbms_gw
-                                      srsran_upper
+                                      srsran_asn1
+                                      srsran_gtpu
                                       srsran_common
                                       srslog
                                       ${CMAKE_THREAD_LIBS_INIT}

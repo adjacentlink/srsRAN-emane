@@ -19,16 +19,16 @@
  *
  */
 
+#include "srsenb/hdr/phy/phy.h"
+#include "srsran/common/band_helper.h"
+#include "srsran/common/phy_cfg_nr_default.h"
+#include "srsran/common/threads.h"
 #include <pthread.h>
 #include <sstream>
 #include <string.h>
 #include <string>
 #include <strings.h>
-#include <sys/mman.h>
 #include <unistd.h>
-
-#include "srsenb/hdr/phy/phy.h"
-#include "srsran/common/threads.h"
 
 #define Error(fmt, ...)                                                                                                \
   if (SRSRAN_DEBUG_ENABLED)                                                                                            \
@@ -76,7 +76,6 @@ phy::phy(srslog::sink& log_sink) :
   phy_log(srslog::fetch_basic_logger("PHY", log_sink)),
   phy_lib_log(srslog::fetch_basic_logger("PHY_LIB", log_sink)),
   lte_workers(MAX_WORKERS),
-  nr_workers(MAX_WORKERS),
   workers_common(),
   nof_workers(0),
   tx_rx(phy_log)
@@ -106,7 +105,48 @@ void phy::parse_common_config(const phy_cfg_t& cfg)
 int phy::init(const phy_args_t&            args,
               const phy_cfg_t&             cfg,
               srsran::radio_interface_phy* radio_,
-              stack_interface_phy_lte*     stack_)
+              stack_interface_phy_lte*     stack_lte_,
+              stack_interface_phy_nr&      stack_nr_,
+              enb_time_interface*          enb_)
+{
+  if (init_lte(args, cfg, radio_, stack_lte_, enb_) != SRSRAN_SUCCESS) {
+    phy_log.error("Couldn't initialize LTE PHY");
+    return SRSRAN_ERROR;
+  }
+
+  if (init_nr(args, cfg, stack_nr_) != SRSRAN_SUCCESS) {
+    phy_log.error("Couldn't initialize NR PHY");
+    return SRSRAN_ERROR;
+  }
+
+  tx_rx.init(enb_, radio, &lte_workers, &workers_common, &prach, SF_RECV_THREAD_PRIO);
+  initialized = true;
+
+  return SRSRAN_SUCCESS;
+}
+
+int phy::init(const phy_args_t&            args,
+              const phy_cfg_t&             cfg,
+              srsran::radio_interface_phy* radio_,
+              stack_interface_phy_lte*     stack_lte_,
+              enb_time_interface*          enb_)
+{
+  if (init_lte(args, cfg, radio_, stack_lte_, enb_) != SRSRAN_SUCCESS) {
+    phy_log.error("Couldn't initialize LTE PHY");
+    return SRSRAN_ERROR;
+  }
+
+  tx_rx.init(enb_, radio, &lte_workers, &workers_common, &prach, SF_RECV_THREAD_PRIO);
+  initialized = true;
+
+  return SRSRAN_SUCCESS;
+}
+
+int phy::init_lte(const phy_args_t&            args,
+                  const phy_cfg_t&             cfg,
+                  srsran::radio_interface_phy* radio_,
+                  stack_interface_phy_lte*     stack_lte_,
+                  enb_time_interface*          enb_)
 {
   if (cfg.phy_cell_cfg.size() > SRSRAN_MAX_CARRIERS) {
     phy_log.error(
@@ -114,12 +154,11 @@ int phy::init(const phy_args_t&            args,
     return SRSRAN_ERROR;
   }
 
-  mlockall((uint32_t)MCL_CURRENT | (uint32_t)MCL_FUTURE);
-
   // Add PHY lib log.
-  srslog::basic_levels log_lvl = srslog::str_to_basic_level(args.log.phy_lib_level);
+  srslog::basic_levels lib_log_lvl = srslog::str_to_basic_level(args.log.phy_lib_level);
+  srslog::basic_levels log_lvl     = srslog::str_to_basic_level(args.log.phy_level);
 
-  phy_lib_log.set_level(log_lvl);
+  phy_lib_log.set_level(lib_log_lvl);
   phy_lib_log.set_hex_dump_max_size(args.log.phy_hex_limit);
   if (log_lvl != srslog::basic_levels::none) {
     srsran_phy_log_register_handler(this, srsran_phy_handler);
@@ -134,7 +173,7 @@ int phy::init(const phy_args_t&            args,
 
   workers_common.params = args;
 
-  workers_common.init(cfg.phy_cell_cfg, cfg.phy_cell_cfg_nr, radio, stack_);
+  workers_common.init(cfg.phy_cell_cfg, cfg.phy_cell_cfg_nr, radio, stack_lte_);
 
   parse_common_config(cfg);
 
@@ -142,22 +181,19 @@ int phy::init(const phy_args_t&            args,
   if (not cfg.phy_cell_cfg.empty()) {
     lte_workers.init(args, &workers_common, log_sink, WORKERS_THREAD_PRIO);
   }
-  if (not cfg.phy_cell_cfg_nr.empty()) {
-    nr_workers.init(args, &workers_common, log_sink, WORKERS_THREAD_PRIO);
-  }
 
   // For each carrier, initialise PRACH worker
   for (uint32_t cc = 0; cc < cfg.phy_cell_cfg.size(); cc++) {
     prach_cfg.root_seq_idx = cfg.phy_cell_cfg[cc].root_seq_idx;
-    prach.init(
-        cc, cfg.phy_cell_cfg[cc].cell, prach_cfg, stack_, phy_log, PRACH_WORKER_THREAD_PRIO, args.nof_prach_threads);
+    prach.init(cc,
+               cfg.phy_cell_cfg[cc].cell,
+               prach_cfg,
+               stack_lte_,
+               phy_log,
+               PRACH_WORKER_THREAD_PRIO,
+               args.nof_prach_threads);
   }
   prach.set_max_prach_offset_us(args.max_prach_offset_us);
-
-  // Warning this must be initialized after all workers have been added to the pool
-  tx_rx.init(stack_, radio, &lte_workers, &nr_workers, &workers_common, &prach, SF_RECV_THREAD_PRIO);
-
-  initialized = true;
 
   return SRSRAN_SUCCESS;
 }
@@ -168,7 +204,9 @@ void phy::stop()
     tx_rx.stop();
     workers_common.stop();
     lte_workers.stop();
-    nr_workers.stop();
+    if (nr_workers != nullptr) {
+      nr_workers->stop();
+    }
     prach.stop();
 
     initialized = false;
@@ -305,6 +343,45 @@ void phy::configure_mbsfn(srsran::sib2_mbms_t* sib2, srsran::sib13_t* sib13, con
 void phy::start_plot()
 {
   lte_workers[0]->start_plot();
+}
+
+int phy::init_nr(const phy_args_t& args, const phy_cfg_t& cfg, stack_interface_phy_nr& stack)
+{
+  if (cfg.phy_cell_cfg_nr.empty()) {
+    return SRSRAN_SUCCESS;
+  }
+
+  nr_workers = std::unique_ptr<nr::worker_pool>(new nr::worker_pool(workers_common, stack, log_sink, MAX_WORKERS));
+
+  nr::worker_pool::args_t worker_args = {};
+  worker_args.nof_phy_threads         = args.nof_phy_threads;
+  worker_args.log.phy_level           = args.log.phy_level;
+  worker_args.log.phy_hex_limit       = args.log.phy_hex_limit;
+  worker_args.pusch_max_its           = args.nr_pusch_max_its;
+
+  if (not nr_workers->init(worker_args, cfg.phy_cell_cfg_nr)) {
+    return SRSRAN_ERROR;
+  }
+
+  tx_rx.set_nr_workers(nr_workers.get());
+
+  if (nr_workers->set_common_cfg(common_cfg)) {
+    phy_log.error("Couldn't set common PHY config");
+    return SRSRAN_ERROR;
+  }
+
+  return SRSRAN_SUCCESS;
+}
+
+int phy::set_common_cfg(const phy_interface_rrc_nr::common_cfg_t& common_cfg_)
+{
+  if (nr_workers.get() == nullptr) {
+    // if nr_workers are not initialized yet, store the configuration in the phy
+    common_cfg = common_cfg_;
+    return SRSRAN_SUCCESS;
+  }
+
+  return nr_workers->set_common_cfg(common_cfg);
 }
 
 } // namespace srsenb

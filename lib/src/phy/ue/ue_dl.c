@@ -451,8 +451,16 @@ static int dci_blind_search(srsran_ue_dl_t*     q,
           return SRSRAN_ERROR;
         }
 
+        // Check if RNTI is matched
         if ((dci_msg[nof_dci].rnti == rnti) && (dci_msg[nof_dci].nof_bits > 0)) {
-          dci_msg[nof_dci].rnti = rnti;
+          // Compute decoded message correlation to drastically reduce false alarm probability
+          float corr = srsran_pdcch_msg_corr(&q->pdcch, &dci_msg[nof_dci]);
+
+          // Skip candidate if the threshold is not reached
+          // 0.5 is set from pdcch_test
+          if (!isnormal(corr) || corr < 0.5f) {
+            continue;
+          }
 
           // Look for the messages found and apply the new format if the location is common
           if (search_in_common && (dci_cfg->multiple_csi_request_enabled || dci_cfg->srs_request_enabled)) {
@@ -463,8 +471,8 @@ static int dci_blind_search(srsran_ue_dl_t*     q,
              * that only the PDCCH in the common search space is transmitted by the primary cell.
              */
             // Find a matching ncce in the common SS
-            if (srsran_location_find_ncce(
-                    q->current_ss_common.loc, q->current_ss_common.nof_locations, dci_msg[nof_dci].location.ncce)) {
+            if (srsran_location_find_location(
+                    q->current_ss_common.loc, q->current_ss_common.nof_locations, &dci_msg[nof_dci].location)) {
               srsran_dci_cfg_t cfg = *dci_cfg;
               srsran_dci_cfg_set_common_ss(&cfg);
               // if the payload size is the same that it would have in the common SS (only Format0/1A is allowed there)
@@ -856,11 +864,14 @@ void srsran_ue_dl_gen_cqi_periodic(srsran_ue_dl_t*     q,
     uci_data->cfg.cqi.ri_len = 1;
     uci_data->value.ri       = cfg->last_ri;
   } else if (srsran_cqi_periodic_send(&cfg->cfg.cqi_report, tti, q->cell.frame_type)) {
-    if (cfg->cfg.cqi_report.format_is_subband) {
+    if (cfg->cfg.cqi_report.format_is_subband &&
+        srsran_cqi_periodic_is_subband(&cfg->cfg.cqi_report, tti, q->cell.nof_prb, q->cell.frame_type)) {
       // TODO: Implement subband periodic reports
-      uci_data->cfg.cqi.type                    = SRSRAN_CQI_TYPE_SUBBAND;
-      uci_data->value.cqi.subband.subband_cqi   = wideband_value;
-      uci_data->value.cqi.subband.subband_label = 0;
+      uci_data->cfg.cqi.type                       = SRSRAN_CQI_TYPE_SUBBAND_UE;
+      uci_data->value.cqi.subband_ue.subband_cqi   = wideband_value;
+      uci_data->value.cqi.subband_ue.subband_label = tti / 100 % 2;
+      uci_data->cfg.cqi.L                          = srsran_cqi_hl_get_L(q->cell.nof_prb);
+      uci_data->cfg.cqi.subband_label_2_bits       = uci_data->cfg.cqi.L > 1;
     } else {
       uci_data->cfg.cqi.type                    = SRSRAN_CQI_TYPE_WIDEBAND;
       uci_data->value.cqi.wideband.wideband_cqi = wideband_value;
@@ -1439,7 +1450,7 @@ int srsran_ue_dl_find_and_decode(srsran_ue_dl_t*     q,
 
   if (ret == 1) {
     // Logging
-    if (SRSRAN_DEBUG_ENABLED && srsran_verbose >= SRSRAN_VERBOSE_INFO) {
+    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_INFO) {
       char str[512];
       srsran_dci_dl_info(&dci_dl[0], str, 512);
       INFO("PDCCH: %s, snr=%.1f dB", str, q->chest_res.snr_db);

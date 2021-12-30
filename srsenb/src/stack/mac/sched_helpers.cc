@@ -161,48 +161,6 @@ void log_phich_cc_results(srslog::basic_logger&                  logger,
   }
 }
 
-prb_interval prb_interval::rbgs_to_prbs(const rbg_interval& rbgs, uint32_t cell_nof_prb)
-{
-  uint32_t P = srsran_ra_type0_P(cell_nof_prb);
-  return prb_interval{rbgs.start() * P, std::min(rbgs.stop() * P, cell_nof_prb)};
-}
-
-rbg_interval rbg_interval::rbgmask_to_rbgs(const rbgmask_t& mask)
-{
-  int rb_start = -1;
-  for (uint32_t i = 0; i < mask.size(); i++) {
-    if (rb_start == -1) {
-      if (mask.test(i)) {
-        rb_start = i;
-      }
-    } else {
-      if (!mask.test(i)) {
-        return rbg_interval(rb_start, i);
-      }
-    }
-  }
-  if (rb_start != -1) {
-    return rbg_interval(rb_start, mask.size());
-  } else {
-    return rbg_interval();
-  }
-}
-
-prb_interval prb_interval::riv_to_prbs(uint32_t riv, uint32_t nof_prbs, int nof_vrbs)
-{
-  if (nof_vrbs < 0) {
-    nof_vrbs = nof_prbs;
-  }
-  uint32_t rb_start, l_crb;
-  srsran_ra_type2_from_riv(riv, &l_crb, &rb_start, nof_prbs, (uint32_t)nof_vrbs);
-  return {rb_start, rb_start + l_crb};
-}
-
-bool is_contiguous(const rbgmask_t& mask)
-{
-  return rbg_interval::rbgmask_to_rbgs(mask).length() == mask.count();
-}
-
 /*******************************************************
  *                 Sched Params
  *******************************************************/
@@ -433,24 +391,28 @@ void generate_cce_location(srsran_regs_t*          regs_,
  *            DCI-specific helper functions
  *******************************************************/
 
-uint32_t
-get_aggr_level(uint32_t nof_bits, uint32_t dl_cqi, uint32_t max_aggr_lvl, uint32_t cell_nof_prb, bool use_tbs_index_alt)
+uint32_t get_aggr_level(uint32_t nof_bits,
+                        uint32_t dl_cqi,
+                        uint32_t min_aggr_lvl,
+                        uint32_t max_aggr_lvl,
+                        uint32_t cell_nof_prb,
+                        bool     use_tbs_index_alt)
 {
-  uint32_t l            = 0;
   float    max_coderate = srsran_cqi_to_coderate(dl_cqi, use_tbs_index_alt);
-  float    coderate;
-  float    factor = 1.5;
-  uint32_t l_max  = 3;
+  float    factor       = 1.5;
+  uint32_t l_max        = 3;
   if (cell_nof_prb == 6) {
     factor = 1.0;
     l_max  = 2;
   }
-  l_max = SRSRAN_MIN(max_aggr_lvl, l_max);
+  l_max = std::min(max_aggr_lvl, l_max);
 
-  do {
-    coderate = srsran_pdcch_coderate(nof_bits, l);
+  uint32_t l        = std::min(min_aggr_lvl, l_max);
+  float    coderate = srsran_pdcch_coderate(nof_bits, l);
+  while (factor * coderate > max_coderate and l < l_max) {
     l++;
-  } while (l < l_max && factor * coderate > max_coderate);
+    coderate = srsran_pdcch_coderate(nof_bits, l);
+  }
 
   Debug("SCHED: CQI=%d, l=%d, nof_bits=%d, coderate=%.2f, max_coderate=%.2f",
         dl_cqi,
@@ -495,22 +457,6 @@ int check_ue_cfg_correctness(const sched_interface::ue_cfg_t& ue_cfg)
     }
   }
   return ret;
-}
-
-const char* to_string(sched_interface::ue_bearer_cfg_t::direction_t dir)
-{
-  switch (dir) {
-    case sched_interface::ue_bearer_cfg_t::IDLE:
-      return "idle";
-    case sched_interface::ue_bearer_cfg_t::BOTH:
-      return "bi-dir";
-    case sched_interface::ue_bearer_cfg_t::DL:
-      return "DL";
-    case sched_interface::ue_bearer_cfg_t::UL:
-      return "UL";
-    default:
-      return "unrecognized direction";
-  }
 }
 
 } // namespace srsenb

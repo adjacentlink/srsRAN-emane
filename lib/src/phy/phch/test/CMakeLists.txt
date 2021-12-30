@@ -124,7 +124,7 @@ target_link_libraries(pssch_pscch_file_test srsran_phy)
 
 # TM2 file tests
 add_lte_test(pssch_pscch_file_test_ideal_tm2_p100 pssch_pscch_file_test -p 100 -d -i ${CMAKE_HOME_DIRECTORY}/lib/src/phy/phch/test/signal_sidelink_ideal_tm2_p100_c335_s30.72e6.dat)
-set_property(TEST pssch_pscch_file_test_ideal_tm2_p100 PROPERTY PASS_REGULAR_EXPRESSION "num_decoded_sci=2 num_decoded_tb=1")
+set_property(TEST pssch_pscch_file_test_ideal_tm2_p100 PROPERTY PASS_REGULAR_EXPRESSION "num_decoded_sci=[2,3] num_decoded_tb=1")
 
 # TM4 file tests (first SF is sf_idx = 6 such that the PSSCH sf_idx=0)
 add_lte_test(pssch_pscch_file_test_ideal_tm4_p100 pssch_pscch_file_test -p 100 -t 4 -s 10 -n 10 -d -m 6 -i ${CMAKE_HOME_DIRECTORY}/lib/src/phy/phch/test/signal_sidelink_ideal_tm4_p100_c335_size10_num10_cshift0_s30.72e6.dat)
@@ -210,19 +210,30 @@ add_lte_test(phich_test_104 phich_test -p 4 -n 10 -e -l -g 1/2)
 add_executable(pdcch_test pdcch_test.c)
 target_link_libraries(pdcch_test srsran_phy)
 
-add_lte_test(pdcch_test_6 pdcch_test -n 6)
-add_lte_test(pdcch_test_15 pdcch_test -n 15)
-add_lte_test(pdcch_test_25 pdcch_test -n 25)
-add_lte_test(pdcch_test_50 pdcch_test -n 50)
-add_lte_test(pdcch_test_75 pdcch_test -n 75)
-add_lte_test(pdcch_test_100 pdcch_test -n 100)
-add_lte_test(pdcch_test_6_mimo pdcch_test -n 6 -p 2)
-add_lte_test(pdcch_test_15_mimo pdcch_test -n 15 -p 2)
-add_lte_test(pdcch_test_25_mimo pdcch_test -n 25 -p 2)
-add_lte_test(pdcch_test_50_mimo pdcch_test -n 50 -p 2)
-add_lte_test(pdcch_test_75_mimo pdcch_test -n 75 -p 2)
-add_lte_test(pdcch_test_100_mimo pdcch_test -n 100 -p 2)
-#add_lte_test(pdcch_test_crosscarrier pdcch_test -x)
+foreach (nof_prb 6 15 25 50 75 100)
+    # Currently, the ARM platforms srsRAN has been tested are not capable of running 100PRB. So, skip 100 PRB in ARM
+    if (HAVE_NEON AND (${nof_prb} EQUAL 100))
+        continue()
+    endif ()
+    foreach (nof_ports 1 2)
+        foreach (cfi 1 2 3)
+            foreach (snr auto 15 300)
+                # Build PDCCH test arguments
+                set(pdcch_test_args -n ${nof_prb} -p ${nof_ports} -f ${cfi} -S ${snr} -R 1)
+
+                # The current Viterbi decoder implementation for SSE and NEON does not perform good enough to pass the
+                # test without false detection. So, enable false alarm check in AVX2 based machines only.
+                if (HAVE_AVX2)
+                    set(pdcch_test_args ${pdcch_test_args} -F)
+                endif ()
+
+                string(REGEX REPLACE "\ " "" test_name_args ${pdcch_test_args})
+
+                add_lte_test(pdcch_test${test_name_args} pdcch_test ${pdcch_test_args})
+            endforeach ()
+        endforeach ()
+    endforeach ()
+endforeach ()
 
 ########################################################################
 # PDSCH TEST
@@ -465,11 +476,7 @@ add_lte_test(npdsch_npdcch_dci_formatN1_test npdsch_npdcch_file_test -c 0 -s 1 -
 add_executable(pusch_test pusch_test.c)
 target_link_libraries(pusch_test srsran_phy)
 
-if (NOT DEFINED TEST_EXTENSION)
-  set(TEST_EXTENSION Normal)
-endif(NOT DEFINED TEST_EXTENSION)
-
-if (TEST_EXTENSION STREQUAL Paranoid)
+if (${ENABLE_ALL_TEST})
   # All valid number of PRBs for PUSCH
   set(cell_n_prb_valid 1 2 3 4 5 6 8 9 10 12 15 16 18 20 24 25 27 30 32 36 40 45 48 50 54 60 64 72 75 80 81 90 96 100)
 
@@ -481,7 +488,7 @@ if (TEST_EXTENSION STREQUAL Paranoid)
 
   set(pusch_cqi none wideband)
 
-else (TEST_EXTENSION STREQUAL Paranoid)
+else ()
   set(cell_n_prb_valid 50)
 
   set(pusch_min_mcs 0)
@@ -492,7 +499,7 @@ else (TEST_EXTENSION STREQUAL Paranoid)
 
   set(pusch_cqi none wideband)
 
-endif (TEST_EXTENSION STREQUAL Paranoid)
+endif ()
 
 foreach (cell_n_prb 6 15 25 50 75 100)
   set(pusch_cell_n_prb)
@@ -578,6 +585,8 @@ add_lte_test(prach_zc0 prach_test -z 0)
 add_lte_test(prach_zc2 prach_test -z 2)
 add_lte_test(prach_zc3 prach_test -z 3)
 
+add_nr_test(prach_nr prach_test -n 50 -f 0 -r 0 -z 0 -N 1)
+
 add_executable(prach_test_multi prach_test_multi.c)
 target_link_libraries(prach_test_multi srsran_phy)
 
@@ -632,6 +641,10 @@ add_executable(dci_nr_test dci_nr_test.c)
 target_link_libraries(dci_nr_test srsran_phy)
 add_nr_test(dci_nr_test dci_nr_test)
 
+add_executable(mib_nr_test mib_nr_test.c)
+target_link_libraries(mib_nr_test srsran_phy)
+add_nr_test(mib_nr_test mib_nr_test)
+
 add_executable(pucch_nr_test pucch_nr_test.c)
 target_link_libraries(pucch_nr_test srsran_phy)
 add_nr_test(pucch_nr_test pucch_nr_test)
@@ -668,4 +681,5 @@ add_nr_test(pusch_nr_ack20_csi4_test pusch_nr_test -p 50 -m 20 -A 20 -C 4)
 
 add_executable(pdcch_nr_test pdcch_nr_test.c)
 target_link_libraries(pdcch_nr_test srsran_phy)
-add_nr_test(pdcch_nr_test pdcch_nr_test)
+add_nr_test(pdcch_nr_test_non_interleaved pdcch_nr_test)
+add_nr_test(pdcch_nr_test_interleaved pdcch_nr_test -I)

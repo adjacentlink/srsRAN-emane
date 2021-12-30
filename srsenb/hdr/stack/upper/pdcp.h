@@ -53,13 +53,14 @@ public:
   void write_pdu_mch(uint32_t lcid, srsran::unique_byte_buffer_t sdu) {}
 
   // pdcp_interface_rrc
+  void set_enabled(uint16_t rnti, uint32_t lcid, bool enabled) override;
   void reset(uint16_t rnti) override;
   void add_user(uint16_t rnti) override;
   void rem_user(uint16_t rnti) override;
   void write_sdu(uint16_t rnti, uint32_t lcid, srsran::unique_byte_buffer_t sdu, int pdcp_sn = -1) override;
-  void add_bearer(uint16_t rnti, uint32_t lcid, srsran::pdcp_config_t cnfg) override;
+  void add_bearer(uint16_t rnti, uint32_t lcid, const srsran::pdcp_config_t& cnfg) override;
   void del_bearer(uint16_t rnti, uint32_t lcid) override;
-  void config_security(uint16_t rnti, uint32_t lcid, srsran::as_security_config_t cfg_sec) override;
+  void config_security(uint16_t rnti, uint32_t lcid, const srsran::as_security_config_t& cfg_sec) override;
   void enable_integrity(uint16_t rnti, uint32_t lcid) override;
   void enable_encryption(uint16_t rnti, uint32_t lcid) override;
   bool get_bearer_state(uint16_t rnti, uint32_t lcid, srsran::pdcp_lte_state_t* state) override;
@@ -85,6 +86,7 @@ private:
     void discard_sdu(uint32_t lcid, uint32_t discard_sn);
     bool rb_is_um(uint32_t lcid);
     bool sdu_queue_is_full(uint32_t lcid);
+    bool is_suspended(uint32_t lcid);
   };
 
   class user_interface_gtpu : public srsue::gw_interface_pdcp
@@ -108,6 +110,7 @@ private:
     void        write_pdu_bcch_dlsch(srsran::unique_byte_buffer_t pdu);
     void        write_pdu_pcch(srsran::unique_byte_buffer_t pdu);
     void        write_pdu_mch(uint32_t lcid, srsran::unique_byte_buffer_t pdu) {}
+    void        notify_pdcp_integrity_error(uint32_t lcid);
     const char* get_rb_name(uint32_t lcid);
   };
 

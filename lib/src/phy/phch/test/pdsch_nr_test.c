@@ -29,16 +29,7 @@
 #include <getopt.h>
 #include <math.h>
 
-static srsran_carrier_nr_t carrier = {
-    1,                               // pci
-    0,                               // absolute_frequency_ssb
-    0,                               // absolute_frequency_point_a
-    0,                               // offset_to_carrier
-    srsran_subcarrier_spacing_15kHz, // scs
-    SRSRAN_MAX_PRB_NR,               // nof_prb
-    0,                               // start
-    1                                // max_mimo_layers
-};
+static srsran_carrier_nr_t carrier = SRSRAN_DEFAULT_CARRIER_NR;
 
 static uint32_t            n_prb     = 0;  // Set to 0 for steering
 static uint32_t            mcs       = 30; // Set to 30 for steering
@@ -74,7 +65,7 @@ int parse_args(int argc, char** argv)
         carrier.max_mimo_layers = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       default:
         usage(argv[0]);
@@ -169,15 +160,11 @@ int main(int argc, char** argv)
     goto clean_exit;
   }
 
-  // Load number of DMRS CDM groups without data
-  if (srsran_ra_dl_nr_nof_dmrs_cdm_groups_without_data_format_1_0(&pdsch_cfg.dmrs, &pdsch_cfg.grant) < SRSRAN_SUCCESS) {
-    ERROR("Error loading number of DMRS CDM groups without data");
-    goto clean_exit;
-  }
-
-  pdsch_cfg.grant.nof_layers = carrier.max_mimo_layers;
-  pdsch_cfg.grant.dci_format = srsran_dci_format_nr_1_0;
-  pdsch_cfg.grant.rnti       = rnti;
+  // Set PDSCH grant without considering any procedure
+  pdsch_cfg.grant.nof_dmrs_cdm_groups_without_data = 1; // No need for MIMO
+  pdsch_cfg.grant.nof_layers                       = carrier.max_mimo_layers;
+  pdsch_cfg.grant.dci_format                       = srsran_dci_format_nr_1_0;
+  pdsch_cfg.grant.rnti                             = rnti;
 
   uint32_t n_prb_start = 1;
   uint32_t n_prb_end   = carrier.nof_prb + 1;

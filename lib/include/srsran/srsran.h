@@ -48,6 +48,7 @@ extern "C" {
 
 #include "srsran/phy/ch_estimation/chest_dl.h"
 #include "srsran/phy/ch_estimation/chest_ul.h"
+#include "srsran/phy/ch_estimation/csi_rs.h"
 #include "srsran/phy/ch_estimation/dmrs_pdcch.h"
 #include "srsran/phy/ch_estimation/dmrs_sch.h"
 #include "srsran/phy/ch_estimation/refsignal_dl.h"
@@ -93,7 +94,9 @@ extern "C" {
 #include "srsran/phy/phch/csi.h"
 #include "srsran/phy/phch/dci.h"
 #include "srsran/phy/phch/dci_nr.h"
+#include "srsran/phy/phch/harq_ack.h"
 #include "srsran/phy/phch/pbch.h"
+#include "srsran/phy/phch/pbch_nr.h"
 #include "srsran/phy/phch/pcfich.h"
 #include "srsran/phy/phch/pdcch.h"
 #include "srsran/phy/phch/pdcch_nr.h"
@@ -123,8 +126,9 @@ extern "C" {
 #include "srsran/phy/ue/ue_ul_nr.h"
 
 #include "srsran/phy/enb/enb_dl.h"
-#include "srsran/phy/enb/enb_dl_nr.h"
 #include "srsran/phy/enb/enb_ul.h"
+#include "srsran/phy/gnb/gnb_dl.h"
+#include "srsran/phy/gnb/gnb_ul.h"
 
 #include "srsran/phy/scrambling/scrambling.h"
 
@@ -133,6 +137,7 @@ extern "C" {
 #include "srsran/phy/sync/pss.h"
 #include "srsran/phy/sync/refsignal_dl_sync.h"
 #include "srsran/phy/sync/sfo.h"
+#include "srsran/phy/sync/ssb.h"
 #include "srsran/phy/sync/sss.h"
 #include "srsran/phy/sync/sync.h"
 

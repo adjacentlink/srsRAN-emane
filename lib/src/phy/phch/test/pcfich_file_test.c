@@ -42,7 +42,7 @@ int flen;
 FILE* fmatlab = NULL;
 
 srsran_filesource_t   fsrc;
-cf_t *                input_buffer, *fft_buffer[SRSRAN_MAX_CODEWORDS];
+cf_t *                input_buffer, *fft_buffer[SRSRAN_MAX_PORTS];
 srsran_pcfich_t       pcfich;
 srsran_regs_t         regs;
 srsran_ofdm_t         fft;
@@ -86,7 +86,7 @@ void parse_args(int argc, char** argv)
         matlab_file_name = argv[optind];
         break;
       case 'v':
-        srsran_verbose++;
+        increase_srsran_verbose_level();
         break;
       case 'e':
         cell.cp = SRSRAN_CP_EXT;

@@ -18,7 +18,9 @@
 # and at http://www.gnu.org/licenses/.
 #
 
-set(SOURCES rrc.cc rrc_procedures.cc rrc_meas.cc rrc_cell.cc phy_controller.cc)
+add_subdirectory(test)
+
+set(SOURCES rrc.cc rrc_procedures.cc rrc_meas.cc rrc_cell.cc rrc_rlf_report.cc phy_controller.cc)
 add_library(srsue_rrc STATIC ${SOURCES})
 
 set(SOURCES rrc_nr.cc)

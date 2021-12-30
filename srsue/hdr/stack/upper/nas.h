@@ -22,6 +22,7 @@
 #ifndef SRSUE_NAS_H
 #define SRSUE_NAS_H
 
+#include "nas_base.h"
 #include "srsran/asn1/liblte_mme.h"
 #include "srsran/common/buffer_pool.h"
 #include "srsran/common/common.h"
@@ -43,12 +44,19 @@ class usim_interface_nas;
 class gw_interface_nas;
 class rrc_interface_nas;
 
-class nas : public nas_interface_rrc, public srsran::timer_callback
+/**
+ * @brief This class implements the NAS layer of a EUTRA UE.
+ *
+ * The class is *NOT* thread-safe.
+ *
+ */
+
+class nas : public nas_interface_rrc, public srsran::timer_callback, public nas_base
 {
 public:
-  explicit nas(srsran::task_sched_handle task_sched_);
+  explicit nas(srslog::basic_logger& logger_, srsran::task_sched_handle task_sched_);
   virtual ~nas();
-  void init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_nas* gw_, const nas_args_t& args_);
+  int  init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_nas* gw_, const nas_args_t& args_);
   void stop();
   void run_tti();
 
@@ -80,11 +88,7 @@ public:
   // timer callback
   void timer_expired(uint32_t timeout_id) override;
 
-  // PCAP
-  void start_pcap(srsran::nas_pcap* pcap_) { pcap = pcap_; }
-
 private:
-  srslog::basic_logger& logger;
   rrc_interface_nas*    rrc  = nullptr;
   usim_interface_nas*   usim = nullptr;
   gw_interface_nas*     gw   = nullptr;
@@ -101,18 +105,6 @@ private:
 
   std::vector<srsran::plmn_id_t> known_plmns;
 
-  // Security context
-  struct nas_sec_ctxt {
-    uint8_t                              ksi;
-    uint8_t                              k_asme[32];
-    uint32_t                             tx_count;
-    uint32_t                             rx_count;
-    uint32_t                             k_enb_count;
-    srsran::CIPHERING_ALGORITHM_ID_ENUM  cipher_algo;
-    srsran::INTEGRITY_ALGORITHM_ID_ENUM  integ_algo;
-    LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT guti;
-  };
-
   typedef enum { DEFAULT_EPS_BEARER = 0, DEDICATED_EPS_BEARER } eps_bearer_type_t;
 
   typedef struct {
@@ -127,7 +119,6 @@ private:
 
   bool         have_guti       = false;
   bool         have_ctxt       = false;
-  nas_sec_ctxt ctxt            = {};
   bool         auth_request    = false;
   uint8_t      current_sec_hdr = LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS;
 
@@ -164,23 +155,13 @@ private:
   // Security
   bool    eia_caps[8]   = {};
   bool    eea_caps[8]   = {};
-  uint8_t k_nas_enc[32] = {};
-  uint8_t k_nas_int[32] = {};
 
   // Airplane mode simulation
   typedef enum { DISABLED = 0, ENABLED } airplane_mode_state_t;
   airplane_mode_state_t               airplane_mode_state = {};
   srsran::timer_handler::unique_timer airplane_mode_sim_timer;
 
-  // PCAP
-  srsran::nas_pcap* pcap = nullptr;
-
   // Security
-  void
-       integrity_generate(uint8_t* key_128, uint32_t count, uint8_t direction, uint8_t* msg, uint32_t msg_len, uint8_t* mac);
-  bool integrity_check(srsran::byte_buffer_t* pdu);
-  void cipher_encrypt(srsran::byte_buffer_t* pdu);
-  void cipher_decrypt(srsran::byte_buffer_t* pdu);
   int  apply_security_config(srsran::unique_byte_buffer_t& pdu, uint8_t sec_hdr_type);
   void reset_security_context();
   void set_k_enb_count(uint32_t count);
@@ -240,6 +221,9 @@ private:
   void airplane_mode_sim_switch_off();
   void airplane_mode_sim_switch_on();
 
+  // Misc helpers
+  void clear_eps_bearer();
+
   // FSM Helpers
   void enter_state(emm_state_t state_);
   void enter_emm_null();
@@ -247,8 +231,8 @@ private:
   void enter_emm_deregistered_initiated();
 
   // security context persistence file
-  bool read_ctxt_file(nas_sec_ctxt* ctxt);
-  bool write_ctxt_file(nas_sec_ctxt ctxt_);
+  bool read_ctxt_file(nas_sec_ctxt* ctxt_, nas_sec_base_ctxt* ctxt_base_);
+  bool write_ctxt_file(nas_sec_ctxt ctxt_, nas_sec_base_ctxt ctxt_base_);
 
   // ctxt file helpers
   std::string hex_to_string(uint8_t* hex, int size);
@@ -283,27 +267,11 @@ private:
     return true;
   }
 
-  std::vector<uint8_t> split_string(const std::string input)
-  {
-    std::vector<uint8_t> list;
-    std::stringstream    ss(input);
-    while (ss.good()) {
-      std::string substr;
-      getline(ss, substr, ',');
-      if (not substr.empty()) {
-        list.push_back(strtol(substr.c_str(), nullptr, 10));
-      }
-    }
-    return list;
-  }
-
   // NAS Idle procedures
   class plmn_search_proc; // PLMN selection proc (fwd declared)
 
   srsran::proc_manager_list_t      callbacks;
   srsran::proc_t<plmn_search_proc> plmn_searcher;
-
-  const std::string gw_setup_failure_str = "Failed to setup/configure GW interface";
 };
 
 } // namespace srsue

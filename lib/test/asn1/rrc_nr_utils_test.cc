@@ -43,10 +43,10 @@ int test_rlc_config()
   rlc_cfg_asn1.to_json(jw);
   srslog::fetch_basic_logger("RRC").info("RLC NR Config: \n %s", jw.to_string().c_str());
 
-  rlc_config_t rlc_cfg = make_rlc_config_t(rlc_cfg_asn1);
+  rlc_config_t rlc_cfg;
+  TESTASSERT(make_rlc_config_t(rlc_cfg_asn1, &rlc_cfg) == SRSRAN_SUCCESS);
   TESTASSERT(rlc_cfg.rat == srsran_rat_t::nr);
   TESTASSERT(rlc_cfg.um_nr.sn_field_length == rlc_um_nr_sn_size_t::size12bits);
-  TESTASSERT(rlc_cfg.um_nr.UM_Window_Size == 2048);
   return SRSRAN_SUCCESS;
 }
 
@@ -97,15 +97,15 @@ int make_phy_tdd_cfg_test()
   tdd_ul_dl_cfg_common.pattern1.nrof_ul_slots        = 2;
   tdd_ul_dl_cfg_common.pattern1.nrof_ul_symbols      = 4;
 
-  srsran_tdd_config_nr_t srsran_tdd_config_nr;
-  TESTASSERT(make_phy_tdd_cfg(tdd_ul_dl_cfg_common, &srsran_tdd_config_nr) == true);
+  srsran_duplex_config_nr_t srsran_duplex_config_nr;
+  TESTASSERT(make_phy_tdd_cfg(tdd_ul_dl_cfg_common, &srsran_duplex_config_nr) == true);
 
-  TESTASSERT(srsran_tdd_config_nr.pattern1.period_ms == 10);
-  TESTASSERT(srsran_tdd_config_nr.pattern1.nof_dl_slots == 7);
-  TESTASSERT(srsran_tdd_config_nr.pattern1.nof_dl_symbols == 6);
-  TESTASSERT(srsran_tdd_config_nr.pattern1.nof_ul_slots == 2);
-  TESTASSERT(srsran_tdd_config_nr.pattern1.nof_ul_symbols == 4);
-  TESTASSERT(srsran_tdd_config_nr.pattern2.period_ms == 0);
+  TESTASSERT(srsran_duplex_config_nr.tdd.pattern1.period_ms == 10);
+  TESTASSERT(srsran_duplex_config_nr.tdd.pattern1.nof_dl_slots == 7);
+  TESTASSERT(srsran_duplex_config_nr.tdd.pattern1.nof_dl_symbols == 6);
+  TESTASSERT(srsran_duplex_config_nr.tdd.pattern1.nof_ul_slots == 2);
+  TESTASSERT(srsran_duplex_config_nr.tdd.pattern1.nof_ul_symbols == 4);
+  TESTASSERT(srsran_duplex_config_nr.tdd.pattern2.period_ms == 0);
   return SRSRAN_SUCCESS;
 }
 
@@ -116,7 +116,7 @@ int make_phy_harq_ack_cfg_test()
   phys_cell_group_cfg_s phys_cell_group_cfg   = {};
   phys_cell_group_cfg.pdsch_harq_ack_codebook = phys_cell_group_cfg_s::pdsch_harq_ack_codebook_opts::dynamic_value;
 
-  srsran_ue_dl_nr_harq_ack_cfg_t srsran_ue_dl_nr_harq_ack_cfg;
+  srsran_harq_ack_cfg_hl_t srsran_ue_dl_nr_harq_ack_cfg;
   TESTASSERT(make_phy_harq_ack_cfg(phys_cell_group_cfg, &srsran_ue_dl_nr_harq_ack_cfg) == true);
 
   TESTASSERT(srsran_ue_dl_nr_harq_ack_cfg.harq_ack_codebook == srsran_pdsch_harq_ack_codebook_dynamic);

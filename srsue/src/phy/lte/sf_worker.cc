@@ -77,15 +77,15 @@ sf_worker::~sf_worker()
   }
 }
 
-void sf_worker::reset_cell_unlocked(uint32_t cc_idx)
+void sf_worker::reset_cell_nolock(uint32_t cc_idx)
 {
-  cc_workers[cc_idx]->reset_cell_unlocked();
+  cc_workers[cc_idx]->reset_cell_nolock();
 }
 
-bool sf_worker::set_cell_unlocked(uint32_t cc_idx, srsran_cell_t cell_)
+bool sf_worker::set_cell_nolock(uint32_t cc_idx, srsran_cell_t cell_)
 {
   if (cc_idx < cc_workers.size()) {
-    if (!cc_workers[cc_idx]->set_cell_unlocked(cell_)) {
+    if (!cc_workers[cc_idx]->set_cell_nolock(cell_)) {
       Error("Setting cell for cc=%d", cc_idx);
       return false;
     }
@@ -116,20 +116,15 @@ uint32_t sf_worker::get_buffer_len()
   return cc_workers.at(0)->get_buffer_len();
 }
 
-void sf_worker::set_tti(uint32_t tti_)
+void sf_worker::set_context(const srsran::phy_common_interface::worker_context_t& w_ctx)
 {
-  tti = tti_;
+  context.copy(w_ctx);
 
   for (auto& cc_worker : cc_workers) {
-    cc_worker->set_tti(tti);
+    cc_worker->set_tti(w_ctx.sf_idx);
   }
 
-  logger.set_context(tti);
-}
-
-void sf_worker::set_tx_time(const srsran::rf_timestamp_t& tx_time_)
-{
-  tx_time.copy(tx_time_);
+  logger.set_context(w_ctx.sf_idx);
 }
 
 void sf_worker::set_prach(cf_t* prach_ptr_, float prach_power_)
@@ -138,33 +133,26 @@ void sf_worker::set_prach(cf_t* prach_ptr_, float prach_power_)
   prach_power = prach_power_;
 }
 
-void sf_worker::set_cfo_unlocked(const uint32_t& cc_idx, float cfo)
+void sf_worker::set_cfo_nolock(const uint32_t& cc_idx, float cfo)
 {
-  cc_workers[cc_idx]->set_cfo_unlocked(cfo);
+  cc_workers[cc_idx]->set_cfo_nolock(cfo);
 }
 
-void sf_worker::set_tdd_config_unlocked(srsran_tdd_config_t config)
+void sf_worker::set_tdd_config_nolock(srsran_tdd_config_t config)
 {
   for (auto& cc_worker : cc_workers) {
-    cc_worker->set_tdd_config_unlocked(config);
+    cc_worker->set_tdd_config_nolock(config);
   }
   tdd_config = config;
 }
 
-void sf_worker::enable_pregen_signals_unlocked(bool enabled)
-{
-  for (auto& cc_worker : cc_workers) {
-    cc_worker->enable_pregen_signals_unlocked(enabled);
-  }
-}
-
-void sf_worker::set_config_unlocked(uint32_t cc_idx, srsran::phy_cfg_t phy_cfg)
+void sf_worker::set_config_nolock(uint32_t cc_idx, const srsran::phy_cfg_t& phy_cfg)
 {
   if (cc_idx < cc_workers.size()) {
-    cc_workers[cc_idx]->set_config_unlocked(phy_cfg);
+    cc_workers[cc_idx]->set_config_nolock(phy_cfg);
     if (cc_idx > 0) {
       // Update DCI config for PCell
-      cc_workers[0]->upd_config_dci_unlocked(phy_cfg.dl_cfg.dci);
+      cc_workers[0]->upd_config_dci_nolock(phy_cfg.dl_cfg.dci);
     }
   } else {
     Error("Setting config for cc=%d; Invalid cc_idx", cc_idx);
@@ -173,9 +161,10 @@ void sf_worker::set_config_unlocked(uint32_t cc_idx, srsran::phy_cfg_t phy_cfg)
 
 void sf_worker::work_imp()
 {
+  uint32_t            tti           = context.sf_idx;
   srsran::rf_buffer_t tx_signal_ptr = {};
   if (!cell_initiated) {
-    phy->worker_end(this, false, tx_signal_ptr, tx_time, false);
+    phy->worker_end(context, false, tx_signal_ptr);
     return;
   }
 
@@ -202,6 +191,7 @@ void sf_worker::work_imp()
       }
     }
   }
+  tx_signal_ptr.set_nof_samples(nof_samples);
 
   /***** Uplink Generation + Transmission *******/
 #ifdef PHY_ADAPTER_ENABLE
@@ -239,7 +229,6 @@ void sf_worker::work_imp()
       }
     }
   }
-  tx_signal_ptr.set_nof_samples(nof_samples);
 
   // Set PRACH buffer signal pointer
   if (prach_ptr) {
@@ -249,7 +238,7 @@ void sf_worker::work_imp()
   }
 
   // Call worker_end to transmit the signal
-  phy->worker_end(this, tx_signal_ready, tx_signal_ptr, tx_time, false);
+  phy->worker_end(context, tx_signal_ready, tx_signal_ptr);
 
   if (rx_signal_ok) {
     update_measurements();

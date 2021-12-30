@@ -28,8 +28,11 @@ typedef struct SRSRAN_API {
   srsran_mcs_table_t mcs_table; ///< @brief Indicates the MCS table the UE shall use for PDSCH and/or PUSCH without
                                 ///< transform precoding
 
-  srsran_xoverhead_t xoverhead; ///< Accounts for overhead from CSI-RS, CORESET, etc. If the field is absent, the UE
-                                ///< applies value xOh0 (see TS 38.214 [19], clause 5.1.3.2).
+  srsran_xoverhead_t xoverhead; ///< @brief Accounts for overhead from CSI-RS, CORESET, etc. If the field is absent, the
+                                ///< UE applies value xOh0 (see TS 38.214 [19], clause 5.1.3.2).
+
+  bool limited_buffer_rm; ///< @brief Enables LBRM (Limited buffer rate-matching). Given by rateMatching parameter in
+                          ///< PUSCH-ServingCellConfig or PDSCH-ServingCellConfig ASN1 sequences
 } srsran_sch_cfg_t;
 
 typedef struct SRSRAN_API {
@@ -37,7 +40,8 @@ typedef struct SRSRAN_API {
   uint32_t     N_L;      ///< the number of transmission layers that the transport block is mapped onto
   uint32_t     mcs;      ///< Modulation Code Scheme (MCS) for debug and trace purpose
   int          tbs;      ///< Payload size, TS 38.212 refers to it as A
-  double       R;        ///< Target LDPC rate
+  double       R;        ///< Target code rate
+  double       R_prime;  ///< Actual code rate
   int          rv;       ///< Redundancy version
   int          ndi;      ///< New Data Indicator
   uint32_t     nof_re;   ///< Number of available resource elements to transmit ULSCH (data) and UCI (control)

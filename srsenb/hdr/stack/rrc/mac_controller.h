@@ -24,8 +24,8 @@
 
 #include "rrc_bearer_cfg.h"
 #include "rrc_cell_cfg.h"
+#include "srsenb/hdr/stack/mac/sched_interface.h"
 #include "srsran/interfaces/rrc_interface_types.h"
-#include "srsran/interfaces/sched_interface.h"
 #include <bitset>
 
 namespace srsenb {
@@ -64,7 +64,7 @@ public:
                               const srsran::rrc_ue_capabilities_t&      uecaps);
   void handle_ho_prep(const asn1::rrc::ho_prep_info_r8_ies_s& ho_prep);
 
-  void handle_max_retx();
+  void set_radio_bearer_state(mac_lc_ch_cfg_t::direction_t dir);
 
   const ue_cfg_t& get_ue_sched_cfg() const { return current_sched_ue_cfg; }
   bool            is_crnti_set() const { return crnti_set; }
@@ -72,8 +72,7 @@ public:
   void set_scell_activation(const std::bitset<SRSRAN_MAX_CARRIERS>& scell_mask);
   void set_drb_activation(bool active);
 
-  enum proc_stage_t : int8_t { config_tx, config_complete, other };
-  void update_mac(proc_stage_t stage);
+  void update_mac();
 
 private:
   int  apply_basic_conn_cfg(const asn1::rrc::rr_cfg_ded_s& rr_cfg);

@@ -23,8 +23,8 @@
 #include "srsran/interfaces/enb_metrics_interface.h"
 #include "srsran/interfaces/enb_rlc_interfaces.h"
 #include "srsran/interfaces/ue_interfaces.h"
+#include "srsran/rlc/rlc.h"
 #include "srsran/srslog/srslog.h"
-#include "srsran/upper/rlc.h"
 #include <map>
 
 #ifndef SRSENB_RLC_H
@@ -62,6 +62,7 @@ public:
   bool has_bearer(uint16_t rnti, uint32_t lcid);
   bool suspend_bearer(uint16_t rnti, uint32_t lcid);
   bool resume_bearer(uint16_t rnti, uint32_t lcid);
+  bool is_suspended(uint16_t rnti, uint32_t lcid);
   void reestablish(uint16_t rnti) final;
 
   // rlc_interface_pdcp
@@ -74,7 +75,6 @@ public:
   // rlc_interface_mac
   int  read_pdu(uint16_t rnti, uint32_t lcid, uint8_t* payload, uint32_t nof_bytes);
   void write_pdu(uint16_t rnti, uint32_t lcid, uint8_t* payload, uint32_t nof_bytes);
-  void read_pdu_pcch(uint8_t* payload, uint32_t buffer_size);
 
 private:
   class user_interface : public srsue::pdcp_interface_rlc, public srsue::rrc_interface_rlc
@@ -88,6 +88,7 @@ private:
     void        write_pdu_pcch(srsran::unique_byte_buffer_t sdu);
     void        write_pdu_mch(uint32_t lcid, srsran::unique_byte_buffer_t sdu) {}
     void        max_retx_attempted();
+    void        protocol_failure();
     const char* get_rb_name(uint32_t lcid);
     uint16_t    rnti;
 

@@ -59,7 +59,7 @@ typedef struct {
   uint32_t                 ri_idx;
   bool                     ri_idx_present;
   bool                     format_is_subband;
-  uint32_t                 subband_size;
+  uint8_t                  subband_wideband_ratio; ///< K value in TS 36.331. 0 for wideband reporting, (1..4) otherwise
   srsran_cqi_report_mode_t periodic_mode;
   srsran_cqi_report_mode_t aperiodic_mode;
 } srsran_cqi_report_cfg_t;
@@ -87,7 +87,7 @@ typedef struct SRSRAN_API {
   uint8_t  wideband_cqi;     // 4-bit width
   uint8_t  subband_diff_cqi; // 2-bit width
   uint32_t position_subband; // L-bit width
-} srsran_cqi_ue_subband_t;
+} srsran_cqi_ue_diff_subband_t;
 
 /* Table 5.2.3.3.1-1: Fields for channel quality information feedback for wideband CQI reports
 (transmission mode 1, transmission mode 2, transmission mode 3, transmission mode 7 and
@@ -109,12 +109,12 @@ typedef struct SRSRAN_API {
 typedef struct SRSRAN_API {
   uint8_t subband_cqi;   // 4-bit width
   uint8_t subband_label; // 1- or 2-bit width
-} srsran_cqi_format2_subband_t;
+} srsran_cqi_ue_subband_t;
 
 typedef enum {
   SRSRAN_CQI_TYPE_WIDEBAND = 0,
-  SRSRAN_CQI_TYPE_SUBBAND,
   SRSRAN_CQI_TYPE_SUBBAND_UE,
+  SRSRAN_CQI_TYPE_SUBBAND_UE_DIFF,
   SRSRAN_CQI_TYPE_SUBBAND_HL
 } srsran_cqi_type_t;
 
@@ -127,6 +127,7 @@ typedef struct SRSRAN_API {
   uint32_t          scell_index;          ///< Indicates the cell/carrier the measurement belongs, use 0 for PCell
   uint32_t          L;
   uint32_t          N;
+  uint32_t          sb_idx;
   srsran_cqi_type_t type;
   uint32_t          ri_len;
 } srsran_cqi_cfg_t;
@@ -134,8 +135,8 @@ typedef struct SRSRAN_API {
 typedef struct {
   union {
     srsran_cqi_format2_wideband_t wideband;
-    srsran_cqi_format2_subband_t  subband;
     srsran_cqi_ue_subband_t       subband_ue;
+    srsran_cqi_ue_diff_subband_t  subband_ue_diff;
     srsran_cqi_hl_subband_t       subband_hl;
   };
   bool data_crc;
@@ -143,7 +144,8 @@ typedef struct {
 
 SRSRAN_API int srsran_cqi_size(srsran_cqi_cfg_t* cfg);
 
-SRSRAN_API int srsran_cqi_value_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_value_t* value, uint8_t* buff);
+SRSRAN_API int
+srsran_cqi_value_pack(srsran_cqi_cfg_t* cfg, srsran_cqi_value_t* value, uint8_t buff[SRSRAN_CQI_MAX_BITS]);
 
 SRSRAN_API int
 srsran_cqi_value_unpack(srsran_cqi_cfg_t* cfg, uint8_t buff[SRSRAN_CQI_MAX_BITS], srsran_cqi_value_t* value);
@@ -154,10 +156,34 @@ srsran_cqi_value_tostring(srsran_cqi_cfg_t* cfg, srsran_cqi_value_t* value, char
 SRSRAN_API bool
 srsran_cqi_periodic_send(const srsran_cqi_report_cfg_t* periodic_cfg, uint32_t tti, srsran_frame_type_t frame_type);
 
+SRSRAN_API bool srsran_cqi_periodic_is_subband(const srsran_cqi_report_cfg_t* cfg,
+                                               uint32_t                       tti,
+                                               uint32_t                       nof_prb,
+                                               srsran_frame_type_t            frame_type);
+
 SRSRAN_API bool
 srsran_cqi_periodic_ri_send(const srsran_cqi_report_cfg_t* periodic_cfg, uint32_t tti, srsran_frame_type_t frame_type);
 
+SRSRAN_API uint32_t srsran_cqi_periodic_sb_bw_part_idx(const srsran_cqi_report_cfg_t* cfg,
+                                                       uint32_t                       tti,
+                                                       uint32_t                       nof_prb,
+                                                       srsran_frame_type_t            frame_type);
+
 SRSRAN_API int srsran_cqi_hl_get_no_subbands(int nof_prb);
+
+/**
+ * @brief Returns the number of bits to index a bandwidth part (L)
+ *
+ * @remark Implemented according to TS 38.213 section 7.2.2 Periodic CSI Reporting using PUCCH, paragraph that refers to
+ * `L-bit label indexed in the order of increasing frequency, where L = ceil(log2(nof_prb/k/J))`
+ *
+ */
+SRSRAN_API int srsran_cqi_hl_get_L(int nof_prb);
+
+SRSRAN_API uint32_t srsran_cqi_get_sb_idx(uint32_t                       tti,
+                                          uint32_t                       subband_label,
+                                          const srsran_cqi_report_cfg_t* cqi_report_cfg,
+                                          const srsran_cell_t*           cell);
 
 SRSRAN_API uint8_t srsran_cqi_from_snr(float snr);
 

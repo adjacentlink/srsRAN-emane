@@ -58,16 +58,30 @@ sys_metrics_processor::proc_stats_info::proc_stats_info()
       arg_end >> env_start >> env_end >> exit_code;
 }
 
+/// Returns a null sys_metrics_t with the cpu count field filled.
+static sys_metrics_t create_null_metrics()
+{
+  sys_metrics_t metrics;
+
+  if (cpu_count > metrics_max_supported_cpu) {
+    return metrics;
+  }
+
+  metrics.cpu_count = cpu_count;
+  metrics.cpu_load.fill(0.f);
+  return metrics;
+}
+
 sys_metrics_t sys_metrics_processor::get_metrics()
 {
   auto     current_time = std::chrono::steady_clock::now();
   uint32_t measure_interval_ms =
       std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_query_time).count();
 
-  // The time elapsed between 2 measures must be greater that 100 milliseconds.
-  if (measure_interval_ms < 100u) {
-    logger.warning("Interval less than 100ms, skipping measurement.");
-    return {};
+  // The time elapsed between 2 measures must be greater that 10 milliseconds.
+  if (measure_interval_ms < 10u) {
+    logger.info("Interval less than 10ms, skipping measurement.");
+    return create_null_metrics();
   }
 
   sys_metrics_t metrics;

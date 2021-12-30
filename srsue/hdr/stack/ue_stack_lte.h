@@ -26,20 +26,11 @@
 #ifndef SRSUE_UE_STACK_LTE_H
 #define SRSUE_UE_STACK_LTE_H
 
-#include <functional>
-#include <pthread.h>
-#include <stdarg.h>
-#include <string>
-
 #include "mac/mac.h"
 #include "mac_nr/mac_nr.h"
 #include "rrc/rrc.h"
-#include "srsran/radio/radio.h"
-#include "srsran/upper/pdcp.h"
-#include "srsran/upper/rlc.h"
-#include "upper/nas.h"
-#include "upper/usim.h"
-
+#include "rrc/rrc_nr.h"
+#include "srsran/common/bearer_manager.h"
 #include "srsran/common/buffer_pool.h"
 #include "srsran/common/multiqueue.h"
 #include "srsran/common/string_helpers.h"
@@ -47,8 +38,17 @@
 #include "srsran/common/thread_pool.h"
 #include "srsran/common/time_prof.h"
 #include "srsran/interfaces/ue_interfaces.h"
+#include "srsran/radio/radio.h"
+#include "srsran/rlc/rlc.h"
+#include "srsran/upper/pdcp.h"
 #include "srsue/hdr/ue_metrics_interface.h"
 #include "ue_stack_base.h"
+#include "upper/nas.h"
+#include "upper/usim.h"
+#include <functional>
+#include <pthread.h>
+#include <stdarg.h>
+#include <string>
 
 namespace srsue {
 
@@ -92,6 +92,7 @@ public:
   void cell_select_complete(bool status) final;
   void set_config_complete(bool status) final;
   void set_scell_complete(bool status) final;
+  void set_phy_config_complete(bool status) final;
 
   // MAC Interface for EUTRA PHY
   uint16_t get_dl_sched_rnti(uint32_t tti) final { return mac.get_dl_sched_rnti(tti); }
@@ -168,12 +169,14 @@ public:
   }
 
   // Interface for GW
-  void write_sdu(uint32_t lcid, srsran::unique_byte_buffer_t sdu) final;
-
-  bool is_lcid_enabled(uint32_t lcid) final { return pdcp.is_lcid_enabled(lcid); }
+  void write_sdu(uint32_t eps_bearer_id, srsran::unique_byte_buffer_t sdu) final;
+  bool has_active_radio_bearer(uint32_t eps_bearer_id) final;
 
   // Interface for RRC
   tti_point get_current_tti() final { return current_tti; }
+  void      add_eps_bearer(uint8_t eps_bearer_id, srsran::srsran_rat_t rat, uint32_t lcid) final;
+  void      remove_eps_bearer(uint8_t eps_bearer_id) final;
+  void      reset_eps_bearers() final;
 
   srsran::ext_task_sched_handle get_task_sched() { return {&task_sched}; }
 
@@ -186,7 +189,7 @@ private:
   const std::chrono::milliseconds TTI_WARN_THRESHOLD_MS{5};
   const uint32_t                  SYNC_QUEUE_WARN_THRESHOLD = 5;
 
-  bool                running;
+  std::atomic<bool>   running{false};
   srsue::stack_args_t args;
 
   srsran::tti_point current_tti;
@@ -200,9 +203,11 @@ private:
   srslog::basic_logger& usim_logger;
   srslog::basic_logger& nas_logger;
 
-  // UE nr stack logging
+  // UE NR stack logging
   srslog::basic_logger& mac_nr_logger;
   srslog::basic_logger& rrc_nr_logger;
+  srslog::basic_logger& rlc_nr_logger;
+  srslog::basic_logger& pdcp_nr_logger;
 
   // tracing
   srsran::mac_pcap mac_pcap;
@@ -229,12 +234,16 @@ private:
   srsran::pdcp               pdcp;
   srsue::rrc                 rrc;
   srsue::mac_nr              mac_nr;
+  srsran::rlc                rlc_nr;
+  srsran::pdcp               pdcp_nr;
   srsue::rrc_nr              rrc_nr;
   srsue::nas                 nas;
   std::unique_ptr<usim_base> usim;
 
+  ue_bearer_manager bearers; // helper to manage mapping between EPS and radio bearers
+
   // Metrics helper
-  uint32_t ul_dropped_sdus = 0;
+  std::atomic<uint32_t> ul_dropped_sdus{0};
 };
 
 } // namespace srsue
