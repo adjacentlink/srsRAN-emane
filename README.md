@@ -42,13 +42,22 @@ The srsRAN suite includes:
 
 ### Centos 7
 
+Centos 7 requires an additional step of installing and using
+devtoolset-9 for c++17 support.
+
 ```
 sudo yum install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+
+sudo yum install centos-release-scl
+sudo yum install devtoolset-9
+
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
 mkdir build
 cd build
-cmake -DUSE_GLIBC_IPV6=0 ..
+
+# enable devtoolset-9 for build
+scl enable devtoolset-9 "cmake .. && make"
 make package
 sudo yum install srsran-emane-*-x86_64.rpm
 ```
