@@ -29,8 +29,7 @@ RUN mkdir build
 WORKDIR build
 
 # Using devtoolset-9
-RUN scl enable devtoolset-9 "cmake .. && make"
-RUN make package
+RUN scl enable devtoolset-9 "cmake .. && make && make package"
 RUN cp *\.rpm /opt/built
 RUN yum -y install /opt/built/*
 

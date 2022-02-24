@@ -28,9 +28,7 @@ RUN git clone https://github.com/adjacentlink/srsRAN-emane -b develop
 WORKDIR srsRAN-emane
 RUN mkdir build
 WORKDIR build
-RUN cmake ..
-RUN make
-RUN make package
+RUN cmake .. && make && make package
 RUN cp *\.deb /opt/built
 RUN dpkg -i /opt/built/*; apt-get -y -f install
 
