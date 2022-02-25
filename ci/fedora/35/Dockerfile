@@ -16,7 +16,7 @@ RUN dnf -y install dependencies/*\.rpm
 # Build tools and depends
 RUN dnf -y install git gcc-c++ make rpm-build
 RUN dnf -y install libxml2-devel libpcap-devel pcre-devel libuuid-devel
-RUN dnf -y install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+RUN dnf -y install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
 
 RUN git clone https://github.com/adjacentlink/srsRAN-emane -b develop
 
