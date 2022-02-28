@@ -37,7 +37,7 @@ The srsRAN suite includes:
 
 3. Build and install srsRAN-emane:
    * [Centos 7](#centos-7)
-   * [Rocky Linux 8.5](#rockylinux-85)
+   * [Rocky Linux 8.5](#rocky-linux-85)
    * [Fedora 35](#fedora-35)
    * [Ubuntu 20.04](#ubuntu-2004)
 
