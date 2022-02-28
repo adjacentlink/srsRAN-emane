@@ -37,6 +37,7 @@ The srsRAN suite includes:
 
 3. Build and install srsRAN-emane:
    * [Centos 7](#centos-7)
+   * [Rocky Linux 8.5](#rockylinux-85)
    * [Fedora 35](#fedora-35)
    * [Ubuntu 20.04](#ubuntu-2004)
 
@@ -62,10 +63,26 @@ make package
 sudo yum install srsran-emane-*-x86_64.rpm
 ```
 
+### Rocky Linux 8.5
+
+```
+sudo dnf -y install epel-release dnf-plugins-core
+sudo dnf config-manager --set-enabled powertools
+sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake ..
+make package
+sudo dnf install srsran-emane-*-x86_64.rpm
+```
+
 ### Fedora 35
 
 ```
-sudo dnf install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
 mkdir build
