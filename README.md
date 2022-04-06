@@ -75,7 +75,7 @@ cd srsRAN-emane
 mkdir build
 cd build
 cmake ..
-make package
+make && make package
 sudo dnf install srsran-emane-*-x86_64.rpm
 ```
 
@@ -88,7 +88,7 @@ cd srsRAN-emane
 mkdir build
 cd build
 cmake ..
-make package
+make && make package
 sudo dnf install srsran-emane-*-x86_64.rpm
 ```
 
@@ -101,7 +101,7 @@ cd srsRAN-emane
 mkdir build
 cd build
 cmake ..
-make package
+make && make package
 sudo dpkg -i srsran-emane-*-x86_64.deb; sudo apt-get install -f
 ```
 
