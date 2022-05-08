@@ -27,8 +27,8 @@ version is 21.10, the first release based on srsRAN 21.10.
 ---
 ## Build Instructions
 The srsRAN suite includes:
-  * srsUE - a full-stack SDR 4G/5G-NSA UE application (5G-SA coming soon)
-  * srsENB - a full-stack SDR 4G/5G-NSA eNodeB application (5G-SA coming soon)
+  * srsUE - a full-stack SDR 4G/5G UE application
+  * srsENB - a full-stack SDR 4G/5G e(g)NodeB application
   * srsEPC - a light-weight 4G core network implementation with MME, HSS and S/P-GW
 
 1. Install the latest [pre-built EMANE bundle](https://github.com/adjacentlink/emane/wiki/Install). EMANE version 1.2.3 or later is **required**.
@@ -37,32 +37,58 @@ The srsRAN suite includes:
 
 3. Build and install srsRAN-emane:
    * [Centos 7](#centos-7)
+   * [Rocky Linux 8.5](#rocky-linux-85)
    * [Fedora 35](#fedora-35)
    * [Ubuntu 20.04](#ubuntu-2004)
 
 ### Centos 7
 
+Centos 7 requires an additional step of installing and using
+devtoolset-9 for c++17 support.
+
 ```
 sudo yum install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+
+sudo yum install centos-release-scl
+sudo yum install devtoolset-9
+
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
 mkdir build
 cd build
-cmake -DUSE_GLIBC_IPV6=0 ..
+
+# enable devtoolset-9 for build
+scl enable devtoolset-9 "cmake .. && make"
 make package
 sudo yum install srsran-emane-*-x86_64.rpm
 ```
 
-### Fedora 35
+### Rocky Linux 8.5
 
 ```
-sudo dnf install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+sudo dnf -y install epel-release dnf-plugins-core
+sudo dnf config-manager --set-enabled powertools
+sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
 mkdir build
 cd build
 cmake ..
-make package
+make && make package
+sudo dnf install srsran-emane-*-x86_64.rpm
+```
+
+### Fedora 35
+
+```
+sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake ..
+make && make package
 sudo dnf install srsran-emane-*-x86_64.rpm
 ```
 
@@ -75,7 +101,7 @@ cd srsRAN-emane
 mkdir build
 cd build
 cmake ..
-make package
+make && make package
 sudo dpkg -i srsran-emane-*-x86_64.deb; sudo apt-get install -f
 ```
 

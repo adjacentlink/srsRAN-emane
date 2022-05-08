@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2021 Software Radio Systems Limited
+# Copyright 2013-2022 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -81,5 +81,5 @@ else(NOT ${BUILDEPC_CMD} STREQUAL "")
   message(STATUS "No post-build-EPC command defined")
 endif (NOT ${BUILDEPC_CMD} STREQUAL "")
 
-install(TARGETS srsepc-emane DESTINATION ${RUNTIME_DIR})
-install(TARGETS srsmbms-emane DESTINATION ${RUNTIME_DIR})
+install(TARGETS srsepc-emane DESTINATION ${RUNTIME_DIR} OPTIONAL)
+install(TARGETS srsmbms-emane DESTINATION ${RUNTIME_DIR} OPTIONAL)

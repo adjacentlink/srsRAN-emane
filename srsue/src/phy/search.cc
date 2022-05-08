@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2021 Software Radio Systems Limited
+ * Copyright 2013-2022 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -59,7 +59,7 @@ search::~search()
   srsran_ue_cellsearch_free(&cs);
 }
 
-void search::init(srsran::rf_buffer_t& buffer_, uint32_t nof_rx_channels, search_callback* parent, int force_N_id_2_)
+void search::init(srsran::rf_buffer_t& buffer_, uint32_t nof_rx_channels, search_callback* parent, int force_N_id_2_, int force_N_id_1_)
 {
   p = parent;
 
@@ -78,6 +78,7 @@ void search::init(srsran::rf_buffer_t& buffer_, uint32_t nof_rx_channels, search
   p->set_ue_sync_opts(&cs.ue_sync, 0);
 
   force_N_id_2 = force_N_id_2_;
+  force_N_id_1 = force_N_id_1_;
 }
 
 void search::set_cp_en(bool enable)
@@ -127,7 +128,7 @@ search::ret_code search::run(srsran_cell_t* cell_, std::array<uint8_t, SRSRAN_BC
 #ifdef PHY_ADAPTER_ENABLE
   ret = phy_adapter::ue_dl_cellsearch_scan(&cs, found_cells, force_N_id_2, &max_peak_cell);
 #else
-  if (force_N_id_2 >= 0 && force_N_id_2 < 3) {
+  if (force_N_id_2 >= 0 && force_N_id_2 < SRSRAN_NOF_NID_2) {
     ret           = srsran_ue_cellsearch_scan_N_id_2(&cs, force_N_id_2, &found_cells[force_N_id_2]);
     max_peak_cell = force_N_id_2;
   } else {
@@ -142,6 +143,38 @@ search::ret_code search::run(srsran_cell_t* cell_, std::array<uint8_t, SRSRAN_BC
     Info("SYNC:  Could not find any cell in this frequency");
     return CELL_NOT_FOUND;
   }
+
+  // In case of forced N_id_1 discard any results with different values
+  if (force_N_id_1 >= 0 && force_N_id_1 < SRSRAN_NOF_NID_1) {
+    /* Note that srsran_ue_cellsearch_scan_N_id_2 only finds the strongest cell for a given N_id_2/PSS within the search
+     * window. A cell with the desired SSS can be occluded by other cells with the same PSS, if their PSS is stronger and
+     * within the same search window.
+     */
+    bool N_id_1_found = false;
+    if (force_N_id_2 >= 0 && force_N_id_2 < SRSRAN_NOF_NID_2) {
+      // N_id_2 (PSS) was forced, so there is only one search result to check
+      if (found_cells[max_peak_cell].cell_id / SRSRAN_NOF_NID_2 == (uint32_t)force_N_id_1) {
+        N_id_1_found = true;
+      }
+    } else {
+      // Go through the results for all N_id_2 (PSS); pick strongest with matching N_id_1 (SSS)
+      float max_peak_value = -1.0;
+      for (uint32_t N_id_2 = 0; N_id_2 < SRSRAN_NOF_NID_2; N_id_2++) {
+        if (found_cells[N_id_2].cell_id / SRSRAN_NOF_NID_2 == (uint32_t)force_N_id_1) {
+          if (found_cells[N_id_2].peak > max_peak_value) {
+            N_id_1_found   = true;
+            max_peak_value = found_cells[N_id_2].peak;
+            max_peak_cell  = N_id_2;
+          }
+        }
+      }
+    }
+    if (!N_id_1_found) {
+      Info("SYNC:  Could not find any cell with preselected SSS (force_N_id_1=%d)", force_N_id_1);
+      return CELL_NOT_FOUND;
+    }
+  }
+
   // Save result
   new_cell.id         = found_cells[max_peak_cell].cell_id;
   new_cell.cp         = found_cells[max_peak_cell].cp;
@@ -179,6 +212,7 @@ search::ret_code search::run(srsran_cell_t* cell_, std::array<uint8_t, SRSRAN_BC
     std::array<uint8_t, SRSRAN_BCH_PAYLOAD_LEN / 8> mib_packed;
     srsran_bit_pack_vector(bch_payload.data(), mib_packed.data(), SRSRAN_BCH_PAYLOAD_LEN);
     std::copy(std::begin(mib_packed), std::end(mib_packed), std::begin(bch_payload));
+
 #endif
     fprintf(stdout,
             "Found Cell:  Mode=%s, PCI=%d, PRB=%d, Ports=%d, CP=%s, CFO=%.1f KHz\n",
