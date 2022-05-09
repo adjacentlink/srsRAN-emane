@@ -189,8 +189,6 @@ void mme::run_thread()
     m_s1ap->update_statistics();
 #endif
   }
-
-
   return;
 }
 

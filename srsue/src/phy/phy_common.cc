@@ -585,7 +585,7 @@ void phy_common::worker_end(const worker_context_t& w_ctx, const bool& tx_enable
     return;
   }
 
-srsran::rf_timestamp_t tx_time = w_ctx.tx_time; // get transmit time from the last worker
+  srsran::rf_timestamp_t tx_time = w_ctx.tx_time; // get transmit time from the last worker
 #ifndef PHY_ADAPTER_ENABLE
   // Add current time alignment
   tx_time.sub((double)ta.get_sec());
@@ -604,6 +604,7 @@ srsran::rf_timestamp_t tx_time = w_ctx.tx_time; // get transmit time from the la
 #ifndef PHY_ADAPTER_ENABLE
     // Actual baseband transmission
     radio_h->tx(tx_buffer, tx_time);
+
 #else
     phy_adapter::ue_ul_send_signal(tx_time.get(0).full_secs, tx_time.get(0).frac_secs, cell);
 #endif

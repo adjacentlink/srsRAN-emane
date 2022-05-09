@@ -165,7 +165,7 @@ int phy::init_lte(const phy_args_t&            args,
   }
 
   // Create default log.
-  phy_log.set_level(srslog::str_to_basic_level(args.log.phy_level));
+  phy_log.set_level(log_lvl);
   phy_log.set_hex_dump_max_size(args.log.phy_hex_limit);
 
   radio       = radio_;

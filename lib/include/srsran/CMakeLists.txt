@@ -23,6 +23,7 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 
+#ALINK limited install
 #INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/version.h
 #        DESTINATION "${INCLUDE_DIR}/srsran"
 #)
