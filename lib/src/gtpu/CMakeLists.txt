@@ -22,4 +22,5 @@ set(SOURCES gtpu.cc)
 
 add_library(srsran_gtpu STATIC ${SOURCES})
 target_link_libraries(srsran_gtpu srsran_common srsran_asn1 ${ATOMIC_LIBS})
-install(TARGETS srsran_gtpu DESTINATION ${LIBRARY_DIR} OPTIONAL)
+#ALINK limited install
+#install(TARGETS srsran_gtpu DESTINATION ${LIBRARY_DIR} OPTIONAL)

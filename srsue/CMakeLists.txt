@@ -47,4 +47,5 @@ add_subdirectory(src)
 ########################################################################
 # Default configuration files
 ########################################################################
+#ALINK limited install
 #install(FILES ue.conf.example DESTINATION ${DATA_DIR})

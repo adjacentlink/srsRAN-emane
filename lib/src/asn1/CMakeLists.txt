@@ -28,6 +28,7 @@ add_library(srsran_asn1 STATIC
 # ASN1 utils
 add_library(asn1_utils STATIC asn1_utils.cc)
 target_link_libraries(asn1_utils srsran_common)
+#ALINK limited install
 #install(TARGETS asn1_utils DESTINATION ${LIBRARY_DIR} OPTIONAL)
 
 # RRC ASN1 lib

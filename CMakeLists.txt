@@ -392,6 +392,7 @@ configure_file(
         ${PROJECT_SOURCE_DIR}/cmake/modules/SRSRAN_install_configs.sh.in
         ${CMAKE_BINARY_DIR}/srsran_install_configs.sh
 )
+#ALINK limited install
 #install(PROGRAMS ${CMAKE_BINARY_DIR}/srsran_install_configs.sh DESTINATION ${RUNTIME_DIR})
 
 # Disables the project to build when calling "make install"
