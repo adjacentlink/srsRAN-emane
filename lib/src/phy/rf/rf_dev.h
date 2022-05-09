@@ -76,22 +76,12 @@ static srsran_rf_plugin_t plugin_skiq  = {"", NULL, &srsran_rf_dev_skiq};
 #endif
 #endif
 
-//#define ENABLE_DUMMY_DEV
 
-#ifdef ENABLE_DUMMY_DEV
-int dummy_rcv()
-{
-  usleep(100000);
-  return 1;
-}
-void dummy_fnc() {}
-
-static rf_dev_t srsran_rf_dev_dummy = {
-    "dummy",   dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc,
-    dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc,
-    dummy_fnc, dummy_fnc, dummy_fnc, dummy_rcv, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc, dummy_fnc};
+#ifdef  ENABLE_DUMMY_DEV
+static srsran_rf_plugin_t plugin_dummy = {"libsrsran_rf_dummy.so", NULL, NULL};
+#else
+#include "rf_dummy_imp.h"
 static srsran_rf_plugin_t plugin_dummy = {"", NULL, &srsran_rf_dev_dummy};
-
 #endif
 
 /**

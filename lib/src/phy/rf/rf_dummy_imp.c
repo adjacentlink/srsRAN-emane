@@ -25,6 +25,7 @@
 #include "srsran/srsran.h"
 #include "rf_dummy_imp.h"
 #include "rf_helper.h"
+#include "rf_plugin.h"
 #include "srsran/phy/rf/rf.h"
 
 #include <assert.h>
@@ -53,7 +54,6 @@ static bool log_stdout = true;
 
 // rf dev info
 typedef struct {
-   char *               dev_name;
    int                  nodetype;
    uint32_t             nof_tx_ports;
    uint32_t             nof_rx_ports;
@@ -72,19 +72,8 @@ typedef struct {
 
 static uint32_t delay_usec = 1000;
 
-static void rf_dummy_handle_error(void * arg, srsran_rf_error_t error)
-{
-  printf("type %s", 
-          error.type == SRSRAN_RF_ERROR_LATE      ? "late"      :
-          error.type == SRSRAN_RF_ERROR_UNDERFLOW ? "underflow" :
-          error.type == SRSRAN_RF_ERROR_OVERFLOW  ? "overflow"  :
-          error.type == SRSRAN_RF_ERROR_OTHER     ? "other"     :
-          "unknown error");
-}
 
-
-static  rf_dummy_info_t rf_dummy_info = { .dev_name        = "dummyrf",
-                                          .nof_tx_ports    = 1,
+static  rf_dummy_info_t rf_dummy_info = { .nof_tx_ports    = 1,
                                           .nof_rx_ports    = 1,
                                           .rx_gain         = 0.0,
                                           .tx_gain         = 0.0,
@@ -93,7 +82,6 @@ static  rf_dummy_info_t rf_dummy_info = { .dev_name        = "dummyrf",
                                           .rx_freq         = 0.0,
                                           .tx_freq         = 0.0,
                                           .clock_rate      = 0.0,
-                                          .error_handler   = rf_dummy_handle_error,
                                           .rx_stream       = false,
                                           .rf_info         = {}
                                         };
@@ -111,11 +99,7 @@ void rf_dummy_suppress_stdout(void *h)
 
 const char* rf_dummy_devname(void *h)
  {
-   GET_DEV_INFO(h);
-
-   LOG_INFO("dev name %s", _info->dev_name);
-
-   return _info->dev_name;
+   return "dummy";
  }
 
 
@@ -159,31 +143,19 @@ void rf_dummy_flush_buffer(void *h)
 
 bool rf_dummy_has_rssi(void *h)
  {
-   LOG_INFO("false");
-
    return false;
  }
 
 
 float rf_dummy_get_rssi(void *h)
  {
-   const float rssi = 0.0;
-
-   LOG_INFO("rssi %f", rssi);
-
-   return rssi;
+   return 0.0;
  }
 
 
-void rf_dummy_register_error_handler(void *h,
-                                     srsran_rf_error_handler_t error_handler,
-                                     void * arg)
+void rf_dummy_register_error_handler(void *h, srsran_rf_error_handler_t error_handler, void * arg)
  {
-   GET_DEV_INFO(h);
-
-   LOG_INFO("");
-
-   _info->error_handler = error_handler;
+   // nop
  }
 
 
@@ -406,5 +378,42 @@ int rf_dummy_send_timed_multi(void *h, void *data[4], int nsamples,
    return nsamples;
 }
 
+#ifdef ENABLE_RF_PLUGINS
+rf_dev_t srsran_rf_dev_dummy = {
+  .name                              = "dummy",
+  .srsran_rf_devname                 = rf_dummy_devname,
+  .srsran_rf_start_rx_stream         = rf_dummy_start_rx_stream,
+  .srsran_rf_stop_rx_stream          = rf_dummy_stop_rx_stream,
+  .srsran_rf_flush_buffer            = rf_dummy_flush_buffer,
+  .srsran_rf_has_rssi                = rf_dummy_has_rssi,
+  .srsran_rf_get_rssi                = rf_dummy_get_rssi,
+  .srsran_rf_suppress_stdout         = rf_dummy_suppress_stdout,
+  .srsran_rf_register_error_handler  = rf_dummy_register_error_handler,
+  .srsran_rf_open                    = rf_dummy_open,
+  .srsran_rf_open_multi              = rf_dummy_open_multi,
+  .srsran_rf_close                   = rf_dummy_close,
+  .srsran_rf_set_rx_srate            = rf_dummy_set_rx_srate,
+  .srsran_rf_set_rx_gain             = rf_dummy_set_rx_gain,
+  .srsran_rf_set_tx_gain             = rf_dummy_set_tx_gain,
+  .srsran_rf_get_rx_gain             = rf_dummy_get_rx_gain,
+  .srsran_rf_get_tx_gain             = rf_dummy_get_tx_gain,
+  .srsran_rf_get_info                = rf_dummy_get_rf_info,
+  .srsran_rf_set_rx_freq             = rf_dummy_set_rx_freq,
+  .srsran_rf_set_tx_srate            = rf_dummy_set_tx_srate,
+  .srsran_rf_set_tx_freq             = rf_dummy_set_tx_freq,
+  .srsran_rf_get_time                = rf_dummy_get_time,
+  .srsran_rf_recv_with_time          = rf_dummy_recv_with_time,
+  .srsran_rf_recv_with_time_multi    = rf_dummy_recv_with_time_multi,
+  .srsran_rf_send_timed              = rf_dummy_send_timed,
+  .srsran_rf_send_timed_multi        = rf_dummy_send_timed_multi
+};
 
-
+int register_plugin(rf_dev_t** rf_api)
+{
+  if (rf_api == NULL) {
+    return SRSRAN_ERROR;
+  }
+  *rf_api = &srsran_rf_dev_dummy;
+  return SRSRAN_SUCCESS;
+}
+#endif /* ENABLE_RF_PLUGINS */

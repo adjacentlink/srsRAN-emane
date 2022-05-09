@@ -124,6 +124,20 @@ if(RF_FOUND)
     install(TARGETS srsran_rf_zmq DESTINATION ${LIBRARY_DIR} OPTIONAL)
   endif (ZEROMQ_FOUND AND ENABLE_ZEROMQ)
 
+  # Add sources for dummy RF library
+  add_definitions(-DENABLE_DUMMY_DEV)
+  set(SOURCES_DUMMY rf_dummy_imp.c)
+  if (ENABLE_RF_PLUGINS)
+    add_library(srsran_rf_dummy SHARED ${SOURCES_DUMMY})
+    set_target_properties(srsran_rf_dummy PROPERTIES VERSION ${SRSRAN_VERSION_STRING} SOVERSION ${SRSRAN_SOVERSION})
+    list(APPEND DYNAMIC_PLUGINS srsran_rf_dummy)
+  else (ENABLE_RF_PLUGINS)
+    add_library(srsran_rf_dummy STATIC ${SOURCES_DUMMY})
+    list(APPEND STATIC_PLUGINS srsran_rf_dummy)
+  endif (ENABLE_RF_PLUGINS)
+  target_link_libraries(srsran_rf_dummy srsran_rf_utils_emane srsran_phy)
+  install(TARGETS srsran_rf_dummy DESTINATION ${LIBRARY_DIR} OPTIONAL)
+
   # Add sources of file-based RF directly to the RF library (not as a plugin)
   list(APPEND SOURCES_RF rf_file_imp.c rf_file_imp_tx.c rf_file_imp_rx.c)
 
