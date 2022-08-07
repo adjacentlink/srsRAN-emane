@@ -1,0 +1,110 @@
+diff --git a/srsue/src/phy/phy_adapter.cc b/srsue/src/phy/phy_adapter.cc
+index 63f575f65..f3d2b45af 100644
+--- a/srsue/src/phy/phy_adapter.cc
++++ b/srsue/src/phy/phy_adapter.cc
+@@ -1496,6 +1496,8 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
+                           srsran_pdsch_res_t  data[SRSRAN_MAX_CODEWORDS],
+                           const uint32_t cc_idx)
+ {
++   int rc = SRSRAN_SUCCESS;
++
+    const auto rnti = cfg->rnti;
+ 
+    for(uint32_t tb = 0; tb < SRSRAN_MAX_CODEWORDS; ++tb)
+@@ -1525,6 +1527,8 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
+            {
+              Error("PDSCH:%s: rnti 0x%hx, not found in %zu sub messages",
+                    __func__, rnti, enb_dl_pdsch_messages_.size());
++
++             rc = SRSRAN_ERROR;
+            }
+        }
+       else
+@@ -1534,7 +1538,7 @@ int ue_dl_cc_decode_pdsch(srsran_ue_dl_t*     q,
+        }
+     }
+ 
+-  return SRSRAN_SUCCESS;
++  return rc;
+ }
+ 
+ 
+@@ -1547,6 +1551,8 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
+                           const uint16_t rnti,
+                           const uint32_t cc_idx)
+ {
++  int rc = SRSRAN_SUCCESS;
++
+   srsran_phich_resource_t n_phich;
+ 
+   srsran_phich_calc(&q->phich, grant, &n_phich);
+@@ -1612,11 +1618,13 @@ int ue_dl_cc_decode_phich(srsran_ue_dl_t*       q,
+          {
+            Warning("PHICH:%s fail, cc=%u, txCarrierId %u, txFrequency %lu, phich_seqnum %u, sinr %f, noise %f",
+                  __func__, cc_idx, txCarrierId, txFrequencyHz, phich_message.seqnum(), sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
++
++           rc = SRSRAN_ERROR;
+          }
+       }
+    }
+ 
+-   return SRSRAN_SUCCESS;
++   return rc;
+ }
+ 
+ 
+@@ -1626,6 +1634,8 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
+                          srsran_pdsch_res_t  data[SRSRAN_MAX_CODEWORDS],
+                          const uint32_t cc_idx)
+ {
++   int rc = SRSRAN_SUCCESS;
++
+    const auto area_id = cfg->area_id;
+ 
+    for(uint32_t tb = 0; tb < SRSRAN_MAX_CODEWORDS; ++tb)
+@@ -1658,6 +1668,10 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
+                                                                 rxAntennaId,
+                                                                 txCarrierId);
+ 
++                     ue_dl_update_chest_i(&q->chest_res,
++                                          sinrResult.sinr_dB_,
++                                          sinrResult.noiseFloor_dBm_);
++
+                      if(sinrResult.bPassed_)
+                       {
+                         Info("PMCH:%s: pass, cc=%u, tb %u, tbs %u, nbytes %d, seqnum %u, txCarrierId %u, sinr %f, noise %f",
+@@ -1671,20 +1685,20 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
+                              sinrResult.sinr_dB_,
+                              sinrResult.noiseFloor_dBm_);
+ 
+-                        ue_dl_update_chest_i(&q->chest_res,
+-                                             sinrResult.sinr_dB_,
+-                                             sinrResult.noiseFloor_dBm_);
+- 
+                         memcpy(data[tb].payload, pmch_subMsg.data().data(), pmch_subMsg.data().length());
+  
+                         data[tb].avg_iterations_block = 1;
+-
+                         data[tb].crc = true;
+                       }
+                      else
+                       {
++                        data[tb].avg_iterations_block = 0;
++                        data[tb].crc = false;
++
+                         Warning("PMCH:%s: fail, cc=%u, seqnum %u, txCarrierId %u, sinr %f, noise %f",
+                             __func__, cc_idx, pmch_message.seqnum(), txCarrierId, sinrResult.sinr_dB_, sinrResult.noiseFloor_dBm_);
++
++                        rc = SRSRAN_ERROR;
+                       }
+ 
+                      // done with this entry
+@@ -1705,7 +1719,7 @@ int ue_dl_cc_decode_pmch(srsran_ue_dl_t*     q,
+        }
+      }
+ 
+-  return SRSRAN_SUCCESS;
++  return rc;
+ }
+ 
+ 
