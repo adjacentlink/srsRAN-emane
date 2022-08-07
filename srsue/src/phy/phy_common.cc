@@ -585,6 +585,7 @@ void phy_common::worker_end(const worker_context_t& w_ctx, const bool& tx_enable
     return;
   }
 
+  // Add current time alignment
   srsran::rf_timestamp_t tx_time = w_ctx.tx_time; // get transmit time from the last worker
 #ifndef PHY_ADAPTER_ENABLE
   // Add current time alignment

@@ -83,7 +83,7 @@ option(ENABLE_ZMQ_TEST       "Enable ZMQ based E2E tests"               OFF)
 option(BUILD_STATIC          "Attempt to statically link external deps" OFF)
 option(RPATH                 "Enable RPATH"                             OFF)
 option(ENABLE_ASAN           "Enable gcc/clang address sanitizer"       OFF)
-option(ENABLE_GCOV           "Enable gcc/clang address sanitizer"       OFF)
+option(ENABLE_GCOV           "Enable gcov"                              OFF)
 option(ENABLE_MSAN           "Enable clang memory sanitizer"            OFF)
 option(ENABLE_TSAN           "Enable clang thread sanitizer"            OFF)
 option(ENABLE_TIDY           "Enable clang tidy"                        OFF)
@@ -594,6 +594,12 @@ if(ENABLE_PHY_ADAPTER)
 else(ENABLE_PHY_ADAPTER)
   message(STATUS "DISABLE PHY_ADAPTER")
 endif(ENABLE_PHY_ADAPTER)
+
+# GCC >= 12.1.0: Disable analysis on "maybe-uninitialized" variables because of the high false-positive rate
+if(CMAKE_COMPILER_IS_GNUCXX AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12.1)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-maybe-uninitialized")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-maybe-uninitialized")
+endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU")
   # Increase inlining limit to allow gcc compilation on e.g. RPi2

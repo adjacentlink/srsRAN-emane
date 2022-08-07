@@ -26,3 +26,4 @@ target_link_libraries(srsran_mac srsran_common)
 #install(TARGETS srsran_mac DESTINATION ${LIBRARY_DIR} OPTIONAL)
 
 add_subdirectory(test)
+

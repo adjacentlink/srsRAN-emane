@@ -958,6 +958,11 @@ void rrc_nr::rrc_release()
   pdcp->reset();
   mac->reset();
   lcid_drb.clear();
+
+  // Apply actions only applicable in SA mode
+  if (rrc_eutra == nullptr) {
+    stack->reset_eps_bearers();
+  }
 }
 
 int rrc_nr::get_nr_capabilities(srsran::byte_buffer_t* nr_caps_pdu)
@@ -1030,6 +1035,7 @@ bool rrc_nr::configure_sk_counter(uint16_t sk_counter)
   if (usim->generate_nr_context(sk_counter, &sec_cfg) == false) {
     return false;
   }
+  security_is_activated = true;
   return true;
 }
 
@@ -1070,6 +1076,9 @@ bool rrc_nr::apply_rlc_add_mod(const rlc_bearer_cfg_s& rlc_bearer_cfg)
       logger.error("Failed to build RLC config");
       return false;
     }
+  } else if (not is_drb) {
+    logger.debug("Using default RLC configs for SRB%d", srb_id);
+    rlc_cfg = rlc_config_t::default_rlc_am_nr_config();
   } else {
     logger.error("In RLC bearer cfg does not contain rlc cfg");
     return false;
@@ -2001,6 +2010,7 @@ bool rrc_nr::apply_drb_release(const uint8_t drb)
 
 bool rrc_nr::apply_srb_add_mod(const srb_to_add_mod_s& srb_cfg)
 {
+  logger.debug("Applying SRB Add/Mod to SRB%d", srb_cfg.srb_id);
   if (srb_cfg.pdcp_cfg_present) {
     logger.error("Cannot add SRB - only default configuration supported.");
     return false;
@@ -2014,6 +2024,7 @@ bool rrc_nr::apply_srb_add_mod(const srb_to_add_mod_s& srb_cfg)
 
 bool rrc_nr::apply_drb_add_mod(const drb_to_add_mod_s& drb_cfg)
 {
+  logger.debug("Applying DRB Add/Mod to DRB%d", drb_cfg.drb_id);
   if (!drb_cfg.pdcp_cfg_present) {
     logger.error("Cannot add DRB - incomplete configuration");
     return false;
@@ -2077,15 +2088,25 @@ bool rrc_nr::apply_drb_add_mod(const drb_to_add_mod_s& drb_cfg)
                    drb_cfg.pdcp_cfg.drb.pdcp_sn_size_dl.to_number());
   }
 
+  if (not security_is_activated) {
+    logger.error("Trying to setup DRB%d, but security is not activated", drb_cfg.drb_id);
+    return false;
+  }
   srsran::pdcp_config_t pdcp_cfg = make_drb_pdcp_config_t(drb_cfg.drb_id, true, drb_cfg.pdcp_cfg);
   pdcp->add_bearer(lcid, pdcp_cfg);
 
+  // Use already configured sec config, if no other sec config present in the RadioBearerConfig
+  pdcp->config_security(lcid, sec_cfg);
+  pdcp->enable_encryption(lcid, DIRECTION_TXRX);
+  if (drb_cfg.pdcp_cfg.drb.integrity_protection_present) {
+    pdcp->enable_integrity(lcid, DIRECTION_TXRX);
+  }
   return true;
 }
 
 bool rrc_nr::apply_security_cfg(const security_cfg_s& security_cfg)
 {
-  // TODO derive correct keys
+  logger.debug("Applying Security config");
   if (security_cfg.key_to_use_present) {
     if (security_cfg.key_to_use.value != security_cfg_s::key_to_use_opts::options::secondary) {
       logger.warning("Only secondary key supported yet");
@@ -2126,6 +2147,7 @@ bool rrc_nr::apply_security_cfg(const security_cfg_s& security_cfg)
 
   // Apply security config for all known NR lcids
   for (auto& lcid : lcid_drb) {
+    logger.debug("Applying PDCP security config. LCID=%d", lcid.first);
     pdcp->config_security(lcid.first, sec_cfg);
     pdcp->enable_encryption(lcid.first);
   }
@@ -2155,6 +2177,8 @@ bool rrc_nr::apply_radio_bearer_cfg(const radio_bearer_cfg_s& radio_bearer_cfg)
     if (apply_security_cfg(radio_bearer_cfg.security_cfg) == false) {
       return false;
     }
+  } else {
+    logger.debug("No Security Config Present");
   }
   return true;
 }
@@ -2251,9 +2275,12 @@ void rrc_nr::handle_security_mode_command(const asn1::rrc_nr::security_mode_cmd_
   pdcp->enable_encryption(lcid, DIRECTION_TXRX);
 }
 
-void rrc_nr::handle_rrc_release(const asn1::rrc_nr::rrc_release_s& rrc_release)
+void rrc_nr::handle_rrc_release(const asn1::rrc_nr::rrc_release_s& msg)
 {
-  logger.info("RRC Release not handled yet");
+  logger.info("Received RRC Release");
+  srsran::console("Received RRC Release\n");
+
+  rrc_release();
 }
 
 // Security helper used by Security Mode Command and Mobility handling routines

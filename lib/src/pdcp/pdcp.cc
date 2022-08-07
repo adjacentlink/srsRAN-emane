@@ -120,7 +120,7 @@ int pdcp::add_bearer(uint32_t lcid, const pdcp_config_t& cfg)
   if (cfg.rat == srsran::srsran_rat_t::lte) {
     entity.reset(new pdcp_entity_lte{rlc, rrc, gw, task_sched, logger, lcid});
   } else if (cfg.rat == srsran::srsran_rat_t::nr) {
-    entity.reset(new pdcp_entity_lte{rlc, rrc, gw, task_sched, logger, lcid});
+    entity.reset(new pdcp_entity_nr{rlc, rrc, gw, task_sched, logger, lcid});
   }
 
   if (not entity->configure(cfg)) {

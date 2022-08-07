@@ -1,11 +1,18 @@
 srsRAN-emane
 
+<<<<<<< HEAD
 srsRAN-emane is a derivative project of
 [srsRAN](https://github.com/srsRAN). In conjunction with the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git),
 srsRAN-emane enables emulating an LTE network in
 [EMANE](https://github.com/adjacentlink/emane.git) on a laptop,
 desktop or other dedicated computer resources. Software Defined Radio
 (SDR) hardware is not required.
+=======
+[![Build Status](https://github.com/srsran/srsRAN/actions/workflows/ccpp.yml/badge.svg?branch=master)](https://github.com/srsran/srsRAN/actions)
+[![Build Status](https://app.travis-ci.com/srsran/srsRAN.svg?branch=master)](https://app.travis-ci.com/github/srsran/srsRAN)
+[![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/srsran/srsRAN.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/srsran/srsRAN/context:cpp)
+[![Coverity](https://scan.coverity.com/projects/23045/badge.svg)](https://scan.coverity.com/projects/srsran)
+>>>>>>> ce8a3cae171f08c9bce83ae3611e56f2d168d073
 
 The srsRAN LTE applications, `srsenb`, `srsue`, `srsepc` and
 `srsmbms`, are adapted to send RF traffic through the EMANE emulation

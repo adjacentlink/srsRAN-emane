@@ -532,7 +532,6 @@ int cc_worker::encode_pdcch_ul(stack_interface_phy_lte::ul_sched_grant_t* grants
         }
       }
 
-
 #ifndef PHY_ADAPTER_ENABLE
       if (srsran_enb_dl_put_pdcch_ul(&enb_dl, &dci_cfg, &grants[i].dci)) {
 #else

@@ -285,6 +285,7 @@ void parse_args(all_args_t* args, int argc, char* argv[])
     ("scheduler.nr_pusch_mcs", bpo::value<int>(&args->nr_stack.mac.sched_cfg.fixed_ul_mcs)->default_value(28), "Fixed NR UL MCS (-1 for dynamic).")
     ("expert.nr_pusch_max_its", bpo::value<uint32_t>(&args->phy.nr_pusch_max_its)->default_value(10),     "Maximum number of LDPC iterations for NR.")
 
+    // EMANE
     ("runtime.daemonize", 
       bpo::value<bool>(&args->runtime.daemonize)->default_value(false),
        "Run this process as a daemon")

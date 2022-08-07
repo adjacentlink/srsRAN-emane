@@ -90,7 +90,7 @@ private:
 
   const static int MAX_WORKERS = 4;
 
-  // Change thread priorities all to 1 to improve performance
+  // ALINK Change thread priorities all to 1 to improve performance
   // when running in a cpu mapped container
   const static int PRACH_WORKER_THREAD_PRIO = 1;
   const static int SF_RECV_THREAD_PRIO      = 1;
