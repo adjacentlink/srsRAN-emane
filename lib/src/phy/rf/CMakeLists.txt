@@ -138,7 +138,6 @@ if(RF_FOUND)
   target_link_libraries(srsran_rf_dummy srsran_rf_utils_emane srsran_phy)
   install(TARGETS srsran_rf_dummy DESTINATION ${LIBRARY_DIR} OPTIONAL)
 
-
   # Add sources of file-based RF directly to the RF library (not as a plugin)
   list(APPEND SOURCES_RF rf_file_imp.c rf_file_imp_tx.c rf_file_imp_rx.c)
 

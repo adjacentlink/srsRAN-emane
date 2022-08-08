@@ -167,6 +167,7 @@ void parse_args(all_args_t* args, int argc, char* argv[])
 
     ("log.filename", bpo::value<string>(&args->log_args.filename)->default_value("/tmp/epc.log"),"Log filename")
 
+    // EMANE
     ("runtime.daemonize",   
       bpo::value<bool>(&args->runtime.daemonize)->default_value(false),
        "Run this process as a daemon")
