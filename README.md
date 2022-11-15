@@ -22,7 +22,7 @@ or collected automatically using
 [OpenTestPoint LTE Probe](https://github.com/adjacentlink/opentestpoint-probe-lte).
 
 srsRAN-emane is released under the AGPLv3 license. The current stable
-version is 21.10, the first release based on srsRAN 21.10.
+version is 22.04, the first release based on srsRAN 22.04.
 
 ---
 ## Build Instructions
