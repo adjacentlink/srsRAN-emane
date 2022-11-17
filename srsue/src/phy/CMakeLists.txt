@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2021 Software Radio Systems Limited
+# Copyright 2013-2022 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -24,7 +24,7 @@ file(GLOB_RECURSE SOURCES "*.cc")
 add_library(srsue_phy STATIC ${SOURCES})
 
 if(ENABLE_GUI AND SRSGUI_FOUND)
-    target_link_libraries(srsue_phy ${SRSGUI_LIBRARIES})
+  target_link_libraries(srsue_phy ${SRSGUI_LIBRARIES})
 endif(ENABLE_GUI AND SRSGUI_FOUND)
 
 target_link_libraries(srsue_phy ${emanelte_LIBRARIES} ${protobuf_LIBRARIES} ${ostatistic_LIBRARIES})

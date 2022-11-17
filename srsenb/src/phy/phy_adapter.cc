@@ -1388,8 +1388,8 @@ int enb_ul_cc_get_pucch(srsran_enb_ul_t*    q,
                                                                cc_idx,
                                                                txCarrierId);
 
-                 q->chest_res.snr_db             = sinrResult.sinr_dB_;
-                 q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
+                 q->chest_res.snr_db              = sinrResult.sinr_dB_;
+                 q->chest_res.noise_estimate_dbFs = sinrResult.noiseFloor_dBm_;
 
                  const auto & uci_message = grant.uci();
                  const auto uci_data = (srsran_uci_value_t *) uci_message.data();
@@ -1522,8 +1522,8 @@ int enb_ul_cc_get_pusch(srsran_enb_ul_t*    q,
                                                                cc_idx,
                                                                txCarrierId);
 
-                 q->chest_res.snr_db             = sinrResult.sinr_dB_;
-                 q->chest_res.noise_estimate_dbm = sinrResult.noiseFloor_dBm_;
+                 q->chest_res.snr_db              = sinrResult.sinr_dB_;
+                 q->chest_res.noise_estimate_dbFs = sinrResult.noiseFloor_dBm_;
 
                  const auto & uci_message = grant.uci();
                  const auto uci_data = (srsran_uci_value_t *) uci_message.data();

@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2021 Software Radio Systems Limited
+ * Copyright 2013-2022 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -75,6 +75,7 @@ public:
   void get_metrics(std::vector<phy_metrics_t>& metrics) override;
 
   void cmd_cell_gain(uint32_t cell_id, float gain_db) override;
+  void cmd_cell_measure() override;
 
   void radio_overflow() override{};
   void radio_failure() override{};
@@ -89,7 +90,7 @@ private:
 
   const static int MAX_WORKERS = 4;
 
-  // Change thread priorities all to 1 to improve performance
+  // ALINK Change thread priorities all to 1 to improve performance
   // when running in a cpu mapped container
   const static int PRACH_WORKER_THREAD_PRIO = 1;
   const static int SF_RECV_THREAD_PRIO      = 1;

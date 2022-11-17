@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2021 Software Radio Systems Limited
+ * Copyright 2013-2022 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -31,6 +31,7 @@
 #include <string>
 
 #include "srsenb/hdr/stack/rrc/rrc.h"
+#include "srsgnb/hdr/stack/rrc/rrc_nr_config.h"
 #include "srsran/asn1/asn1_utils.h"
 
 namespace srsenb {
@@ -50,6 +51,8 @@ int parse_cell_cfg(all_args_t* args_, srsran_cell_t* cell);
 int parse_cfg_files(all_args_t* args_, rrc_cfg_t* rrc_cfg_, rrc_nr_cfg_t* rrc_cfg_nr_, phy_cfg_t* phy_cfg_);
 int set_derived_args(all_args_t* args_, rrc_cfg_t* rrc_cfg_, phy_cfg_t* phy_cfg_, const srsran_cell_t& cell_cfg_);
 int set_derived_args_nr(all_args_t* args_, rrc_nr_cfg_t* rrc_nr_cfg_, phy_cfg_t* phy_cfg_);
+bool        is_valid_arfcn(uint32_t band, uint32_t dl_arfcn);
+std::string valid_arfcns_to_string(uint32_t band);
 
 } // namespace enb_conf_sections
 
@@ -60,6 +63,8 @@ int parse_sib1(std::string filename, asn1::rrc::sib_type1_s* data);
 int parse_sib2(std::string filename, asn1::rrc::sib_type2_s* data);
 int parse_sib3(std::string filename, asn1::rrc::sib_type3_s* data);
 int parse_sib4(std::string filename, asn1::rrc::sib_type4_s* data);
+int parse_sib5(std::string filename, asn1::rrc::sib_type5_s* data);
+int parse_sib6(std::string filename, asn1::rrc::sib_type6_s* data);
 int parse_sib7(std::string filename, asn1::rrc::sib_type7_s* data);
 int parse_sib9(std::string filename, asn1::rrc::sib_type9_s* data);
 int parse_sib13(std::string filename, asn1::rrc::sib_type13_r9_s* data);
@@ -67,11 +72,12 @@ int parse_sibs(all_args_t* args_, rrc_cfg_t* rrc_cfg_, srsenb::phy_cfg_t* phy_co
 
 } // namespace sib_sections
 
-// drb.conf parsing
-namespace drb_sections {
+// rb.conf parsing
+namespace rb_sections {
 
-int parse_drb(all_args_t* args, rrc_cfg_t* rrc_cfg);
-} // namespace drb_sections
+int parse_rb(all_args_t* args, rrc_cfg_t* rrc_cfg, rrc_nr_cfg_t* rrc_nr_cfg);
+
+} // namespace rb_sections
 
 // rr.conf parsing
 namespace rr_sections {
@@ -145,6 +151,61 @@ private:
   asn1::rrc::sib_type4_s* data;
 };
 
+class field_inter_freq_carrier_freq_list final : public parser::field_itf
+{
+public:
+  explicit field_inter_freq_carrier_freq_list(asn1::rrc::sib_type5_s* data_) { data = data_; }
+  int         parse(Setting& root) override;
+  const char* get_name() override { return "inter_freq_carrier_freq_list"; }
+
+private:
+  asn1::rrc::sib_type5_s* data;
+};
+
+class field_inter_freq_neigh_cell_list final : public parser::field_itf
+{
+public:
+  explicit field_inter_freq_neigh_cell_list(asn1::rrc::inter_freq_carrier_freq_info_s* data_) { data = data_; }
+  int         parse(Setting& root) override;
+  const char* get_name() override { return "inter_freq_neigh_cell_list"; }
+
+private:
+  asn1::rrc::inter_freq_carrier_freq_info_s* data;
+};
+
+class field_inter_freq_black_cell_list final : public parser::field_itf
+{
+public:
+  explicit field_inter_freq_black_cell_list(asn1::rrc::inter_freq_carrier_freq_info_s* data_) { data = data_; }
+  int         parse(Setting& root) override;
+  const char* get_name() override { return "inter_freq_black_cell_list"; }
+
+private:
+  asn1::rrc::inter_freq_carrier_freq_info_s* data;
+};
+
+class field_carrier_freq_list_utra_fdd final : public parser::field_itf
+{
+public:
+  explicit field_carrier_freq_list_utra_fdd(asn1::rrc::sib_type6_s* data_) { data = data_; }
+  int         parse(Setting& root) override;
+  const char* get_name() override { return "carrier_freq_list_utra_fdd"; }
+
+private:
+  asn1::rrc::sib_type6_s* data;
+};
+
+class field_carrier_freq_list_utra_tdd final : public parser::field_itf
+{
+public:
+  explicit field_carrier_freq_list_utra_tdd(asn1::rrc::sib_type6_s* data_) { data = data_; }
+  int         parse(Setting& root) override;
+  const char* get_name() override { return "carrier_freq_list_utra_tdd"; }
+
+private:
+  asn1::rrc::sib_type6_s* data;
+};
+
 class field_carrier_freqs_info_list final : public parser::field_itf
 {
 public:
@@ -190,7 +251,7 @@ class field_qci final : public parser::field_itf
 {
 public:
   explicit field_qci(std::map<uint32_t, rrc_cfg_qci_t>& cfg_) : cfg(cfg_) {}
-  const char* get_name() override { return "field_cqi"; }
+  const char* get_name() override { return "field_qci"; }
 
   int parse(Setting& root) override;
 
@@ -198,6 +259,29 @@ private:
   std::map<uint32_t, rrc_cfg_qci_t>& cfg;
 };
 
+class field_5g_srb final : public parser::field_itf
+{
+public:
+  explicit field_5g_srb(srb_5g_cfg_t& cfg_) : cfg(cfg_) {}
+  const char* get_name() override { return "field_5g_srb"; }
+
+  int parse(Setting& root) override;
+
+private:
+  srb_5g_cfg_t& cfg;
+};
+
+class field_five_qi final : public parser::field_itf
+{
+public:
+  explicit field_five_qi(std::map<uint32_t, rrc_nr_cfg_five_qi_t>& cfg_) : cfg(cfg_) {}
+  const char* get_name() override { return "field_five_qi"; }
+
+  int parse(Setting& root) override;
+
+private:
+  std::map<uint32_t, rrc_nr_cfg_five_qi_t>& cfg;
+};
 // ASN1 parsers
 
 class field_asn1 : public parser::field_itf

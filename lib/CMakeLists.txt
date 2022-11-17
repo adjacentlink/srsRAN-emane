@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2021 Software Radio Systems Limited
+# Copyright 2013-2022 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -29,6 +29,7 @@ add_subdirectory(test)
 ########################################################################
 # Install library headers
 ########################################################################
+#ALINK limited install
 #INSTALL(  DIRECTORY include/
 #          DESTINATION "${INCLUDE_DIR}"
 #          FILES_MATCHING PATTERN "*.h" )

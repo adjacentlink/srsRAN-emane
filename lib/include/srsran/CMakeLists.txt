@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2021 Software Radio Systems Limited
+# Copyright 2013-2022 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -23,6 +23,7 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 
+#ALINK limited install
 #INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/version.h
 #        DESTINATION "${INCLUDE_DIR}/srsran"
 #)

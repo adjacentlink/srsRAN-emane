@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2021 Software Radio Systems Limited
+ * Copyright 2013-2022 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -59,10 +59,11 @@ bool phy_common::init(const phy_cell_cfg_list_t&    cell_list_,
 
   // Instantiate DL channel emulator
   if (params.dl_channel_args.enable) {
+    int channel_prbs = (cell_list_lte.empty()) ? cell_list_nr[0].carrier.nof_prb : cell_list_lte[0].cell.nof_prb;
     dl_channel = srsran::channel_ptr(
         new srsran::channel(params.dl_channel_args, get_nof_rf_channels(), srslog::fetch_basic_logger("PHY")));
-    dl_channel->set_srate((uint32_t)srsran_sampling_freq_hz(cell_list_lte[0].cell.nof_prb));
-    dl_channel->set_signal_power_dBfs(srsran_enb_dl_get_maximum_signal_power_dBfs(cell_list_lte[0].cell.nof_prb));
+    dl_channel->set_srate((uint32_t)srsran_sampling_freq_hz(channel_prbs));
+    dl_channel->set_signal_power_dBfs(srsran_enb_dl_get_maximum_signal_power_dBfs(channel_prbs));
   }
 
   // Create grants
@@ -71,9 +72,11 @@ bool phy_common::init(const phy_cell_cfg_list_t&    cell_list_,
   }
 
   // Set UE PHY data-base stack and configuration
-  ue_db.init(stack, params, cell_list_lte);
+  if (!cell_list_lte.empty()) {
+    ue_db.init(stack, params, cell_list_lte);
+  }
 
-  sleep(2); // ALINK added to help with mbsfn config race condition with rrc mbsfn config
+ sleep(2); // ALINK added to help with mbsfn config race condition with rrc mbsfn config
 
   if (mcch_configured) {
     build_mch_table();
@@ -162,7 +165,7 @@ void phy_common::worker_end(const worker_context_t& w_ctx, const bool& tx_enable
 
 #ifndef PHY_ADAPTER_ENABLE
   // Always transmit on single radio
-  radio->tx(buffer, tx_time);
+  radio->tx(tx_buffer, tx_time);
 
   // Reset transmit buffer
   tx_buffer = {};

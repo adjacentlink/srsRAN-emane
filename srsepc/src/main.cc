@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2021 Software Radio Systems Limited
+ * Copyright 2013-2022 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -109,6 +109,7 @@ void parse_args(all_args_t* args, int argc, char* argv[])
   string   hss_db_file;
   string   hss_auth_algo;
   string   log_filename;
+  string   lac;
 
   // Command line only options
   bpo::options_description general("General options");
@@ -136,6 +137,7 @@ void parse_args(all_args_t* args, int argc, char* argv[])
     ("mme.integrity_algo",  bpo::value<string>(&integrity_algo)->default_value("EIA1"),      "Set preferred integrity protection algorithm for NAS")
     ("mme.paging_timer",    bpo::value<uint16_t>(&paging_timer)->default_value(2),           "Set paging timer value in seconds (T3413)")
     ("mme.request_imeisv",  bpo::value<bool>(&request_imeisv)->default_value(false),         "Enable IMEISV request in Security mode command")
+    ("mme.lac",             bpo::value<string>(&lac)->default_value("0x01"),                 "Location Area Code")
     ("hss.db_file",         bpo::value<string>(&hss_db_file)->default_value("ue_db.csv"),    ".csv file that stores UE's keys")
     ("spgw.gtpu_bind_addr", bpo::value<string>(&spgw_bind_addr)->default_value("127.0.0.1"), "IP address of SP-GW for the S1-U connection")
     ("spgw.sgi_if_addr",    bpo::value<string>(&sgi_if_addr)->default_value("176.16.0.1"),   "IP address of TUN interface for the SGi connection")
@@ -165,6 +167,7 @@ void parse_args(all_args_t* args, int argc, char* argv[])
 
     ("log.filename", bpo::value<string>(&args->log_args.filename)->default_value("/tmp/epc.log"),"Log filename")
 
+    // EMANE
     ("runtime.daemonize",   
       bpo::value<bool>(&args->runtime.daemonize)->default_value(false),
        "Run this process as a daemon")
@@ -246,6 +249,11 @@ void parse_args(all_args_t* args, int argc, char* argv[])
     std::stringstream sstr;
     sstr << std::hex << vm["mme.tac"].as<std::string>();
     sstr >> args->mme_args.s1ap_args.tac;
+  }
+  {
+    std::stringstream sstr;
+    sstr << std::hex << vm["mme.lac"].as<std::string>();
+    sstr >> args->mme_args.s1ap_args.lac;
   }
 
   // Convert MCC/MNC strings
@@ -409,7 +417,7 @@ int main(int argc, char* argv[])
 
   srsran_debug_handle_crash(argc, argv);
 
-  all_args_t args;
+  all_args_t args = {};
   parse_args(&args, argc, argv);
 
   if(args.runtime.daemonize) {

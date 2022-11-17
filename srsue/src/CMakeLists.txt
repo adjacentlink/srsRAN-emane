@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2021 Software Radio Systems Limited
+# Copyright 2013-2022 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -40,10 +40,10 @@ set(SRSUE_SOURCES ${SRSUE_SOURCES} srsue_nr_stack srsue_rrc_nr srsue_mac_nr)
 set(SRSRAN_SOURCES ${SRSRAN_SOURCES} rrc_nr_asn1 ngap_nr_asn1)
 
 target_link_libraries(srsue-emane   ${SRSUE_SOURCES}
-                                    ${SRSRAN_SOURCES}
-                                    ${CMAKE_THREAD_LIBS_INIT}
-                                    ${Boost_LIBRARIES}
-                                    ${ATOMIC_LIBS})
+                              ${SRSRAN_SOURCES}
+                              ${CMAKE_THREAD_LIBS_INIT}
+                              ${Boost_LIBRARIES}
+                              ${ATOMIC_LIBS})
 
 if (RPATH)
   set_target_properties(srsue-emane PROPERTIES INSTALL_RPATH ".")
@@ -76,4 +76,4 @@ else(NOT ${BUILDUE_CMD} STREQUAL "")
   message(STATUS "No post-build-UE command defined")
 endif (NOT ${BUILDUE_CMD} STREQUAL "")
 
-install(TARGETS srsue-emane DESTINATION ${RUNTIME_DIR})
+install(TARGETS srsue-emane DESTINATION ${RUNTIME_DIR} OPTIONAL)

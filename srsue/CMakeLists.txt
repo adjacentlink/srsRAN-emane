@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2021 Software Radio Systems Limited
+# Copyright 2013-2022 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -47,4 +47,5 @@ add_subdirectory(src)
 ########################################################################
 # Default configuration files
 ########################################################################
+#ALINK limited install
 #install(FILES ue.conf.example DESTINATION ${DATA_DIR})
