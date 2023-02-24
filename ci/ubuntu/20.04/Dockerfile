@@ -18,8 +18,8 @@ COPY --from=gcr.io/automated-builds-303920/ubuntu20.04.emane-model-lte /opt/buil
 RUN dpkg -i dependencies/*; apt-get -y -f install
 
 # Build tools and dependencies
-RUN apt-get -y install git gcc g++ debhelper dh-python pkg-config python-setuptools \
-                       protobuf-compiler libprotobuf-dev python-protobuf
+RUN apt-get -y install git gcc g++ debhelper dh-python pkg-config python3-setuptools \
+                       protobuf-compiler libprotobuf-dev python3-protobuf
 RUN apt-get -y install libxml2-dev libpcap-dev libpcre3-dev uuid-dev
 RUN apt-get -y install cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
 
