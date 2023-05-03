@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -74,11 +74,12 @@ bool phy_common::init(const phy_cell_cfg_list_t&    cell_list_,
     ue_db.init(stack, params, cell_list_lte);
   }
 
- sleep(2); // ALINK added to help with mbsfn config race condition with rrc mbsfn config
-
-  if (mcch_configured) {
-    build_mch_table();
-    build_mcch_table();
+  {
+    std::lock_guard<std::mutex> lock(mbsfn_mutex);
+    if (mcch_configured) {
+      build_mch_table();
+      build_mcch_table();
+    }
   }
 
   reset();
@@ -187,6 +188,7 @@ void phy_common::set_mch_period_stop(uint32_t stop)
 
 void phy_common::configure_mbsfn(srsran::phy_cfg_mbsfn_t* cfg)
 {
+  std::lock_guard<std::mutex> lock(mbsfn_mutex);
   mbsfn            = *cfg;
   sib13_configured = true;
   mcch_configured  = true;
