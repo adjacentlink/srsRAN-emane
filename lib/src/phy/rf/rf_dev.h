@@ -82,6 +82,7 @@ static srsran_rf_plugin_t plugin_dummy = {"libsrsran_rf_dummy.so", NULL, NULL};
 #else
 #include "rf_dummy_imp.h"
 static srsran_rf_plugin_t plugin_dummy = {"", NULL, &srsran_rf_dev_dummy};
+
 #endif
 
 /**

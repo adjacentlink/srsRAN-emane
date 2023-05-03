@@ -57,8 +57,7 @@ nas::nas(srslog::basic_logger& logger_, srsran::task_sched_handle task_sched_) :
   t3421(task_sched_.get_unique_timer()),
   reattach_timer(task_sched_.get_unique_timer()),
   airplane_mode_sim_timer(task_sched_.get_unique_timer())
-{
-}
+{}
 
 int nas::init(usim_interface_nas* usim_, rrc_interface_nas* rrc_, gw_interface_nas* gw_, const nas_args_t& cfg_)
 {
@@ -424,9 +423,7 @@ bool nas::connection_request_completed(bool outcome)
     if (state.get_state() == emm_state_t::state_t::service_request_initiated) {
       srsran::console("Service Request successful.\n");
       logger.info("Service Request successful.");
-
       rrc->paging_completed(true);
-      ctxt_base.tx_count++;
       state.set_registered(emm_state_t::registered_substate_t::normal_service);
     }
   } else {
@@ -692,6 +689,7 @@ void nas::select_plmn()
   }
 }
 
+
 bool nas::check_cap_replay(LIBLTE_MME_UE_SECURITY_CAPABILITIES_STRUCT* caps)
 {
   for (uint32_t i = 0; i < 8; i++) {
@@ -867,8 +865,11 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
 
       // Setup GW
       char* err_str = nullptr;
-      if (gw->setup_if_addr(
-              act_def_eps_bearer_context_req.eps_bearer_id, LIBLTE_MME_PDN_TYPE_IPV4, ip_addr, nullptr, err_str)) {
+      if (gw->setup_if_addr(act_def_eps_bearer_context_req.eps_bearer_id,
+                            LIBLTE_MME_PDN_TYPE_IPV4,
+                            ip_addr,
+                            nullptr,
+                            err_str)) {
         logger.error("%s - %s", gw_setup_failure_str.c_str(), err_str ? err_str : "");
         srsran::console("%s\n", gw_setup_failure_str.c_str());
       }
@@ -896,8 +897,11 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
                       act_def_eps_bearer_context_req.pdn_addr.addr[7]);
       // Setup GW
       char* err_str = nullptr;
-      if (gw->setup_if_addr(
-              act_def_eps_bearer_context_req.eps_bearer_id, LIBLTE_MME_PDN_TYPE_IPV6, 0, ipv6_if_id, err_str)) {
+      if (gw->setup_if_addr(act_def_eps_bearer_context_req.eps_bearer_id,
+                            LIBLTE_MME_PDN_TYPE_IPV6,
+                            0,
+                            ipv6_if_id,
+                            err_str)) {
         logger.error("%s - %s", gw_setup_failure_str.c_str(), err_str);
         srsran::console("%s\n", gw_setup_failure_str.c_str());
       }
@@ -943,8 +947,11 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
                       act_def_eps_bearer_context_req.pdn_addr.addr[11]);
 
       char* err_str = nullptr;
-      if (gw->setup_if_addr(
-              act_def_eps_bearer_context_req.eps_bearer_id, LIBLTE_MME_PDN_TYPE_IPV4V6, ip_addr, ipv6_if_id, err_str)) {
+      if (gw->setup_if_addr(act_def_eps_bearer_context_req.eps_bearer_id,
+                            LIBLTE_MME_PDN_TYPE_IPV4V6,
+                            ip_addr,
+                            ipv6_if_id,
+                            err_str)) {
         logger.error("%s - %s", gw_setup_failure_str.c_str(), err_str);
         srsran::console("%s\n", gw_setup_failure_str.c_str());
       }
@@ -1189,7 +1196,7 @@ void nas::parse_security_mode_command(uint32_t lcid, unique_byte_buffer_t pdu)
   if (auth_request) {
     ctxt_base.rx_count = 0;
     ctxt_base.tx_count = 0;
-    auth_request       = false;
+    auth_request  = false;
   }
 
   ctxt_base.cipher_algo = (CIPHERING_ALGORITHM_ID_ENUM)sec_mode_cmd.selected_nas_sec_algs.type_of_eea;
@@ -1667,6 +1674,7 @@ void nas::gen_service_request(srsran::unique_byte_buffer_t& msg)
     pcap->write_nas(msg->msg, msg->N_bytes);
   }
   set_k_enb_count(ctxt_base.tx_count);
+  ctxt_base.tx_count++;
 }
 
 void nas::gen_pdn_connectivity_request(LIBLTE_BYTE_MSG_STRUCT* msg)

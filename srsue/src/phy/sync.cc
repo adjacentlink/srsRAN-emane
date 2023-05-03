@@ -290,7 +290,7 @@ rrc_interface_phy_lte::cell_search_ret_t sync::cell_search_start(phy_cell_t* fou
   }
 
   cellsearch_earfcn_index++;
-  if (cellsearch_earfcn_index >= worker_com->args->dl_earfcn_list.size() or earfcn == 0) {
+  if (cellsearch_earfcn_index >= worker_com->args->dl_earfcn_list.size() or earfcn < 0) {
     Info("Cell Search: No more frequencies in the current EARFCN set");
     cellsearch_earfcn_index = 0;
     ret.last_freq           = rrc_interface_phy_lte::cell_search_ret_t::NO_MORE_FREQS;
