@@ -74,6 +74,8 @@ bool phy_common::init(const phy_cell_cfg_list_t&    cell_list_,
     ue_db.init(stack, params, cell_list_lte);
   }
 
+  sleep(2); // ALINK added to help with mbsfn config race condition with rrc mbsfn config: see srsRAN issue #773
+
   {
     std::lock_guard<std::mutex> lock(mbsfn_mutex);
     if (mcch_configured) {
