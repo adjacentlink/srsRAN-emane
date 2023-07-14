@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -37,7 +37,7 @@
 
 static int get_fftw_wisdom_file(char* full_path, uint32_t n)
 {
-  char buf[4096];
+  char buf[4096] = {0};
   const char* fftdir = NULL;
 
   if ((fftdir = getenv("DOT_FFTW_WISDOM_PATH")) != NULL) {
@@ -62,7 +62,7 @@ static pthread_mutex_t fft_mutex = PTHREAD_MUTEX_INITIALIZER;
 __attribute__((constructor)) static void srsran_dft_load()
 {
 #ifdef FFTW_WISDOM_FILE
-  char full_path[4096];
+  char full_path[4096] = {0};
   get_fftw_wisdom_file(full_path, sizeof(full_path));
   INFO("Try to load fft_wisdom_file %s\n", full_path);
   // lockf needs a file descriptor open for writing, so this must be r+
@@ -91,7 +91,7 @@ __attribute__((constructor)) static void srsran_dft_load()
 __attribute__((destructor)) void srsran_dft_exit()
 {
 #ifdef FFTW_WISDOM_FILE
-  char full_path[4096];
+  char full_path[4096] = {0};
   get_fftw_wisdom_file(full_path, sizeof(full_path));
   FILE* fd = fopen(full_path, "w");
   if (fd == NULL) {
