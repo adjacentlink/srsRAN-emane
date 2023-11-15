@@ -226,7 +226,7 @@ public:
       return *this;
     }
     resize(other.size());
-    std::copy(&other[0], &other[size_], data_);
+    std::copy_n(&other[0], other.size(), data_);
     return *this;
   }
   void resize(uint32_t new_size, uint32_t new_cap = 0)
@@ -245,7 +245,8 @@ public:
       data_ = new T[cap_];
       if (old_data != NULL) {
         srsran_assert(cap_ > size_, "Old size larger than new capacity in dyn_array\n");
-        std::copy(&old_data[0], &old_data[size_], data_);
+        // We are growing -- copy all old_data to new data_ object
+        std::copy_n(&old_data[0], size_ < new_size ? size_ : new_size, data_);
       }
     } else {
       data_ = NULL;
