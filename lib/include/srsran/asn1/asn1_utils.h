@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -141,7 +141,8 @@ public:
   bit_ref_impl() = default;
   bit_ref_impl(Ptr start_ptr_, uint32_t max_size_) :
     ptr(start_ptr_), start_ptr(start_ptr_), max_ptr(max_size_ + start_ptr_)
-  {}
+  {
+  }
 
   int distance(const bit_ref_impl<Ptr>& other) const;
   int distance(const uint8_t* ref_ptr) const;
@@ -225,7 +226,7 @@ public:
       return *this;
     }
     resize(other.size());
-    std::copy(&other[0], &other[size_], data_);
+    std::copy_n(&other[0], other.size(), data_);
     return *this;
   }
   void resize(uint32_t new_size, uint32_t new_cap = 0)
@@ -244,7 +245,8 @@ public:
       data_ = new T[cap_];
       if (old_data != NULL) {
         srsran_assert(cap_ > size_, "Old size larger than new capacity in dyn_array\n");
-        std::copy(&old_data[0], &old_data[size_], data_);
+        // We are growing -- copy all old_data to new data_ object
+        std::copy_n(&old_data[0], size_ < new_size ? size_ : new_size, data_);
       }
     } else {
       data_ = NULL;
@@ -1286,7 +1288,8 @@ struct choice_buffer_base_t {
 
 template <typename... Ts>
 struct choice_buffer_t : public choice_buffer_base_t<static_max<sizeof(alignment_t), sizeof(Ts)...>::value,
-                                                     static_max<alignof(alignment_t), alignof(Ts)...>::value> {};
+                                                     static_max<alignof(alignment_t), alignof(Ts)...>::value> {
+};
 
 using pod_choice_buffer_t = choice_buffer_t<>;
 
@@ -1548,6 +1551,11 @@ struct setup_release_c {
     return c;
   }
 
+  bool operator==(const setup_release_c<T>& other) const
+  {
+    return type_ == other.type_ and (type_ != types::setup or (c == other.c));
+  }
+
 private:
   types type_;
   T     c;
@@ -1654,15 +1662,18 @@ struct base_ie_field : public IEItem {
 
 // ProtocolIE-Field{LAYER-PROTOCOL-IES : IEsSetParam} ::= SEQUENCE{{IEsSetParam}}
 template <class IEsSetParam>
-struct protocol_ie_field_s : public detail::base_ie_field<detail::ie_field_value_item<IEsSetParam> > {};
+struct protocol_ie_field_s : public detail::base_ie_field<detail::ie_field_value_item<IEsSetParam> > {
+};
 
 // ProtocolIE-SingleContainer{LAYER-PROTOCOL-IES : IEsSetParam} ::= SEQUENCE{{IEsSetParam}}
 template <class ies_set_paramT_>
-struct protocol_ie_single_container_s : public protocol_ie_field_s<ies_set_paramT_> {};
+struct protocol_ie_single_container_s : public protocol_ie_field_s<ies_set_paramT_> {
+};
 
 // ProtocolExtensionField{LAYER-PROTOCOL-EXTENSION : ExtensionSetParam} ::= SEQUENCE{{LAYER-PROTOCOL-EXTENSION}}
 template <class ExtensionSetParam>
-struct protocol_ext_field_s : public detail::base_ie_field<detail::ie_field_ext_item<ExtensionSetParam> > {};
+struct protocol_ext_field_s : public detail::base_ie_field<detail::ie_field_ext_item<ExtensionSetParam> > {
+};
 
 namespace detail {
 

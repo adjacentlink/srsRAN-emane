@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -79,6 +79,39 @@ bool sib_is_present(const sched_info_list_l& l, sib_type_e sib_num)
   return false;
 }
 
+int field_additional_plmns::parse(libconfig::Setting& root)
+{
+  if (root.getLength() > ASN1_RRC_MAX_PLMN_MINUS1_R14) {
+    ERROR("PLMN-IdentityList cannot have more than %d entries", ASN1_RRC_MAX_PLMN_R11);
+    return SRSRAN_ERROR;
+  }
+  // Reserve the first place to the primary PLMN, see "SystemInformationBlockType1 field descriptions" in TS 36.331
+  data->plmn_id_list.resize((uint32_t)root.getLength() + 1);
+  for (uint32_t i = 0; i < data->plmn_id_list.size() - 1; i++) {
+    std::string mcc_str, mnc_str;
+    if (!root[i].lookupValue("mcc", mcc_str)) {
+      ERROR("Missing field mcc in additional_plmn=%d\n", i);
+      return SRSRAN_ERROR;
+    }
+
+    if (!root[i].lookupValue("mnc", mnc_str)) {
+      ERROR("Missing field mnc in additional_plmn=%d\n", i);
+      return SRSRAN_ERROR;
+    }
+
+    srsran::plmn_id_t plmn;
+    if (plmn.from_string(mcc_str + mnc_str) == SRSRAN_ERROR) {
+      ERROR("Could not convert %s to a plmn_id in additional_plmn=%d", (mcc_str + mnc_str).c_str(), i);
+      return SRSRAN_ERROR;
+    }
+    srsran::to_asn1(&data->plmn_id_list[i + 1].plmn_id, plmn);
+    if (not parse_enum_by_str(data->plmn_id_list[i + 1].cell_reserved_for_oper, "cell_reserved_for_oper", root[i])) {
+      data->plmn_id_list[i + 1].cell_reserved_for_oper = plmn_id_info_s::cell_reserved_for_oper_e_::not_reserved;
+    }
+  }
+  return 0;
+}
+
 int field_sched_info::parse(libconfig::Setting& root)
 {
   data->sched_info_list.resize((uint32_t)root.getLength());
@@ -132,21 +165,21 @@ int field_intra_neigh_cell_list::parse(libconfig::Setting& root)
 
 int field_intra_black_cell_list::parse(libconfig::Setting& root)
 {
-  data->intra_freq_black_cell_list.resize((uint32_t)root.getLength());
-  data->intra_freq_black_cell_list_present = data->intra_freq_black_cell_list.size() > 0;
-  for (uint32_t i = 0; i < data->intra_freq_black_cell_list.size() && i < ASN1_RRC_MAX_CELL_BLACK; i++) {
-    if (not parse_enum_by_number(data->intra_freq_black_cell_list[i].range, "range", root[i])) {
-      fprintf(stderr, "Missing field range in black_cell=%d\n", i);
+  data->intra_freq_excluded_cell_list.resize((uint32_t)root.getLength());
+  data->intra_freq_excluded_cell_list_present = data->intra_freq_excluded_cell_list.size() > 0;
+  for (uint32_t i = 0; i < data->intra_freq_excluded_cell_list.size() && i < ASN1_RRC_MAX_EXCLUDED_CELL; i++) {
+    if (not parse_enum_by_number(data->intra_freq_excluded_cell_list[i].range, "range", root[i])) {
+      fprintf(stderr, "Missing field range in excluded_cell=%d\n", i);
       return SRSRAN_ERROR;
     }
-    data->intra_freq_black_cell_list[i].range_present = true;
+    data->intra_freq_excluded_cell_list[i].range_present = true;
 
     int start = 0;
     if (!root[i].lookupValue("start", start)) {
-      fprintf(stderr, "Missing field start in black_cell=%d\n", i);
+      fprintf(stderr, "Missing field start in excluded_cell=%d\n", i);
       return SRSRAN_ERROR;
     }
-    data->intra_freq_black_cell_list[i].start = (uint16)start;
+    data->intra_freq_excluded_cell_list[i].start = (uint16)start;
   }
   return 0;
 }
@@ -264,7 +297,7 @@ int field_inter_freq_neigh_cell_list::parse(libconfig::Setting& root)
 {
   data->inter_freq_neigh_cell_list.resize((uint32_t)root.getLength());
   data->inter_freq_neigh_cell_list_present = data->inter_freq_neigh_cell_list.size() > 0;
-  for (uint32_t i = 0; i < data->inter_freq_neigh_cell_list.size() && i < ASN1_RRC_MAX_CELL_BLACK; i++) {
+  for (uint32_t i = 0; i < data->inter_freq_neigh_cell_list.size() && i < ASN1_RRC_MAX_EXCLUDED_CELL; i++) {
     if (not parse_enum_by_number(data->inter_freq_neigh_cell_list[i].q_offset_cell, "q_offset_cell", root[i])) {
       ERROR("Missing field q_offset_cell in neigh_cell=%d\n", i);
       return SRSRAN_ERROR;
@@ -282,21 +315,21 @@ int field_inter_freq_neigh_cell_list::parse(libconfig::Setting& root)
 
 int field_inter_freq_black_cell_list::parse(libconfig::Setting& root)
 {
-  data->inter_freq_black_cell_list.resize((uint32_t)root.getLength());
-  data->inter_freq_black_cell_list_present = data->inter_freq_black_cell_list.size() > 0;
-  for (uint32_t i = 0; i < data->inter_freq_black_cell_list.size() && i < ASN1_RRC_MAX_CELL_BLACK; i++) {
-    if (not parse_enum_by_number(data->inter_freq_black_cell_list[i].range, "range", root[i])) {
-      ERROR("Missing field range in black_cell=%d\n", i);
+  data->inter_freq_excluded_cell_list.resize((uint32_t)root.getLength());
+  data->inter_freq_excluded_cell_list_present = data->inter_freq_excluded_cell_list.size() > 0;
+  for (uint32_t i = 0; i < data->inter_freq_excluded_cell_list.size() && i < ASN1_RRC_MAX_EXCLUDED_CELL; i++) {
+    if (not parse_enum_by_number(data->inter_freq_excluded_cell_list[i].range, "range", root[i])) {
+      ERROR("Missing field range in excluded_cell=%d\n", i);
       return SRSRAN_ERROR;
     }
-    data->inter_freq_black_cell_list[i].range_present = true;
+    data->inter_freq_excluded_cell_list[i].range_present = true;
 
     unsigned int start = 0;
     if (!root[i].lookupValue("start", start)) {
-      ERROR("Missing field start in black_cell=%d\n", i);
+      ERROR("Missing field start in excluded_cell=%d\n", i);
       return SRSRAN_ERROR;
     }
-    data->inter_freq_black_cell_list[i].start = (uint16)start;
+    data->inter_freq_excluded_cell_list[i].start = (uint16)start;
   }
   return 0;
 }
@@ -1481,6 +1514,10 @@ static int parse_cell_list(all_args_t* args, rrc_cfg_t* rrc_cfg, Setting& root)
       HANDLEPARSERCODE(parse_meas_report_desc(&cell_cfg.meas_cfg, cellroot));
     }
 
+    if (cellroot.exists("barred") and cellroot["barred"]) {
+      cell_cfg.barred = true;
+    }
+
     if (cellroot.exists("scell_list")) {
       HANDLEPARSERCODE(parse_scell_list(cell_cfg, cellroot));
     }
@@ -2170,6 +2207,13 @@ int parse_sib1(std::string filename, sib_type1_s* data)
   sib1.add_field(make_asn1_enum_number_parser("si_window_length", &data->si_win_len));
   sib1.add_field(new parser::field<uint8_t>("system_info_value_tag", &data->sys_info_value_tag));
 
+  // additional_plmns subsection uses a custom field class
+  parser::section additional_plmns("additional_plmns");
+  sib1.add_subsection(&additional_plmns);
+  bool dummy_bool = true;
+  additional_plmns.set_optional(&dummy_bool);
+  additional_plmns.add_field(new field_additional_plmns(&data->cell_access_related_info));
+
   // sched_info subsection uses a custom field class
   parser::section sched_info("sched_info");
   sib1.add_subsection(&sched_info);
@@ -2603,7 +2647,10 @@ int parse_sibs(all_args_t* args_, rrc_cfg_t* rrc_cfg_, srsenb::phy_cfg_t* phy_co
     return SRSRAN_ERROR;
   }
   sib_type1_s::cell_access_related_info_s_* cell_access = &sib1->cell_access_related_info;
-  cell_access->plmn_id_list.resize(1);
+  // In case additional PLMNs were given, resizing will remove them
+  if (cell_access->plmn_id_list.size() == 0) {
+    cell_access->plmn_id_list.resize(1);
+  }
   srsran::plmn_id_t plmn;
   if (plmn.from_string(mcc_str + mnc_str) == SRSRAN_ERROR) {
     ERROR("Could not convert %s to a plmn_id", (mcc_str + mnc_str).c_str());

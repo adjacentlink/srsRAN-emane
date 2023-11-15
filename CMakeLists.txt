@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2022 Software Radio Systems Limited
+# Copyright 2013-2023 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -107,12 +107,14 @@ option(ENABLE_ALL_TEST       "Enable all unit/component test"           OFF)
 # (gcc-ar, gcc-nm, ...).
 option(BUILD_WITH_LTO        "Enable LTO (experimental)"                OFF)
 
-if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
-  set(GCC_ARCH armv8-a CACHE STRING "GCC compile for specific architecture.")
-  message(STATUS "Detected aarch64 processor")
-else(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
-  set(GCC_ARCH native CACHE STRING "GCC compile for specific architecture.")
-endif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+if(NOT GCC_ARCH)
+  if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+    set(GCC_ARCH armv8-a CACHE STRING "GCC compile for specific architecture.")
+    message(STATUS "Detected aarch64 processor")
+  else(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+    set(GCC_ARCH native CACHE STRING "GCC compile for specific architecture.")
+  endif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+endif()
 
 # On RAM constrained (embedded) systems it may be useful to limit parallel compilation with, e.g. -DPARALLEL_COMPILE_JOBS=1
 if (PARALLEL_COMPILE_JOBS)
@@ -182,29 +184,17 @@ else(USE_MKL)
 endif(USE_MKL)
 
 # Crypto
-find_package(Polarssl)
-if (POLARSSL_FOUND)
-  set(SEC_INCLUDE_DIRS "${POLARSSL_INCLUDE_DIRS}")
+find_package(MbedTLS REQUIRED)
+if (MBEDTLS_FOUND)
+  set(SEC_INCLUDE_DIRS "${MBEDTLS_INCLUDE_DIRS}")
   if(BUILD_STATIC)
-    set(SEC_LIBRARIES    "${POLARSSL_STATIC_LIBRARIES}")
+    set(SEC_LIBRARIES    "${MBEDTLS_STATIC_LIBRARIES}")
   else(BUILD_STATIC)
-    set(SEC_LIBRARIES    "${POLARSSL_LIBRARIES}")
+    set(SEC_LIBRARIES    "${MBEDTLS_LIBRARIES}")
   endif(BUILD_STATIC)
-  add_definitions(-DHAVE_POLARSSL)
-else(POLARSSL_FOUND)
-  find_package(MbedTLS REQUIRED)
-  if (MBEDTLS_FOUND)
-    set(SEC_INCLUDE_DIRS "${MBEDTLS_INCLUDE_DIRS}")
-    if(BUILD_STATIC)
-      set(SEC_LIBRARIES    "${MBEDTLS_STATIC_LIBRARIES}")
-    else(BUILD_STATIC)
-      set(SEC_LIBRARIES    "${MBEDTLS_LIBRARIES}")
-    endif(BUILD_STATIC)
-    add_definitions(-DHAVE_MBEDTLS)
-  else(MBEDTLS_FOUND)
-    message(FATAL_ERROR "Either PolarSSL or mbedTLS are required to build srsRAN")
-  endif (MBEDTLS_FOUND)
-endif(POLARSSL_FOUND)
+else(MBEDTLS_FOUND)
+  message(FATAL_ERROR "mbedTLS is required to build srsRAN")
+endif (MBEDTLS_FOUND)
 
 # Hard-SIM support
 if(ENABLE_HARDSIM)
@@ -595,8 +585,8 @@ else(ENABLE_PHY_ADAPTER)
   message(STATUS "DISABLE PHY_ADAPTER")
 endif(ENABLE_PHY_ADAPTER)
 
-# GCC >= 12.1.0: Disable analysis on "maybe-uninitialized" variables because of the high false-positive rate
-if(CMAKE_COMPILER_IS_GNUCXX AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12.1)
+# GCC >= 11.2.0: Disable analysis on "maybe-uninitialized" variables because of the high false-positive rate
+if(CMAKE_COMPILER_IS_GNUCXX AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.2)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-maybe-uninitialized")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-maybe-uninitialized")
 endif()

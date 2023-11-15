@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2022 Software Radio Systems Limited
+# Copyright 2013-2023 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -26,4 +26,3 @@ target_link_libraries(srsran_mac srsran_common)
 #install(TARGETS srsran_mac DESTINATION ${LIBRARY_DIR} OPTIONAL)
 
 add_subdirectory(test)
-

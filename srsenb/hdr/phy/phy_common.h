@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -309,8 +309,9 @@ private:
   std::mutex             cell_gain_mutex;
 
   bool                    have_mtch_stop   = false;
-  pthread_mutex_t         mtch_mutex       = {};
-  pthread_cond_t          mtch_cvar        = {};
+  std::mutex              mtch_mutex;
+  std::mutex              mbsfn_mutex;
+  std::condition_variable mtch_cvar;
   srsran::phy_cfg_mbsfn_t mbsfn            = {};
   bool                    sib13_configured = false;
   bool                    mcch_configured  = false;

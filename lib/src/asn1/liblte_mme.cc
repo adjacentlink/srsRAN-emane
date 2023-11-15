@@ -612,6 +612,9 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_plmn_list_ie(uint8** ie_ptr, LIBLTE_MME_PLMN
 
   if (ie_ptr != NULL && plmn_list != NULL) {
     plmn_list->N_plmns = (*ie_ptr)[0] / 3;
+    if (plmn_list->N_plmns > LIBLTE_MME_PLMN_LIST_MAX_SIZE) {
+      return (err);
+    }
     for (i = 0; i < plmn_list->N_plmns; i++) {
       plmn_list->mcc[i] = ((*ie_ptr)[i * 3 + 0] & 0x0F) * 100;
       plmn_list->mcc[i] += (((*ie_ptr)[i * 3 + 0] >> 4) & 0x0F) * 10;
@@ -3019,9 +3022,13 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_emergency_number_list_ie(uint8**            
     emerg_num_list->N_emerg_nums = 0;
     while (length < sent_length) {
       idx                                               = emerg_num_list->N_emerg_nums;
+      //add length check on emergency number list
+      if (idx >= LIBLTE_MME_EMERGENCY_NUMBER_LIST_MAX_SIZE) {
+        return (err);
+      }
       emerg_num_list->emerg_num[idx].N_emerg_num_digits = ((*ie_ptr)[length++] - 1) * 2;
       if (emerg_num_list->emerg_num[idx].N_emerg_num_digits > LIBLTE_MME_EMERGENCY_NUMBER_MAX_NUM_DIGITS) {
-        return err;
+        return (err);
       }
 
       emerg_num_list->emerg_num[idx].emerg_service_cat =
@@ -3209,7 +3216,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_generic_message_container_ie(uint8** ie_ptr,
     msg->N_bytes |= (*ie_ptr)[1];
 
     if (msg->N_bytes > LIBLTE_MAX_MSG_SIZE_BYTES) {
-      return err;
+      return (err);
     }
 
     for (i = 0; i < msg->N_bytes; i++) {

@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -117,6 +117,17 @@ private:
 };
 
 } // namespace rr_sections
+
+class field_additional_plmns final : public parser::field_itf
+{
+public:
+  explicit field_additional_plmns(asn1::rrc::sib_type1_s::cell_access_related_info_s_* data_) { data = data_; }
+  int         parse(Setting& root) override;
+  const char* get_name() override { return "additional_plmns"; }
+
+private:
+  asn1::rrc::sib_type1_s::cell_access_related_info_s_* data;
+};
 
 class field_sched_info final : public parser::field_itf
 {

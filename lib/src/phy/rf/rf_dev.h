@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2022 Software Radio Systems Limited
+ * Copyright 2013-2023 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -82,6 +82,7 @@ static srsran_rf_plugin_t plugin_dummy = {"libsrsran_rf_dummy.so", NULL, NULL};
 #else
 #include "rf_dummy_imp.h"
 static srsran_rf_plugin_t plugin_dummy = {"", NULL, &srsran_rf_dev_dummy};
+
 #endif
 
 /**
