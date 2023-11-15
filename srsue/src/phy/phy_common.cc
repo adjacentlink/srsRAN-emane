@@ -667,6 +667,10 @@ void phy_common::reset_measurements(uint32_t cc_idx)
     for (uint32_t cc = 0; cc < SRSRAN_MAX_CARRIERS; cc++) {
       reset_measurements(cc);
     }
+
+    // If cc_idx >= SRSRAN_MAX_CARRIERS all have been reset, exit the
+    // function to avoid out-of-bounds memory access
+    return;
   }
 
   // Default all metrics to NAN to prevent providing invalid information on traces and other layers
