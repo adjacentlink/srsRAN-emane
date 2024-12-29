@@ -78,10 +78,10 @@ ENDIF()
 # Setup CPack Debian
 ########################################################################
 IF(LSB_RELEASE_ID_SHORT STREQUAL "Ubuntu")
-  IF(LSB_RELEASE_VERSION_SHORT STREQUAL "20.04")
-    SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.3.6), libgcc1 (>= 1:4.1), emane-model-lte, libfftw3-single3, libboost-program-options1.71.0, libmbedcrypto3, libconfig++9v5, libsctp1, libuhd3.15.0")
-  ELSEIF(LSB_RELEASE_VERSION_SHORT STREQUAL "22.04")
+  IF(LSB_RELEASE_VERSION_SHORT STREQUAL "22.04")
     SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.3.6), libgcc1 (>= 1:4.1), emane-model-lte, libfftw3-single3, libboost-program-options1.74.0, libmbedcrypto7, libconfig++9v5, libsctp1, libuhd4.1.0")
+  ELSEIF(LSB_RELEASE_VERSION_SHORT STREQUAL "24.04")
+    SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.3.6), libgcc1 (>= 1:4.1), emane-model-lte, libfftw3-single3, libboost-program-options1.74.0, libmbedcrypto7t64, libconfig++9v5, libsctp1, libuhd4.6.0t64")
   ELSE()
     message(FATAL_ERROR "Unsupported Ubuntu Version. Quitting.")
   ENDIF()

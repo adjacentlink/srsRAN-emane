@@ -36,34 +36,11 @@ The srsRAN suite includes:
 2. Build and install the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git).
 
 3. Build and install srsRAN-emane:
-   * [Centos 7](#centos-7)
-   * [Rocky Linux 8.5](#rocky-linux-85)
-   * [Fedora 35](#fedora-35)
-   * [Ubuntu 20.04](#ubuntu-2004)
+   * [Rocky Linux 8](#rocky-linux-8)
+   * [Fedora 41](#fedora-35)
+   * [Ubuntu 22.04](#ubuntu-2204)
 
-### Centos 7
-
-Centos 7 requires an additional step of installing and using
-devtoolset-9 for c++17 support.
-
-```
-sudo yum install cmake fftw3-devel polarssl-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
-
-sudo yum install centos-release-scl
-sudo yum install devtoolset-9
-
-git clone https://github.com/adjacentlink/srsRAN-emane.git
-cd srsRAN-emane
-mkdir build
-cd build
-
-# enable devtoolset-9 for build
-scl enable devtoolset-9 "cmake .. && make"
-make package
-sudo yum install srsran-emane-*-x86_64.rpm
-```
-
-### Rocky Linux 8.5
+### Rocky Linux 8
 
 ```
 sudo dnf -y install epel-release dnf-plugins-core
@@ -79,7 +56,7 @@ make && make package
 sudo dnf install srsran-emane-*-x86_64.rpm
 ```
 
-### Fedora 35
+### Fedora 41
 
 ```
 sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
@@ -92,7 +69,7 @@ make && make package
 sudo dnf install srsran-emane-*-x86_64.rpm
 ```
 
-### Ubuntu 20.04
+### Ubuntu 22.04
 
 ```
 sudo apt-get install cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
