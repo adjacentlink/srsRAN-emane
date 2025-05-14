@@ -75,7 +75,8 @@ int test(uint32_t block_size)
   int8_t         llr_i8[4 * SRSRAN_FEC_BLOCK_SIZE]  = {};
 
   // Generate random data
-  for (uint32_t i = 0; i < block_size; i++) {
+  // ALINK added sizeof check below
+  for (uint32_t i = 0; (i < block_size) && (i < sizeof(tx)); i++) {
     tx[i] = (uint8_t)srsran_random_uniform_int_dist(random_gen, 0, 1);
   }
 
