@@ -22,30 +22,64 @@ or collected automatically using
 [OpenTestPoint LTE Probe](https://github.com/adjacentlink/opentestpoint-probe-lte).
 
 srsRAN-emane is released under the AGPLv3 license. The current stable
-version is 22.04, the first release based on srsRAN 22.04.
+version is 23.04.
+
+The srsRAN suite includes:
+  * srsue - a full-stack SDR 4G/5G UE application
+  * srsenb - a full-stack SDR 4G/5G e(g)NodeB application
+  * srsepc - a light-weight 4G core network implementation with MME, HSS and S/P-GW
+
 
 ---
+## Install Instructions
+
+The easiest way to get running with the EMANE LTE model is to install packages
+directly from the latest [pre-built EMANE bundle](https://github.com/adjacentlink/emane/wiki/Install).
+
+
 ## Build Instructions
-The srsRAN suite includes:
-  * srsUE - a full-stack SDR 4G/5G UE application
-  * srsENB - a full-stack SDR 4G/5G e(g)NodeB application
-  * srsEPC - a light-weight 4G core network implementation with MME, HSS and S/P-GW
 
-1. Install the latest [pre-built EMANE bundle](https://github.com/adjacentlink/emane/wiki/Install). EMANE version 1.2.3 or later is **required**.
+Building srsRAN-emane requires prior installation of [EMANE](https://github.com/adjacentlink/emane),
+[OpenTestPoint](https://github.com/adjacentlink/opentestpoint),
+[OpenStatistic](https://github.com/adjacentlink/openstatistic), and
+ the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git).
 
-2. Build and install the [EMANE LTE Model](https://github.com/adjacentlink/emane-model-lte.git).
+You may build and install those project directly or install the pre-build EMANE bundle
+as linked above.
 
-3. Build and install srsRAN-emane:
    * [Rocky Linux 8](#rocky-linux-8)
+   * [Rocky Linux 9](#rocky-linux-8)
    * [Fedora 41](#fedora-35)
    * [Ubuntu 22.04](#ubuntu-2204)
+   * [Ubuntu 24.04](#ubuntu-2204)
+
 
 ### Rocky Linux 8
 
 ```
-sudo dnf -y install epel-release dnf-plugins-core
+sudo dnf install epel-release dnf-plugins-core
 sudo dnf config-manager --set-enabled powertools
-sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+sudo dnf install git gcc-c++ make rpm-build \
+                 libxml2-devel libpcap-devel pcre-devel libuuid-devel \
+                 cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake ..
+make && make package
+sudo dnf install srsran-emane-*-x86_64.rpm
+```
+
+### Rocky Linux 9
+
+```
+sudo dnf install epel-release dnf-plugins-core
+sudo dnf config-manager --enable crb
+sudo dnf install git gcc-c++ make rpm-build \
+                 libxml2-devel libpcap-devel pcre-devel libuuid-devel \
+                 cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel
 
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
@@ -59,7 +93,9 @@ sudo dnf install srsran-emane-*-x86_64.rpm
 ### Fedora 41
 
 ```
-sudo dnf install cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+sudo dnf install git gcc-c++ make rpm-build libxml2-devel libpcap-devel pcre-devel libuuid-devel \
+                 cmake fftw3-devel mbedtls-devel lksctp-tools-devel libconfig-devel boost-devel redhat-lsb-core
+
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
 mkdir build
@@ -72,7 +108,24 @@ sudo dnf install srsran-emane-*-x86_64.rpm
 ### Ubuntu 22.04
 
 ```
-sudo apt-get install cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
+sudo apt-get install git gcc g++ debhelper dh-python pkg-config python3-setuptools \
+                     protobuf-compiler libprotobuf-dev python3-protobuf libxml2-dev libpcap-dev libpcre3-dev uuid-dev \
+                     cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
+git clone https://github.com/adjacentlink/srsRAN-emane.git
+cd srsRAN-emane
+mkdir build
+cd build
+cmake ..
+make && make package
+sudo dpkg -i srsran-emane-*-x86_64.deb; sudo apt-get install -f
+```
+
+### Ubuntu 24.04
+
+```
+sudo apt-get install git gcc g++ debhelper dh-python pkg-config python3-setuptools \
+                     protobuf-compiler libprotobuf-dev python3-protobuf libxml2-dev libpcap-dev libpcre3-dev uuid-dev \
+                     cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev lsb-release
 git clone https://github.com/adjacentlink/srsRAN-emane.git
 cd srsRAN-emane
 mkdir build
